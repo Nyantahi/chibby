@@ -40,3 +40,9 @@ coverage/
 # Chibby runtime data
 .chibby/runs/
 .chibby/artifacts/
+
+# Internal / private docs (not for public release)
+private/
+
+# Claude Code local settings
+.claude/settings.local.json
