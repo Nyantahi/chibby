@@ -1,0 +1,40 @@
+# Example: Tauri desktop app
+# Full pipeline: install, quality checks, test, build, and optional signing
+
+name = "Tauri Desktop App"
+
+[[stages]]
+name = "install"
+commands = ["npm ci"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "type-check"
+commands = ["npm run type-check"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "lint"
+commands = ["npm run lint"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "test-frontend"
+commands = ["npm run test:run"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "test-backend"
+commands = ["cd src-tauri && cargo test"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "build"
+commands = ["npm run tauri:build"]
+backend = "local"
+fail_fast = true

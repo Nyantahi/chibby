@@ -1,0 +1,24 @@
+# Example: Static site (Hugo, Astro, Next.js static export, etc.)
+# Build locally and deploy via rsync over SSH
+
+name = "Static Site Deploy"
+
+[[stages]]
+name = "install"
+commands = ["npm ci"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "build"
+commands = ["npm run build"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "deploy"
+commands = [
+  "rsync -avz --delete ./dist/ deploy@server:/var/www/mysite/"
+]
+backend = "ssh"
+fail_fast = true

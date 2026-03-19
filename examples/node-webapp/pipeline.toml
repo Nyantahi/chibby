@@ -1,0 +1,37 @@
+# Example: Node.js web application
+# Covers install, lint, test, build, and deploy via SSH
+
+name = "Node.js Web App"
+
+[[stages]]
+name = "install"
+commands = ["npm ci"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "lint"
+commands = ["npm run lint"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "test"
+commands = ["npm test"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "build"
+commands = ["npm run build"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "deploy"
+commands = [
+  "rsync -avz --delete dist/ deploy@server:/var/www/myapp/",
+  "ssh deploy@server 'sudo systemctl restart myapp'"
+]
+backend = "ssh"
+fail_fast = true

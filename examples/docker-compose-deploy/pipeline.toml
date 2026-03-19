@@ -1,0 +1,38 @@
+# Example: Docker Compose deployment over SSH
+# Builds images locally, pushes to registry, deploys on remote host
+
+name = "Docker Compose Deploy"
+
+[[stages]]
+name = "test"
+commands = ["docker compose run --rm app npm test"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "build"
+commands = ["docker compose build --no-cache"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "push"
+commands = ["docker compose push"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "deploy"
+commands = [
+  "docker compose pull",
+  "docker compose up -d --remove-orphans",
+  "docker image prune -f"
+]
+backend = "ssh"
+fail_fast = true
+
+[[stages]]
+name = "health-check"
+commands = ["curl -sf http://localhost:8080/health || exit 1"]
+backend = "ssh"
+fail_fast = true

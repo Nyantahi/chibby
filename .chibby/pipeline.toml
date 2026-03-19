@@ -1,0 +1,49 @@
+name = "chibby Pipeline"
+
+[[stages]]
+name = "install"
+commands = ["npm ci"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "type-check"
+commands = ["npm run type-check"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "lint"
+commands = ["npm run lint"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "format-check"
+commands = ["npm run format:check"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "cargo-test"
+commands = ["cd src-tauri && cargo test"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "test"
+commands = ["npm run test:run"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "test-all"
+commands = ["npm run test:all"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "tauri-build"
+commands = ["npm run tauri:build"]
+backend = "local"
+fail_fast = true

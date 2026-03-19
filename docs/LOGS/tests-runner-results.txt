@@ -1,0 +1,134 @@
+--- Stage: format-check ---
+$ $ npm run format:check
+
+> chibby@0.1.0 format:check
+> prettier --check "frontend/**/*.{ts,tsx,css}"
+
+Checking formatting...
+All matched files use Prettier code style!
+
+--- Stage: cargo-test ---
+$ $ cd src-tauri && cargo test
+
+running 71 tests
+test engine::detector::tests::test_classify_file_docker ... ok
+test engine::detector::tests::test_classify_file_go ... ok
+test engine::detector::tests::test_classify_file_cargo ... ok
+test engine::detector::tests::test_classify_file_python ... ok
+test engine::detector::tests::test_classify_file_makefile ... ok
+test engine::detector::tests::test_classify_file_package_json ... ok
+test engine::detector::tests::test_classify_file_unknown ... ok
+test engine::detector::tests::test_check_shell_script_missing ... ok
+test engine::detector::tests::test_generate_draft_pipeline_fallback ... ok
+test engine::detector::tests::test_generate_draft_pipeline_npm ... ok
+test engine::detector::tests::test_generate_draft_pipeline_rust ... ok
+test engine::detector::tests::test_check_shell_script_bash_command ... ok
+test engine::detector::tests::test_parse_github_workflows_empty ... ok
+test engine::detector::tests::test_check_shell_script_exists ... ok
+test engine::detector::tests::test_detect_scripts_empty_dir ... ok
+test engine::models::tests::test_backend_serialization ... ok
+test engine::models::tests::test_backend_deserialization ... ok
+test engine::detector::tests::test_validate_pipeline_no_issues ... ok
+test engine::models::tests::test_bump_level_serialization ... ok
+test engine::models::tests::test_backend_default ... ok
+test engine::detector::tests::test_validate_pipeline_missing_script ... ok
+test engine::models::tests::test_cleanup_config_defaults ... ok
+test engine::detector::tests::test_detect_scripts_cargo ... ok
+test engine::models::tests::test_environment_serialization ... ok
+test engine::models::tests::test_run_status_serialization ... ok
+test engine::models::tests::test_health_check_defaults ... ok
+test engine::models::tests::test_stage_defaults ... ok
+test engine::detector::tests::test_detect_scripts_package_json ... ok
+test engine::detector::tests::test_detect_scripts_makefile ... ok
+test engine::models::tests::test_warning_severity ... ok
+test engine::models::tests::test_pipeline_serialization_roundtrip ... ok
+test engine::models::tests::test_stage_status_serialization ... ok
+test engine::detector::tests::test_validate_pipeline_valid_script ... ok
+test engine::detector::tests::test_parse_github_workflows_with_file ... ok
+test engine::pipeline::tests::test_has_environments_false ... ok
+test engine::pipeline::tests::test_load_pipeline_missing ... ok
+test engine::detector::tests::test_validate_pipeline_npm_missing_script ... ok
+test engine::pipeline::tests::test_has_pipeline_false ... ok
+test engine::pipeline::tests::test_has_secrets_config_false ... ok
+test engine::pipeline::tests::test_load_secrets_config_missing ... ok
+test engine::pipeline::tests::test_load_environments_missing ... ok
+test engine::recommendations::tests::test_detect_project_types_rust ... ok
+test engine::recommendations::tests::test_analyze_empty_repo ... ok
+test engine::recommendations::tests::test_detect_project_types_node ... ok
+test engine::pipeline::tests::test_pipeline_creates_chibby_dir ... ok
+test engine::recommendations::tests::test_readiness_score_empty ... ok
+test engine::pipeline::tests::test_save_and_load_secrets_config ... ok
+test engine::pipeline::tests::test_save_and_load_pipeline ... ok
+test engine::pipeline::tests::test_pipeline_roundtrip_preserves_all_fields ... ok
+test engine::recommendations::tests::test_detect_project_types_multiple ... ok
+test engine::recommendations::tests::test_node_recommendations ... ok
+test engine::pipeline::tests::test_save_and_load_environments ... ok
+test engine::version::tests::test_next_version_from_zero ... ok
+test engine::recommendations::tests::test_summary_counts ... ok
+test engine::version::tests::test_next_version_major ... ok
+test engine::recommendations::tests::test_rust_recommendations ... ok
+test engine::version::tests::test_extract_version_package_json ... ok
+test engine::version::tests::test_next_version_minor ... ok
+test engine::version::tests::test_next_version_patch ... ok
+test engine::version::tests::test_parse_semver_basic ... ok
+test engine::version::tests::test_parse_semver_invalid ... ok
+test engine::version::tests::test_extract_version_cargo_toml ... ok
+test engine::version::tests::test_parse_semver_strips_prerelease ... ok
+test engine::version::tests::test_parse_semver_with_v_prefix ... ok
+test engine::version::tests::test_extract_version_version_txt ... ok
+test engine::recommendations::tests::test_readiness_score_with_essentials ... ok
+test engine::version::tests::test_extract_version_pyproject_toml ... ok
+test engine::version::tests::test_detect_versions_empty ... ok
+test engine::version::tests::test_detect_versions_single_file ... ok
+test engine::version::tests::test_detect_versions_consistent ... ok
+test engine::version::tests::test_detect_versions_inconsistent ... ok
+
+test result: ok. 71 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.50s
+     Running unittests src/lib.rs (target/debug/deps/chibby_lib-f85dc39a8e422be4)
+     Running unittests src/main.rs (target/debug/deps/chibby-32b17ff54015a85c)
+   Doc-tests chibby_lib
+
+--- Stage: test ---
+$ $ npm run test:run
+
+> chibby@0.1.0 test:run
+> vitest run
+
+
+[1m[46m RUN [49m[22m [36mv4.1.0 [39m[90m/Users/baba/DevProjects/appdev/okapian/chibby[39m
+
+ [32m✓[39m frontend/__tests__/utils/format.test.ts [2m([22m[2m18 tests[22m[2m)[22m[32m 77[2mms[22m[39m
+ [32m✓[39m frontend/__tests__/components/FileTypeIcon.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[32m 84[2mms[22m[39m
+ [32m✓[39m frontend/__tests__/components/LogViewer.test.tsx [2m([22m[2m12 tests[22m[2m)[22m[32m 80[2mms[22m[39m
+ [32m✓[39m frontend/__tests__/components/Layout.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[32m 130[2mms[22m[39m
+ [32m✓[39m frontend/__tests__/components/Dashboard.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[32m 185[2mms[22m[39m
+ [31m❯[39m frontend/__tests__/components/AddProject.test.tsx [2m([22m[2m17 tests[22m[2m | [22m[31m6 failed[39m[2m)[22m[33m 6969[2mms[22m[39m
+       [32m✓[39m renders page title[32m 55[2mms[22m[39m
+       [32m✓[39m shows repository path input[32m 11[2mms[22m[39m
+       [32m✓[39m shows project name input[32m 9[2mms[22m[39m
+       [32m✓[39m shows scan button[32m 10[2mms[22m[39m
+       [32m✓[39m shows browse button[32m 11[2mms[22m[39m
+       [32m✓[39m allows entering repository path[32m 126[2mms[22m[39m
+       [32m✓[39m allows entering project name[32m 70[2mms[22m[39m
+       [32m✓[39m opens folder picker on browse click[32m 18[2mms[22m[39m
+       [32m✓[39m sets path from folder picker[32m 18[2mms[22m[39m
+       [32m✓[39m shows error when path is empty[32m 19[2mms[22m[39m
+       [32m✓[39m calls detectScripts and generatePipeline[32m 90[2mms[22m[39m
+[31m       [31m×[31m shows detected scripts[39m[33m 1089[2mms[22m[39m
+[31m       [31m×[31m shows generated pipeline stages[39m[33m 1086[2mms[22m[39m
+[31m       [31m×[31m shows no scripts message when none found[39m[33m 1091[2mms[22m[39m
+[31m       [31m×[31m saves pipeline and adds project[39m[33m 1088[2mms[22m[39m
+[31m       [31m×[31m allows skipping pipeline[39m[33m 1095[2mms[22m[39m
+[31m       [31m×[31m shows error when scan fails[39m[33m 1079[2mms[22m[39m
