@@ -15,7 +15,7 @@ Use Chibby itself to update the Homebrew tap after a release:
 
 ```bash
 # 1. Clone your homebrew tap (one-time setup)
-git clone git@github.com:okapian/homebrew-chibby.git ../homebrew-chibby
+git clone git@github.com:chibby-app/homebrew-chibby.git ../homebrew-chibby
 
 # 2. Create a release first
 chibby run --env release
@@ -46,10 +46,10 @@ HOMEBREW_TAP_PATH=~/my-tap chibby run --env homebrew
    ```
 3. Users can then install with:
    ```bash
-   brew tap okapian/chibby
+   brew tap chibby-app/chibby
    brew install --cask chibby      # GUI + CLI
    # or
-   brew install okapian/chibby/chibby-cli  # CLI only
+   brew install chibby-app/chibby/chibby-cli  # CLI only
    ```
 
 ## Updating Formulas for a Release
@@ -80,7 +80,7 @@ update-homebrew:
   steps:
     - uses: actions/checkout@v4
       with:
-        repository: okapian/homebrew-chibby
+        repository: chibby-app/homebrew-chibby
         token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
     # Calculate hashes and update formulas
@@ -100,7 +100,7 @@ update-homebrew:
 ### Full App (GUI + CLI)
 
 ```bash
-brew tap okapian/chibby
+brew tap chibby-app/chibby
 brew install --cask chibby
 ```
 
@@ -113,8 +113,8 @@ This installs:
 For headless servers or terminal-only workflows:
 
 ```bash
-brew tap okapian/chibby
-brew install okapian/chibby/chibby-cli
+brew tap chibby-app/chibby
+brew install chibby-app/chibby/chibby-cli
 ```
 
 This installs only the `chibby` command.

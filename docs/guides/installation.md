@@ -5,7 +5,7 @@ Chibby is available as a pre-built desktop app for macOS, Linux, and Windows.
 ## Download
 
 Download the latest release for your platform from the
-[GitHub Releases](https://github.com/okapian/chibby/releases) page.
+[GitHub Releases](https://github.com/chibby-app/chibby/releases) page.
 
 | Platform | File | Notes |
 |----------|------|-------|
@@ -179,7 +179,7 @@ from source.
 ### Build steps
 
 ```bash
-git clone https://github.com/okapian/chibby.git
+git clone https://github.com/chibby-app/chibby.git
 cd chibby
 npm install
 npm run tauri:build

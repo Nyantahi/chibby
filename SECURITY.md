@@ -10,7 +10,7 @@
 
 If you discover a security vulnerability in Chibby, please report it responsibly.
 
-**Do not open a public issue.** Instead, email security concerns to: **security@okapian.com**
+**Do not open a public issue.** Instead, email security concerns to: **security@chibby.dev**
 
 Please include:
 

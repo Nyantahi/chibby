@@ -37,9 +37,8 @@ Thumbs.db
 coverage/
 *.lcov
 
-# Chibby runtime data
-.chibby/runs/
-.chibby/artifacts/
+# Chibby local config and runtime data (unique per install)
+.chibby/
 
 # Internal / private docs (not for public release)
 private/

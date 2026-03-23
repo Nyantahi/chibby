@@ -14,7 +14,7 @@ Thanks for your interest in contributing to Chibby! This guide will help you get
 
 ```bash
 # Clone the repo
-git clone https://github.com/okapian/chibby.git
+git clone https://github.com/chibby-app/chibby.git
 cd chibby
 
 # Install dependencies

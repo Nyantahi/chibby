@@ -666,7 +666,7 @@ async fn run_pipeline(
 async fn show_status(printer: &Printer, _project: Option<&PathBuf>) -> anyhow::Result<()> {
     printer.header(&format!("{} Pipeline Status", icons::INFO));
 
-    printer.kv("Project", "okapian");
+    printer.kv("Project", "my-app");
     printer.kv_colored("Status", "Success", StageStatus::Success);
     printer.kv("Last Run", "2 minutes ago");
     printer.kv("Duration", "1m 23s");
@@ -696,7 +696,7 @@ async fn handle_projects(printer: &Printer, cmd: &ProjectsCmd) -> anyhow::Result
             printer.header(&format!("{} Projects", icons::FOLDER));
 
             // TODO: Load actual projects from persistence
-            printer.project_with_status("okapian", "~/DevProjects/okapian", Some(StageStatus::Success));
+            printer.project_with_status("my-app", "~/projects/my-app", Some(StageStatus::Success));
             printer.project_with_status("website", "~/DevProjects/website", Some(StageStatus::Success));
             printer.project_with_status("api", "~/DevProjects/api", Some(StageStatus::Failed));
             printer.project_with_status("mobile-app", "~/DevProjects/mobile", None);
@@ -722,8 +722,8 @@ async fn handle_projects(printer: &Printer, cmd: &ProjectsCmd) -> anyhow::Result
         }
         ProjectsCmd::Info { project: _ } => {
             printer.header(&format!("{} Project Info", icons::INFO));
-            printer.kv("Name", "okapian");
-            printer.kv("Path", "~/DevProjects/okapian");
+            printer.kv("Name", "my-app");
+            printer.kv("Path", "~/projects/my-app");
             printer.kv("Pipeline", "Yes");
             printer.kv("Environments", "staging, production");
             printer.kv("Last Deploy", "2 hours ago");
@@ -941,9 +941,9 @@ async fn handle_artifact(printer: &Printer, cmd: &ArtifactCmd) -> anyhow::Result
             printer.header(&format!("{} Artifacts", icons::PACKAGE));
 
             let artifacts = [
-                ("okapian-1.2.4-darwin-arm64.dmg", "12.5 MB", "2h ago"),
-                ("okapian-1.2.4-darwin-x64.dmg", "14.2 MB", "2h ago"),
-                ("okapian-1.2.3-darwin-arm64.dmg", "12.3 MB", "1d ago"),
+                ("my-app-1.2.4-darwin-arm64.dmg", "12.5 MB", "2h ago"),
+                ("my-app-1.2.4-darwin-x64.dmg", "14.2 MB", "2h ago"),
+                ("my-app-1.2.3-darwin-arm64.dmg", "12.3 MB", "1d ago"),
             ];
 
             for (name, size, when) in artifacts {
@@ -966,8 +966,8 @@ async fn handle_artifact(printer: &Printer, cmd: &ArtifactCmd) -> anyhow::Result
         ArtifactCmd::Clean { project: _, dry_run } => {
             if *dry_run {
                 printer.warn("Dry run - would delete:");
-                println!("    {} okapian-1.2.2-darwin-arm64.dmg", icons::FAILURE.red());
-                println!("    {} okapian-1.2.1-darwin-arm64.dmg", icons::FAILURE.red());
+                println!("    {} my-app-1.2.2-darwin-arm64.dmg", icons::FAILURE.red());
+                println!("    {} my-app-1.2.1-darwin-arm64.dmg", icons::FAILURE.red());
             } else {
                 let spin = cli::spinner("Cleaning old artifacts...");
                 tokio::time::sleep(std::time::Duration::from_millis(300)).await;
@@ -1139,7 +1139,7 @@ async fn handle_updater(printer: &Printer, cmd: &UpdaterCmd) -> anyhow::Result<(
             if *dry_run {
                 printer.warn("Dry run - would publish:");
                 printer.kv("latest.json", "s3://releases/latest.json");
-                printer.kv("bundle", "s3://releases/okapian-1.2.4.tar.gz");
+                printer.kv("bundle", "s3://releases/my-app-1.2.4.tar.gz");
             } else {
                 let pb = cli::progress_bar(100, "Uploading");
                 for i in 0..100 {
