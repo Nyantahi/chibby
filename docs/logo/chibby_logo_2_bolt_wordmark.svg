@@ -1,0 +1,22 @@
+<svg width="100%" viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Logo 2: Bold geometric mark — interlocking C bracket + lightning bolt -->
+
+  <!-- Background pill badge -->
+  <rect x="60" y="55" width="100" height="100" rx="24" fill="#1D9E75" style="fill:rgb(29, 158, 117);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, &quot;system-ui&quot;, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- C-bracket left -->
+  <path d="M120 78 L90 78 Q80 78 80 88 L80 122 Q80 132 90 132 L120 132" fill="none" stroke="white" stroke-width="7" stroke-linecap="round" style="fill:none;stroke:rgb(255, 255, 255);color:rgb(255, 255, 255);stroke-width:7px;stroke-linecap:round;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, &quot;system-ui&quot;, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- Lightning bolt inside -->
+  <polygon points="118,80 100,108 114,108 96,132 124,100 110,100" fill="white" style="fill:rgb(255, 255, 255);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, &quot;system-ui&quot;, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- Wordmark -->
+  <text x="178" y="114" font-family="var(--font-sans)" font-size="58" font-weight="500" fill="#2C2C2A" letter-spacing="-2" dominant-baseline="central" style="fill:rgb(44, 44, 42);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, sans-serif;font-size:58px;font-weight:500;text-anchor:start;dominant-baseline:central">chibby</text>
+
+  <!-- Tagline -->
+  <text x="180" y="148" font-family="var(--font-sans)" font-size="13" font-weight="400" fill="#888780" letter-spacing="4" style="fill:rgb(136, 135, 128);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, sans-serif;font-size:13px;font-weight:400;text-anchor:start;dominant-baseline:auto">open source ci/cd</text>
+
+  <!-- Version badge -->
+  <rect x="180" y="57" width="48" height="18" rx="4" fill="#E1F5EE" style="fill:rgb(225, 245, 238);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, &quot;system-ui&quot;, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+  <text x="204" y="66" font-family="var(--font-sans)" font-size="10" font-weight="500" fill="#0F6E56" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15, 110, 86);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, sans-serif;font-size:10px;font-weight:500;text-anchor:middle;dominant-baseline:central">v0.1.0</text>
+</svg>
