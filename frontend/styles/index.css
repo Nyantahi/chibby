@@ -17,11 +17,11 @@
 
   --color-primary: #2dd4a8;
   --color-primary-hover: #22b892;
-  --color-primary-bg: rgba(45, 212, 168, 0.10);
+  --color-primary-bg: rgba(45, 212, 168, 0.1);
 
   --color-accent: #f0a850;
   --color-accent-hover: #d99540;
-  --color-accent-bg: rgba(240, 168, 80, 0.10);
+  --color-accent-bg: rgba(240, 168, 80, 0.1);
 
   --color-success: #2dd4a8;
   --color-success-bg: rgba(45, 212, 168, 0.12);
@@ -39,14 +39,14 @@
     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans',
     'Droid Sans', 'Helvetica Neue', sans-serif;
   --font-mono: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', monospace;
-  --font-size-2xs: 0.75rem;    /* 12px  (was 10px) */
-  --font-size-xs: 0.8125rem;   /* 13px  (was 12px) */
-  --font-size-sm: 0.875rem;    /* 14px  (was 13px) */
-  --font-size-base: 1rem;      /* 16px  (was 14px) — body text */
-  --font-size-md: 1.125rem;    /* 18px  (was 16px) */
-  --font-size-lg: 1.375rem;    /* 22px  (was 20px) */
-  --font-size-xl: 1.75rem;     /* 28px  (was 24px) */
-  --font-size-2xl: 2.125rem;   /* 34px  (was 28px) */
+  --font-size-2xs: 0.75rem; /* 12px  (was 10px) */
+  --font-size-xs: 0.8125rem; /* 13px  (was 12px) */
+  --font-size-sm: 0.875rem; /* 14px  (was 13px) */
+  --font-size-base: 1rem; /* 16px  (was 14px) — body text */
+  --font-size-md: 1.125rem; /* 18px  (was 16px) */
+  --font-size-lg: 1.375rem; /* 22px  (was 20px) */
+  --font-size-xl: 1.75rem; /* 28px  (was 24px) */
+  --font-size-2xl: 2.125rem; /* 34px  (was 28px) */
 
   /* Spacing */
   --space-xs: 0.25rem;
@@ -2703,7 +2703,9 @@ select.input {
   border-radius: var(--radius);
   padding: 0.75rem 1rem;
   background: var(--color-surface);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 
 .template-card:hover {
@@ -2721,7 +2723,9 @@ select.input {
   border-radius: var(--radius-sm);
   cursor: pointer;
   text-align: left;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
   width: 100%;
   font-size: var(--font-size-base);
 }

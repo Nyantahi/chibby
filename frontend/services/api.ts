@@ -555,7 +555,7 @@ export async function analyzeRun(runId: string): Promise<AgentAnalysis> {
 export async function agentChat(
   message: string,
   projectId?: string,
-  runId?: string,
+  runId?: string
 ): Promise<AgentResponse> {
   return invoke<AgentResponse>('agent_chat', { message, projectId, runId });
 }
@@ -564,7 +564,7 @@ export async function agentChat(
 export async function generatePipelineConfig(
   projectPath: string,
   format: PipelineFormat,
-  projectInfo: string,
+  projectInfo: string
 ): Promise<GeneratedPipeline> {
   return invoke<GeneratedPipeline>('generate_pipeline_config', {
     projectPath,
@@ -577,7 +577,7 @@ export async function generatePipelineConfig(
 export async function saveGeneratedPipeline(
   projectPath: string,
   filePath: string,
-  content: string,
+  content: string
 ): Promise<void> {
   return invoke<void>('save_generated_pipeline', { projectPath, filePath, content });
 }
@@ -607,17 +607,14 @@ export async function getTemplates(repoPath?: string): Promise<PipelineTemplate[
 }
 
 /** Get a single template by name. */
-export async function getTemplate(
-  name: string,
-  repoPath?: string,
-): Promise<PipelineTemplate> {
+export async function getTemplate(name: string, repoPath?: string): Promise<PipelineTemplate> {
   return invoke<PipelineTemplate>('get_template', { name, repoPath: repoPath ?? null });
 }
 
 /** Extract the {{variable}} placeholders from a template. */
 export async function getTemplateVariables(
   name: string,
-  repoPath?: string,
+  repoPath?: string
 ): Promise<TemplateVariable[]> {
   return invoke<TemplateVariable[]>('get_template_variables', {
     name,
@@ -629,7 +626,7 @@ export async function getTemplateVariables(
 export async function applyTemplate(
   name: string,
   variables: Record<string, string>,
-  repoPath?: string,
+  repoPath?: string
 ): Promise<Pipeline> {
   return invoke<Pipeline>('apply_template', {
     name,
@@ -642,7 +639,7 @@ export async function applyTemplate(
 export async function saveCustomTemplate(
   template: PipelineTemplate,
   scope: 'user' | 'project',
-  repoPath?: string,
+  repoPath?: string
 ): Promise<void> {
   return invoke<void>('save_custom_template', {
     template,
@@ -655,7 +652,7 @@ export async function saveCustomTemplate(
 export async function deleteCustomTemplate(
   name: string,
   scope: 'user' | 'project',
-  repoPath?: string,
+  repoPath?: string
 ): Promise<void> {
   return invoke<void>('delete_custom_template', {
     name,
@@ -665,10 +662,7 @@ export async function deleteCustomTemplate(
 }
 
 /** Export a template as a TOML string for sharing. */
-export async function exportTemplate(
-  name: string,
-  repoPath?: string,
-): Promise<string> {
+export async function exportTemplate(name: string, repoPath?: string): Promise<string> {
   return invoke<string>('export_template', { name, repoPath: repoPath ?? null });
 }
 
@@ -676,7 +670,7 @@ export async function exportTemplate(
 export async function importTemplate(
   tomlContent: string,
   scope: 'user' | 'project',
-  repoPath?: string,
+  repoPath?: string
 ): Promise<PipelineTemplate> {
   return invoke<PipelineTemplate>('import_template', {
     tomlContent,

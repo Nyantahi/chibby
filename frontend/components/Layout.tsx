@@ -6,8 +6,17 @@ function ChibbyLogo({ size = 22 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
       <rect x="0" y="0" width="200" height="200" rx="40" fill="currentColor" />
-      <path d="M124 42 L76 42 Q56 42 56 62 L56 148 Q56 168 76 168 L124 168" fill="none" stroke="var(--color-bg, #0d1117)" strokeWidth="14" strokeLinecap="round" />
-      <polygon points="122,52 88,104 110,104 78,156 148,92 122,92" fill="var(--color-bg, #0d1117)" />
+      <path
+        d="M124 42 L76 42 Q56 42 56 62 L56 148 Q56 168 76 168 L124 168"
+        fill="none"
+        stroke="var(--color-bg, #0d1117)"
+        strokeWidth="14"
+        strokeLinecap="round"
+      />
+      <polygon
+        points="122,52 88,104 110,104 78,156 148,92 122,92"
+        fill="var(--color-bg, #0d1117)"
+      />
     </svg>
   );
 }

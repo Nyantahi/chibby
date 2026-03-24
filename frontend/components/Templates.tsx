@@ -1,11 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Upload, Download, X, Layers, Layout } from 'lucide-react';
-import {
-  deleteCustomTemplate,
-  exportTemplate,
-  importTemplate,
-} from '../services/api';
+import { deleteCustomTemplate, exportTemplate, importTemplate } from '../services/api';
 import type { PipelineTemplate } from '../types';
 import TemplateBrowser from './TemplateBrowser';
 
@@ -97,10 +93,7 @@ function Templates() {
       <div className="page-header">
         <h2>Pipeline Templates</h2>
         <div className="page-header-actions">
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => setShowImport(true)}
-          >
+          <button className="btn btn-secondary btn-sm" onClick={() => setShowImport(true)}>
             <Upload size={14} /> Import
           </button>
         </div>
@@ -253,11 +246,7 @@ function Templates() {
               <button className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>
                 Cancel
               </button>
-              <button
-                className="btn btn-danger"
-                onClick={handleDelete}
-                disabled={deleting}
-              >
+              <button className="btn btn-danger" onClick={handleDelete} disabled={deleting}>
                 {deleting ? 'Deleting...' : 'Delete'}
               </button>
             </div>
@@ -284,10 +273,7 @@ function MyTemplatesList({
       onApply={onExport}
       onEdit={(template) => {
         if (template.source !== 'built_in') {
-          onDelete(
-            template.meta.name,
-            template.source as 'user' | 'project',
-          );
+          onDelete(template.meta.name, template.source as 'user' | 'project');
         }
       }}
     />

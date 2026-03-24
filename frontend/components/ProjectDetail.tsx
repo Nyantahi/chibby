@@ -161,6 +161,7 @@ function ProjectDetail() {
 
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   async function loadData() {

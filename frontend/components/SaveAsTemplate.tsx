@@ -12,15 +12,7 @@ interface Props {
   onCancel: () => void;
 }
 
-const CATEGORY_OPTIONS = [
-  'rust',
-  'node',
-  'python',
-  'go',
-  'docker',
-  'deployment',
-  'other',
-];
+const CATEGORY_OPTIONS = ['rust', 'node', 'python', 'go', 'docker', 'deployment', 'other'];
 
 function SaveAsTemplate({ pipeline, repoPath, onSaved, onCancel }: Props) {
   const [name, setName] = useState('');
@@ -90,7 +82,9 @@ function SaveAsTemplate({ pipeline, repoPath, onSaved, onCancel }: Props) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             {/* Name */}
             <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>
+              <label
+                style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}
+              >
                 Template Name <span style={{ color: 'var(--danger)' }}>*</span>
               </label>
               <input
@@ -104,7 +98,9 @@ function SaveAsTemplate({ pipeline, repoPath, onSaved, onCancel }: Props) {
 
             {/* Description */}
             <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>
+              <label
+                style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}
+              >
                 Description
               </label>
               <input
@@ -118,7 +114,9 @@ function SaveAsTemplate({ pipeline, repoPath, onSaved, onCancel }: Props) {
 
             {/* Category */}
             <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>
+              <label
+                style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}
+              >
                 Category
               </label>
               <select
@@ -136,7 +134,9 @@ function SaveAsTemplate({ pipeline, repoPath, onSaved, onCancel }: Props) {
 
             {/* Tags */}
             <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>
+              <label
+                style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}
+              >
                 Tags
               </label>
               <input
@@ -153,11 +153,21 @@ function SaveAsTemplate({ pipeline, repoPath, onSaved, onCancel }: Props) {
 
             {/* Scope */}
             <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>
+              <label
+                style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}
+              >
                 Save To
               </label>
               <div style={{ display: 'flex', gap: '0.75rem' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', cursor: 'pointer' }}>
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontSize: '0.8rem',
+                    cursor: 'pointer',
+                  }}
+                >
                   <input
                     type="radio"
                     name="scope"
@@ -166,7 +176,15 @@ function SaveAsTemplate({ pipeline, repoPath, onSaved, onCancel }: Props) {
                   />
                   My Templates (global)
                 </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', cursor: 'pointer' }}>
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontSize: '0.8rem',
+                    cursor: 'pointer',
+                  }}
+                >
                   <input
                     type="radio"
                     name="scope"

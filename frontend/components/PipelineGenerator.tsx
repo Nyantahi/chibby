@@ -1,16 +1,6 @@
 import { useState } from 'react';
-import {
-  Sparkles,
-  Loader2,
-  Save,
-  Copy,
-  Check,
-  FileCode2,
-} from 'lucide-react';
-import {
-  generatePipelineConfig,
-  saveGeneratedPipeline,
-} from '../services/api';
+import { Sparkles, Loader2, Save, Copy, Check, FileCode2 } from 'lucide-react';
+import { generatePipelineConfig, saveGeneratedPipeline } from '../services/api';
 import type { GeneratedPipeline, PipelineFormat } from '../types';
 
 interface PipelineGeneratorProps {
@@ -101,11 +91,7 @@ export default function PipelineGenerator({ projectPath, projectInfo }: Pipeline
           disabled={loading}
           className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-md text-sm transition-colors"
         >
-          {loading ? (
-            <Loader2 size={14} className="animate-spin" />
-          ) : (
-            <Sparkles size={14} />
-          )}
+          {loading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
           {loading ? 'Generating...' : 'Generate Pipeline'}
         </button>
 

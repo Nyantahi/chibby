@@ -19,7 +19,9 @@ export default function AgentChat() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    getAgentStatus().then(setStatus).catch(() => {});
+    getAgentStatus()
+      .then(setStatus)
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -39,10 +41,7 @@ export default function AgentChat() {
         { role: 'agent', text: response.message, skill: response.skill_used },
       ]);
     } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        { role: 'agent', text: `Error: ${String(err)}` },
-      ]);
+      setMessages((prev) => [...prev, { role: 'agent', text: `Error: ${String(err)}` }]);
     } finally {
       setLoading(false);
     }
@@ -100,9 +99,7 @@ export default function AgentChat() {
             {messages.map((msg, i) => (
               <div
                 key={i}
-                className={`text-sm ${
-                  msg.role === 'user' ? 'ml-8 text-right' : 'mr-8'
-                }`}
+                className={`text-sm ${msg.role === 'user' ? 'ml-8 text-right' : 'mr-8'}`}
               >
                 <div
                   className={`inline-block p-2 rounded-lg max-w-full text-left ${

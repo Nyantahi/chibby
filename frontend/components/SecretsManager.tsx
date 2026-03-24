@@ -26,6 +26,7 @@ function SecretsManager({ repoPath, config, environments, onSaved }: Props) {
 
   useEffect(() => {
     loadStatuses();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [environments.length]);
 
   async function loadStatuses() {

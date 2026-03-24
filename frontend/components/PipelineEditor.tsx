@@ -15,7 +15,14 @@ import {
   Layers,
 } from 'lucide-react';
 import { savePipeline, getGithubWorkflows } from '../services/api';
-import type { Pipeline, Stage, Backend, HealthCheck, WorkflowInfo, PipelineTemplate } from '../types';
+import type {
+  Pipeline,
+  Stage,
+  Backend,
+  HealthCheck,
+  WorkflowInfo,
+  PipelineTemplate,
+} from '../types';
 import TemplateBrowser from './TemplateBrowser';
 import TemplateVariableDialog from './TemplateVariableDialog';
 import SaveAsTemplate from './SaveAsTemplate';
@@ -65,6 +72,7 @@ function PipelineEditor({ repoPath, pipeline, onSaved }: Props) {
     if (showImport && workflows.length === 0) {
       loadWorkflows();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showImport]);
 
   async function loadWorkflows() {

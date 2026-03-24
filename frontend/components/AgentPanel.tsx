@@ -90,9 +90,7 @@ export default function AgentPanel({ runId, projectId, isFailed }: AgentPanelPro
 
   // Chat state
   const [chatInput, setChatInput] = useState('');
-  const [chatMessages, setChatMessages] = useState<
-    { role: 'user' | 'agent'; text: string }[]
-  >([]);
+  const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'agent'; text: string }[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
 
   async function handleAnalyze() {
@@ -118,10 +116,7 @@ export default function AgentPanel({ runId, projectId, isFailed }: AgentPanelPro
       const response = await agentChat(msg, projectId, runId);
       setChatMessages((prev) => [...prev, { role: 'agent', text: response.message }]);
     } catch (err) {
-      setChatMessages((prev) => [
-        ...prev,
-        { role: 'agent', text: `Error: ${String(err)}` },
-      ]);
+      setChatMessages((prev) => [...prev, { role: 'agent', text: `Error: ${String(err)}` }]);
     } finally {
       setChatLoading(false);
     }

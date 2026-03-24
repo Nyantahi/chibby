@@ -337,13 +337,19 @@ function AddProject() {
           <p>Enter the local path to your project repository.</p>
 
           {pendingTemplate && (
-            <div className="alert alert-success" style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div
+              className="alert alert-success"
+              style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+            >
               <BookTemplate size={14} />
               Template selected: <strong>{pendingTemplate.meta.name}</strong>
               <button
                 className="btn btn-icon"
                 style={{ marginLeft: 'auto' }}
-                onClick={() => { setPendingTemplate(null); setPipelineSource('auto'); }}
+                onClick={() => {
+                  setPendingTemplate(null);
+                  setPipelineSource('auto');
+                }}
                 title="Remove template selection"
               >
                 <X size={14} />
@@ -618,7 +624,11 @@ function AddProject() {
       {/* Template browser modal */}
       {showTemplateBrowser && (
         <div className="modal-backdrop" onClick={() => setShowTemplateBrowser(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 700, maxHeight: '80vh', overflow: 'auto' }}>
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 700, maxHeight: '80vh', overflow: 'auto' }}
+          >
             <div className="modal-header">
               <h3>Choose a Pipeline Template</h3>
               <button className="btn-icon" onClick={() => setShowTemplateBrowser(false)}>
@@ -648,7 +658,9 @@ function AddProject() {
           onApplied={(pipeline) => {
             setDraft(pipeline);
             const sel: Record<number, boolean> = {};
-            pipeline.stages.forEach((_, i) => { sel[i] = true; });
+            pipeline.stages.forEach((_, i) => {
+              sel[i] = true;
+            });
             setStageSelection(sel);
             setSelectedTemplate(null);
             setStep('configure');

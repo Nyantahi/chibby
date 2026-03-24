@@ -382,13 +382,7 @@ function RunDetail() {
       )}
 
       {/* Agent Panel */}
-      {run && (
-        <AgentPanel
-          runId={run.id}
-          projectId={projectId}
-          isFailed={isFailed}
-        />
-      )}
+      {run && <AgentPanel runId={run.id} projectId={projectId} isFailed={isFailed} />}
     </div>
   );
 }

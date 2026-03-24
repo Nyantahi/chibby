@@ -52,6 +52,7 @@ function TemplateBrowser({ repoPath, filterType, onApply, onEdit }: Props) {
 
   useEffect(() => {
     loadTemplates();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoPath]);
 
   async function loadTemplates() {
@@ -82,12 +83,7 @@ function TemplateBrowser({ repoPath, filterType, onApply, onEdit }: Props) {
       // Free-text search
       if (search) {
         const q = search.toLowerCase();
-        const haystack = [
-          t.meta.name,
-          t.meta.description,
-          t.meta.category,
-          ...t.meta.tags,
-        ]
+        const haystack = [t.meta.name, t.meta.description, t.meta.category, ...t.meta.tags]
           .join(' ')
           .toLowerCase();
         if (!haystack.includes(q)) return false;
@@ -104,19 +100,39 @@ function TemplateBrowser({ repoPath, filterType, onApply, onEdit }: Props) {
   };
 
   if (loading) {
-    return <div className="text-muted" style={{ padding: '1rem' }}>Loading templates…</div>;
+    return (
+      <div className="text-muted" style={{ padding: '1rem' }}>
+        Loading templates…
+      </div>
+    );
   }
 
   if (error) {
-    return <div className="text-danger" style={{ padding: '1rem' }}>Error: {error}</div>;
+    return (
+      <div className="text-danger" style={{ padding: '1rem' }}>
+        Error: {error}
+      </div>
+    );
   }
 
   return (
     <div className="template-browser">
       {/* Filters */}
-      <div className="template-filters" style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+      <div
+        className="template-filters"
+        style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}
+      >
         <div className="input-with-action" style={{ flex: '1 1 200px' }}>
-          <Search size={14} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+          <Search
+            size={14}
+            style={{
+              position: 'absolute',
+              left: 8,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: 'var(--text-muted)',
+            }}
+          />
           <input
             className="input"
             type="text"
@@ -134,7 +150,9 @@ function TemplateBrowser({ repoPath, filterType, onApply, onEdit }: Props) {
           style={{ width: 'auto', minWidth: 140 }}
         >
           {CATEGORY_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
           ))}
         </select>
 
@@ -173,9 +191,7 @@ function TemplateBrowser({ repoPath, filterType, onApply, onEdit }: Props) {
       {/* Template list */}
       {filtered.length === 0 ? (
         <div className="text-muted" style={{ padding: '2rem', textAlign: 'center' }}>
-          {templates.length === 0
-            ? 'No templates available.'
-            : 'No templates match your filters.'}
+          {templates.length === 0 ? 'No templates available.' : 'No templates match your filters.'}
         </div>
       ) : (
         <div className="template-grid">
@@ -184,13 +200,15 @@ function TemplateBrowser({ repoPath, filterType, onApply, onEdit }: Props) {
             const stages = t.pipeline?.stages || t.stages || [];
 
             return (
-              <div
-                key={`${t.source}-${t.meta.name}`}
-                className="template-card"
-              >
+              <div key={`${t.source}-${t.meta.name}`} className="template-card">
                 {/* Header row */}
                 <div
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    cursor: 'pointer',
+                  }}
                   onClick={() => setExpandedTemplate(isExpanded ? null : t.meta.name)}
                 >
                   {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -203,7 +221,10 @@ function TemplateBrowser({ repoPath, filterType, onApply, onEdit }: Props) {
 
                   <strong style={{ flex: 1 }}>{t.meta.name}</strong>
 
-                  <span className={`badge ${SOURCE_BADGE_CLASS[t.source]}`} style={{ fontSize: '0.7rem' }}>
+                  <span
+                    className={`badge ${SOURCE_BADGE_CLASS[t.source]}`}
+                    style={{ fontSize: '0.7rem' }}
+                  >
                     {SOURCE_LABELS[t.source]}
                   </span>
 
@@ -213,13 +234,24 @@ function TemplateBrowser({ repoPath, filterType, onApply, onEdit }: Props) {
                 </div>
 
                 {/* Description */}
-                <div className="text-muted" style={{ fontSize: '0.8rem', marginTop: '0.25rem', marginLeft: '2rem' }}>
+                <div
+                  className="text-muted"
+                  style={{ fontSize: '0.8rem', marginTop: '0.25rem', marginLeft: '2rem' }}
+                >
                   {t.meta.description}
                 </div>
 
                 {/* Tags */}
                 {t.meta.tags.length > 0 && (
-                  <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', marginTop: '0.35rem', marginLeft: '2rem' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: '0.25rem',
+                      flexWrap: 'wrap',
+                      marginTop: '0.35rem',
+                      marginLeft: '2rem',
+                    }}
+                  >
                     {t.meta.tags.map((tag) => (
                       <span
                         key={tag}
@@ -244,7 +276,14 @@ function TemplateBrowser({ repoPath, filterType, onApply, onEdit }: Props) {
                     <div style={{ fontSize: '0.8rem', marginBottom: '0.5rem' }}>
                       <strong>Stages:</strong>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginBottom: '0.75rem' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.25rem',
+                        marginBottom: '0.75rem',
+                      }}
+                    >
                       {stages.map((s, i) => (
                         <div
                           key={i}
@@ -259,7 +298,12 @@ function TemplateBrowser({ repoPath, filterType, onApply, onEdit }: Props) {
                           <span style={{ color: 'var(--accent)' }}>{s.name}</span>
                           <span className="text-muted"> — {s.commands.join(' && ')}</span>
                           {s.backend === 'ssh' && (
-                            <span className="badge badge-warning" style={{ fontSize: '0.6rem', marginLeft: '0.5rem' }}>SSH</span>
+                            <span
+                              className="badge badge-warning"
+                              style={{ fontSize: '0.6rem', marginLeft: '0.5rem' }}
+                            >
+                              SSH
+                            </span>
                           )}
                         </div>
                       ))}
@@ -267,7 +311,10 @@ function TemplateBrowser({ repoPath, filterType, onApply, onEdit }: Props) {
 
                     {/* Meta info */}
                     {t.meta.required_tools.length > 0 && (
-                      <div className="text-muted" style={{ fontSize: '0.75rem', marginBottom: '0.5rem' }}>
+                      <div
+                        className="text-muted"
+                        style={{ fontSize: '0.75rem', marginBottom: '0.5rem' }}
+                      >
                         <Package size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />
                         Requires: {t.meta.required_tools.join(', ')}
                       </div>

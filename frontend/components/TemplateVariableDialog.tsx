@@ -13,13 +13,7 @@ interface Props {
   onCancel: () => void;
 }
 
-function TemplateVariableDialog({
-  template,
-  repoPath,
-  projectName,
-  onApplied,
-  onCancel,
-}: Props) {
+function TemplateVariableDialog({ template, repoPath, projectName, onApplied, onCancel }: Props) {
   const [variables, setVariables] = useState<TemplateVariable[]>([]);
   const [values, setValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -28,6 +22,7 @@ function TemplateVariableDialog({
 
   useEffect(() => {
     loadVariables();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [template.meta.name]);
 
   async function loadVariables() {
@@ -84,6 +79,7 @@ function TemplateVariableDialog({
     if (!loading && variables.length === 0) {
       handleApply();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, variables.length]);
 
   // No variables — just a loading spinner while we apply
@@ -115,7 +111,12 @@ function TemplateVariableDialog({
                   <div key={v.name}>
                     <label
                       htmlFor={`var-${v.name}`}
-                      style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}
+                      style={{
+                        display: 'block',
+                        fontSize: '0.8rem',
+                        fontWeight: 600,
+                        marginBottom: 4,
+                      }}
                     >
                       {v.name}
                       {v.required && <span style={{ color: 'var(--danger)' }}> *</span>}
@@ -180,11 +181,7 @@ function TemplateVariableDialog({
           <button className="btn btn-secondary" onClick={onCancel} disabled={applying}>
             Cancel
           </button>
-          <button
-            className="btn btn-primary"
-            onClick={handleApply}
-            disabled={loading || applying}
-          >
+          <button className="btn btn-primary" onClick={handleApply} disabled={loading || applying}>
             {applying ? 'Applying…' : 'Apply Template'}
           </button>
         </div>

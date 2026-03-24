@@ -144,7 +144,9 @@ function Projects() {
                   <div className="project-last-run">
                     <span className="project-run-status">
                       {statusIcon(project.last_run_status)}
-                      <span className={`status-text status-${statusClass(project.last_run_status)}`}>
+                      <span
+                        className={`status-text status-${statusClass(project.last_run_status)}`}
+                      >
                         {capitalize(project.last_run_status)}
                       </span>
                     </span>
