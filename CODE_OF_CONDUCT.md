@@ -29,7 +29,7 @@ Examples of unacceptable behavior:
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the project maintainers at **conduct@chibby.dev**.
+reported by [opening a GitHub issue](https://github.com/Nyantahi/chibby/issues) or contacting the maintainers through GitHub.
 
 All complaints will be reviewed and investigated promptly and fairly.
 

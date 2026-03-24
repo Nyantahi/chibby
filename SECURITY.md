@@ -10,7 +10,8 @@
 
 If you discover a security vulnerability in Chibby, please report it responsibly.
 
-**Do not open a public issue.** Instead, email security concerns to: **security@chibby.dev**
+**Do not open a public issue.** Instead, report vulnerabilities through
+[GitHub Security Advisories](https://github.com/Nyantahi/chibby/security/advisories/new).
 
 Please include:
 
