@@ -228,6 +228,24 @@ pub fn get_template_by_name(
 // Public API — variable extraction & substitution
 // ---------------------------------------------------------------------------
 
+/// Well-known template variables with descriptions and defaults.
+fn well_known_variable(name: &str) -> Option<(String, String, bool)> {
+    // Returns (description, default_value, required)
+    match name {
+        "bump_level" => Some((
+            "Version bump level: patch, minor, or major".into(),
+            "patch".into(),
+            true,
+        )),
+        "project_name" => Some((
+            "Name of the project".into(),
+            String::new(),
+            true,
+        )),
+        _ => None,
+    }
+}
+
 /// Extract every `{{variable_name}}` placeholder from a template.
 pub fn extract_template_variables(template: &PipelineTemplate) -> Vec<TemplateVariable> {
     let re = Regex::new(r"\{\{(\w+)\}\}").expect("valid regex");
@@ -236,11 +254,22 @@ pub fn extract_template_variables(template: &PipelineTemplate) -> Vec<TemplateVa
     let mut scan = |text: &str| {
         for cap in re.captures_iter(text) {
             let var = cap[1].to_string();
-            seen.entry(var.clone()).or_insert_with(|| TemplateVariable {
-                name: var,
-                description: String::new(),
-                default_value: String::new(),
-                required: true,
+            seen.entry(var.clone()).or_insert_with(|| {
+                if let Some((desc, default, required)) = well_known_variable(&var) {
+                    TemplateVariable {
+                        name: var,
+                        description: desc,
+                        default_value: default,
+                        required,
+                    }
+                } else {
+                    TemplateVariable {
+                        name: var,
+                        description: String::new(),
+                        default_value: String::new(),
+                        required: true,
+                    }
+                }
             });
         }
     };

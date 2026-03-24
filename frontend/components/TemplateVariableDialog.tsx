@@ -125,16 +125,31 @@ function TemplateVariableDialog({
                         {v.description}
                       </div>
                     )}
-                    <input
-                      id={`var-${v.name}`}
-                      className="input"
-                      type="text"
-                      value={values[v.name] || ''}
-                      placeholder={v.default_value || v.name}
-                      onChange={(e) =>
-                        setValues((prev) => ({ ...prev, [v.name]: e.target.value }))
-                      }
-                    />
+                    {v.name === 'bump_level' ? (
+                      <select
+                        id={`var-${v.name}`}
+                        className="input"
+                        value={values[v.name] || 'patch'}
+                        onChange={(e) =>
+                          setValues((prev) => ({ ...prev, [v.name]: e.target.value }))
+                        }
+                      >
+                        <option value="patch">patch (1.2.3 → 1.2.4)</option>
+                        <option value="minor">minor (1.2.3 → 1.3.0)</option>
+                        <option value="major">major (1.2.3 → 2.0.0)</option>
+                      </select>
+                    ) : (
+                      <input
+                        id={`var-${v.name}`}
+                        className="input"
+                        type="text"
+                        value={values[v.name] || ''}
+                        placeholder={v.default_value || v.name}
+                        onChange={(e) =>
+                          setValues((prev) => ({ ...prev, [v.name]: e.target.value }))
+                        }
+                      />
+                    )}
                   </div>
                 ))}
               </div>

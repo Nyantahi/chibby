@@ -142,84 +142,87 @@ function Settings() {
       {error && <div className="alert alert-error">{error}</div>}
       {successMsg && <div className="alert alert-success">{successMsg}</div>}
 
-      {/* AI Agent API Keys */}
-      <section className="settings-section">
-        <h3 className="settings-section-title">
-          <Key size={16} /> AI Agent Keys
-        </h3>
-        <p className="settings-section-desc">
-          API keys for AI-assisted features. Keys are stored securely in your OS keychain.
-        </p>
-
-        {API_PROVIDERS.map(({ id, label }) => (
-          <div key={id} className="settings-key-row">
-            <div className="settings-key-header">
-              <span className="settings-key-label">{label}</span>
-              {keyStatus[id] && (
-                <span className="settings-key-status">
-                  <Check size={14} /> Configured
-                </span>
-              )}
-            </div>
-
-            {keyStatus[id] ? (
-              <button
-                className="btn btn-danger btn-sm"
-                onClick={() => handleDeleteKey(id)}
-                disabled={keySaving[id]}
-              >
-                {keySaving[id] ? 'Removing...' : 'Remove Key'}
-              </button>
-            ) : (
-              <div className="settings-key-input-row">
-                <div className="settings-key-input-wrap">
-                  <input
-                    type={keyVisible[id] ? 'text' : 'password'}
-                    className="input"
-                    placeholder={`Enter ${label} API key`}
-                    value={keyInputs[id] || ''}
-                    onChange={(e) => setKeyInputs({ ...keyInputs, [id]: e.target.value })}
-                  />
-                  <button
-                    className="btn btn-icon"
-                    onClick={() => setKeyVisible({ ...keyVisible, [id]: !keyVisible[id] })}
-                    title={keyVisible[id] ? 'Hide' : 'Show'}
-                  >
-                    {keyVisible[id] ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                </div>
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={() => handleSetKey(id)}
-                  disabled={!keyInputs[id]?.trim() || keySaving[id]}
-                >
-                  {keySaving[id] ? 'Saving...' : 'Set Key'}
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
-      </section>
-
-      {/* Agent Status */}
-      {agentStatus && (
+      {/* AI Agent Keys & CI/CD Agent — hidden until AI integration is built */}
+      {false && (
+        <>
         <section className="settings-section">
           <h3 className="settings-section-title">
-            <Bot size={16} /> CI/CD Agent
+            <Key size={16} /> AI Agent Keys
           </h3>
           <p className="settings-section-desc">
-            AI-powered analysis, pipeline generation, and failure recovery.
+            API keys for AI-assisted features. Keys are stored securely in your OS keychain.
           </p>
-          <div className="settings-info-row">
-            <span className="settings-info-label">Status</span>
-            <span className={`settings-info-value ${agentStatus.available ? 'text-green-400' : 'text-yellow-400'}`}>
-              {agentStatus.available ? 'Active' : 'Not configured'}
-            </span>
-          </div>
-          {agentStatus.error && (
-            <p className="text-sm text-yellow-400 mt-1">{agentStatus.error}</p>
-          )}
+
+          {API_PROVIDERS.map(({ id, label }) => (
+            <div key={id} className="settings-key-row">
+              <div className="settings-key-header">
+                <span className="settings-key-label">{label}</span>
+                {keyStatus[id] && (
+                  <span className="settings-key-status">
+                    <Check size={14} /> Configured
+                  </span>
+                )}
+              </div>
+
+              {keyStatus[id] ? (
+                <button
+                  className="btn btn-danger btn-sm"
+                  onClick={() => handleDeleteKey(id)}
+                  disabled={keySaving[id]}
+                >
+                  {keySaving[id] ? 'Removing...' : 'Remove Key'}
+                </button>
+              ) : (
+                <div className="settings-key-input-row">
+                  <div className="settings-key-input-wrap">
+                    <input
+                      type={keyVisible[id] ? 'text' : 'password'}
+                      className="input"
+                      placeholder={`Enter ${label} API key`}
+                      value={keyInputs[id] || ''}
+                      onChange={(e) => setKeyInputs({ ...keyInputs, [id]: e.target.value })}
+                    />
+                    <button
+                      className="btn btn-icon"
+                      onClick={() => setKeyVisible({ ...keyVisible, [id]: !keyVisible[id] })}
+                      title={keyVisible[id] ? 'Hide' : 'Show'}
+                    >
+                      {keyVisible[id] ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() => handleSetKey(id)}
+                    disabled={!keyInputs[id]?.trim() || keySaving[id]}
+                  >
+                    {keySaving[id] ? 'Saving...' : 'Set Key'}
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
         </section>
+
+        {agentStatus && (
+          <section className="settings-section">
+            <h3 className="settings-section-title">
+              <Bot size={16} /> CI/CD Agent
+            </h3>
+            <p className="settings-section-desc">
+              AI-powered analysis, pipeline generation, and failure recovery.
+            </p>
+            <div className="settings-info-row">
+              <span className="settings-info-label">Status</span>
+              <span className={`settings-info-value ${agentStatus.available ? 'text-green-400' : 'text-yellow-400'}`}>
+                {agentStatus.available ? 'Active' : 'Not configured'}
+              </span>
+            </div>
+            {agentStatus.error && (
+              <p className="text-sm text-yellow-400 mt-1">{agentStatus.error}</p>
+            )}
+          </section>
+        )}
+        </>
       )}
 
       {/* Default Notifications */}

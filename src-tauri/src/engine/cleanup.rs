@@ -1,3 +1,4 @@
+use crate::engine::app_settings;
 use crate::engine::models::{ArtifactConfig, CleanupConfig, CleanupResult};
 use crate::engine::{artifacts, persistence};
 use anyhow::{Context, Result};
@@ -35,6 +36,27 @@ pub fn load_cleanup_config(repo_path: &Path) -> Result<CleanupConfig> {
         .with_context(|| format!("Failed to parse {}", file_path.display()))?;
 
     Ok(config)
+}
+
+/// Resolve cleanup config for a repo, falling back to app-level defaults.
+///
+/// If a per-repo `.chibby/cleanup.toml` exists, it is used as-is.
+/// Otherwise, the app-level settings (`default_artifact_retention` /
+/// `default_run_retention`) are used.
+pub fn resolve_cleanup_config(repo_path: &Path) -> Result<CleanupConfig> {
+    let file_path = repo_path.join(".chibby").join("cleanup.toml");
+    if file_path.exists() {
+        return load_cleanup_config(repo_path);
+    }
+
+    // No per-repo config — use app-level defaults.
+    let app = app_settings::load_app_settings().unwrap_or_default();
+
+    Ok(CleanupConfig {
+        artifact_retention: app.default_artifact_retention,
+        run_retention: app.default_run_retention,
+        prune_remote_docker: false,
+    })
 }
 
 // ---------------------------------------------------------------------------

@@ -1,8 +1,8 @@
 [meta]
 name = "Version Bump & Tag"
-description = "Bump the npm version, commit, tag, and push to remote"
+description = "Bump the npm version (patch, minor, or major), commit, tag, and push to remote"
 author = "chibby"
-version = "1.0.0"
+version = "1.1.0"
 category = "deployment"
 tags = ["version", "tag", "git", "release"]
 required_tools = ["npm", "git"]
@@ -11,7 +11,7 @@ template_type = "stage"
 [[stages]]
 name = "version-tag"
 commands = [
-  "npm version patch --no-git-tag-version || true",
+  "npm version {{bump_level}} --no-git-tag-version || true",
   "git add -A && git commit -m \"chore: bump version\"",
   "git tag \"v$(node -p \"require('./package.json').version\")\"",
   "git push --follow-tags"

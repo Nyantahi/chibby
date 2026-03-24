@@ -1,12 +1,57 @@
 use crate::engine::executor;
-use crate::engine::models::{DeploymentRecord, PipelineRun, RunKind};
-use crate::engine::persistence;
-use crate::engine::pipeline;
-use crate::engine::secrets;
+use crate::engine::models::{DeploymentRecord, NotifyPayload, PipelineRun, RunKind};
+use crate::engine::{artifacts, cleanup, notify, persistence, pipeline, secrets};
 use crate::state::SharedPipelineState;
 use std::collections::HashMap;
 use std::path::Path;
 use tauri::{AppHandle, Emitter, State};
+
+/// Post-run housekeeping: send notifications and run cleanup.
+/// Failures are logged but never propagate — housekeeping must not block the caller.
+async fn post_run_housekeeping(repo_path: &str, run: &PipelineRun) {
+    let path = Path::new(repo_path);
+
+    // --- Notifications ---
+    match notify::resolve_notify_config(path) {
+        Ok(config) => {
+            let status_label = match run.status {
+                crate::engine::models::RunStatus::Success => "succeeded",
+                crate::engine::models::RunStatus::Failed => "failed",
+                crate::engine::models::RunStatus::Cancelled => "cancelled",
+                _ => "completed",
+            };
+            let payload = NotifyPayload {
+                project: run.pipeline_name.clone(),
+                version: None,
+                environment: run.environment.clone(),
+                status: run.status.clone(),
+                duration_ms: run.duration_ms,
+                message: format!("Pipeline '{}' {}", run.pipeline_name, status_label),
+            };
+            notify::send_notifications(&config, &payload).await;
+        }
+        Err(e) => log::warn!("Failed to load notify config for {repo_path}: {e}"),
+    }
+
+    // --- Cleanup (prune old artifacts & runs) ---
+    let cleanup_config = match cleanup::resolve_cleanup_config(path) {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("Failed to load cleanup config for {repo_path}: {e}");
+            return;
+        }
+    };
+    let artifact_config = match artifacts::load_artifact_config(path) {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("Failed to load artifact config for {repo_path}: {e}");
+            return;
+        }
+    };
+    if let Err(e) = cleanup::run_cleanup(path, &cleanup_config, &artifact_config, false) {
+        log::warn!("Post-run cleanup failed for {repo_path}: {e}");
+    }
+}
 
 /// Run a pipeline for a given repo path.
 ///
@@ -104,6 +149,9 @@ pub async fn run_pipeline(
             let _ = persistence::save_projects(&projects);
         }
     }
+
+    // Post-run housekeeping (notifications + cleanup).
+    post_run_housekeeping(&repo_path, &run).await;
 
     Ok(run)
 }
@@ -279,6 +327,9 @@ pub async fn retry_run(
         }
     }
 
+    // Post-run housekeeping (notifications + cleanup).
+    post_run_housekeeping(&repo_path, &run).await;
+
     Ok(run)
 }
 
@@ -387,6 +438,9 @@ pub async fn rollback_to_run(
             let _ = persistence::save_projects(&projects);
         }
     }
+
+    // Post-run housekeeping (notifications + cleanup).
+    post_run_housekeeping(&repo_path, &run).await;
 
     Ok(run)
 }

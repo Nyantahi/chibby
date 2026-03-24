@@ -11,6 +11,7 @@ import {
   GitBranch,
   Plus,
   BookTemplate,
+  X,
 } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
@@ -144,12 +145,14 @@ function AddProject() {
   // Template state
   const [showTemplateBrowser, setShowTemplateBrowser] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<PipelineTemplate | null>(null);
+  // Template pre-selected from the Templates page — waits for repo selection before applying
+  const [pendingTemplate, setPendingTemplate] = useState<PipelineTemplate | null>(null);
 
   // Pick up template passed from the Templates page via router state
   useEffect(() => {
     const state = location.state as { template?: PipelineTemplate; editMode?: boolean } | null;
     if (state?.template) {
-      setSelectedTemplate(state.template);
+      setPendingTemplate(state.template);
       setPipelineSource('template');
       // Clear state so refreshing doesn't re-trigger
       window.history.replaceState({}, '');
@@ -188,7 +191,14 @@ function AddProject() {
       });
       setStageSelection(sel);
 
-      setStep('source');
+      // If a template was pre-selected from the Templates page, skip Source
+      // and open the variable dialog directly
+      if (pendingTemplate) {
+        setSelectedTemplate(pendingTemplate);
+        setPendingTemplate(null);
+      } else {
+        setStep('source');
+      }
     } catch (err) {
       setError(String(err));
     } finally {
@@ -326,6 +336,21 @@ function AddProject() {
           <h3>Select a repository</h3>
           <p>Enter the local path to your project repository.</p>
 
+          {pendingTemplate && (
+            <div className="alert alert-success" style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <BookTemplate size={14} />
+              Template selected: <strong>{pendingTemplate.meta.name}</strong>
+              <button
+                className="btn btn-icon"
+                style={{ marginLeft: 'auto' }}
+                onClick={() => { setPendingTemplate(null); setPipelineSource('auto'); }}
+                title="Remove template selection"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
           <div className="form-group">
             <label htmlFor="repo-path">Repository Path</label>
             <div className="input-with-action">
@@ -373,7 +398,11 @@ function AddProject() {
 
           <div className="form-actions">
             <button className="btn btn-primary" onClick={handleScan} disabled={loading}>
-              {loading ? 'Scanning...' : 'Scan Repository'}
+              {loading
+                ? 'Scanning...'
+                : pendingTemplate
+                  ? 'Scan & Apply Template'
+                  : 'Scan Repository'}
               <Search size={16} />
             </button>
           </div>

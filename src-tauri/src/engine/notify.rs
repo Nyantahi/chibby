@@ -1,4 +1,7 @@
-use crate::engine::models::{NotifyChannel, NotifyConfig, NotifyOn, NotifyPayload, RunStatus};
+use crate::engine::app_settings;
+use crate::engine::models::{
+    NotifyChannel, NotifyConfig, NotifyOn, NotifyPayload, NotifyTarget, RunStatus,
+};
 use anyhow::{Context, Result};
 use std::path::Path;
 
@@ -34,6 +37,56 @@ pub fn load_notify_config(repo_path: &Path) -> Result<NotifyConfig> {
         .with_context(|| format!("Failed to parse {}", file_path.display()))?;
 
     Ok(config)
+}
+
+/// Resolve notification config for a repo, falling back to app-level defaults.
+///
+/// If a per-repo `.chibby/notify.toml` exists, it is used as-is.
+/// Otherwise, the app-level settings (`default_notify_on_success` /
+/// `default_notify_on_failure`) are used to build a desktop notification
+/// config automatically.
+pub fn resolve_notify_config(repo_path: &Path) -> Result<NotifyConfig> {
+    let file_path = repo_path.join(".chibby").join("notify.toml");
+    if file_path.exists() {
+        return load_notify_config(repo_path);
+    }
+
+    // No per-repo config — build from app-level defaults.
+    let app = app_settings::load_app_settings().unwrap_or_default();
+
+    let notify_success = app.default_notify_on_success;
+    let notify_failure = app.default_notify_on_failure;
+
+    if !notify_success && !notify_failure {
+        return Ok(NotifyConfig::default()); // both off → disabled
+    }
+
+    let mut targets = Vec::new();
+
+    if notify_success && notify_failure {
+        targets.push(NotifyTarget {
+            channel: NotifyChannel::Desktop,
+            url: None,
+            on: NotifyOn::Always,
+        });
+    } else if notify_success {
+        targets.push(NotifyTarget {
+            channel: NotifyChannel::Desktop,
+            url: None,
+            on: NotifyOn::Success,
+        });
+    } else {
+        targets.push(NotifyTarget {
+            channel: NotifyChannel::Desktop,
+            url: None,
+            on: NotifyOn::Failure,
+        });
+    }
+
+    Ok(NotifyConfig {
+        enabled: true,
+        targets,
+    })
 }
 
 // ---------------------------------------------------------------------------
