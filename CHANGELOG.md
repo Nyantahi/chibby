@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Build-time validation modules for macOS, Linux, and Windows
 - CI pipeline with lint, test, and build on all three platforms
 - Pipeline templates system with 3-layer resolution (built-in, user, project)
-- 19 built-in templates: 9 full pipelines + 10 stage snippets
+- 20 built-in templates: 9 full pipelines + 11 stage snippets
 - Template variable substitution with `{{variable}}` placeholders
 - Template Browser component with search, category, type, and source filters
 - Template Variable Dialog for filling in placeholders before applying
@@ -44,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Templates documentation (docs/features/templates.md)
 - Deploy step templates in Pipeline Editor (GitHub Release, Homebrew, Docker, SSH, S3, npm, Cargo, Tauri)
 - Homebrew templates auto-detect repo URL and formula paths via `gh` CLI
+- Homebrew Tap Publish template for pushing to custom tap repos
+- Homebrew Core PR template for submitting PRs to homebrew-core/homebrew-cask via `brew bump-formula-pr`
 - GitHub Actions import: parse `.github/workflows/` and convert steps to pipeline stages
 - GitHub Actions import available in both Add Project wizard and Pipeline Editor
 - "Apply Template" and "Use as Starting Point" buttons on Templates page navigate to Add Project wizard with template pre-selected

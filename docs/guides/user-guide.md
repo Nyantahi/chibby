@@ -187,11 +187,11 @@ Click **Use as Starting Point** to do the same but with the intent to customize 
 
 ### Built-in Templates
 
-Chibby ships with 19 built-in templates:
+Chibby ships with 20 built-in templates:
 
 **Full Pipelines:** Rust CLI, Rust Library, Node.js Web App, Python Django, Python FastAPI, Go Web Service, Static Site, Tauri Desktop, Docker Compose Deploy
 
-**Stage Snippets:** GitHub Release, Docker Build & Push, Docker Compose SSH, SSH Rsync Deploy, Cargo Publish, npm Publish, S3 Deploy, Tauri Bundle, Version Bump & Tag, Homebrew Formula
+**Stage Snippets:** GitHub Release, Docker Build & Push, Docker Compose SSH, SSH Rsync Deploy, Cargo Publish, npm Publish, S3 Deploy, Tauri Bundle, Version Bump & Tag, Homebrew Tap Publish, Homebrew Core PR
 
 ### Custom Templates
 

@@ -1,6 +1,6 @@
 # Pipeline Templates
 
-Chibby's template system lets you create, share, and reuse pipeline configurations across projects. Templates come in two flavors: **full pipelines** (complete multi-stage configurations) and **stage snippets** (individual stages you can add to any pipeline).
+Chibby's template system lets you create, share, and reuse pipeline configurations across projects. Templates come in two flavors: **full pipelines** (complete multi-stage configurations) and **stage snippets** (individual stages you can add to any pipeline). Chibby ships with 20 built-in templates.
 
 ## Template Resolution
 
@@ -32,7 +32,7 @@ Chibby ships with 19 built-in templates covering common languages and deployment
 | Tauri Desktop | rust | Frontend build, Tauri bundle, and code signing |
 | Docker Compose Deploy | docker | Build, push, deploy via docker-compose over SSH |
 
-### Stage Snippet Templates (10)
+### Stage Snippet Templates (11)
 
 | Template | Category | Description |
 | -------- | -------- | ----------- |
@@ -45,7 +45,8 @@ Chibby ships with 19 built-in templates covering common languages and deployment
 | S3 Deploy | deployment | Sync build output to an S3 bucket with CloudFront invalidation |
 | Tauri Bundle | rust | Bundle a Tauri desktop app for distribution |
 | Version Bump & Tag | deployment | Bump semver (patch/minor/major), commit, tag, and push |
-| Homebrew Formula | deployment | Update a Homebrew formula with new version and checksum |
+| Homebrew Tap Publish | deployment | Update and push a formula in your own Homebrew tap repository |
+| Homebrew Core PR | deployment | Submit a PR to homebrew-core or homebrew-cask to update your formula |
 
 ## Template Variables
 
@@ -57,12 +58,19 @@ Templates can include `{{variable}}` placeholders that are filled in when the te
 | -------- | ----------- | ------- |
 | `project_name` | Name of the project | Auto-detected from repo path |
 | `bump_level` | Version bump level (`patch`, `minor`, or `major`) | `patch` |
+| `version` | Release version (falls back to VERSION file) | — |
 | `ssh_user` | SSH username for remote deployment | — |
 | `ssh_host` | SSH hostname for remote deployment | — |
 | `deploy_path` | Remote path for deployment | — |
 | `image_name` | Docker image name | — |
 | `registry` | Docker registry URL | — |
 | `s3_bucket` | AWS S3 bucket name | — |
+| `tap_repo_path` | Local path to your Homebrew tap repo | — |
+| `formula_file` | Path to formula within the tap repo | `Formula/app.rb` |
+| `tarball_path` | Path to release tarball for SHA256 | `dist/*.tar.gz` |
+| `formula_type` | Homebrew type: `formula-pr` (CLI) or `cask-pr` (GUI) | `formula-pr` |
+| `formula_name` | Name of formula/cask in homebrew-core or homebrew-cask | — |
+| `download_url` | Public download URL for the release asset | — |
 
 Variables with defaults are pre-filled. Required variables must be provided before the template can be applied.
 

@@ -139,6 +139,18 @@ function TemplateVariableDialog({ template, repoPath, projectName, onApplied, on
                         <option value="minor">minor (1.2.3 → 1.3.0)</option>
                         <option value="major">major (1.2.3 → 2.0.0)</option>
                       </select>
+                    ) : v.name === 'formula_type' ? (
+                      <select
+                        id={`var-${v.name}`}
+                        className="input"
+                        value={values[v.name] || 'formula-pr'}
+                        onChange={(e) =>
+                          setValues((prev) => ({ ...prev, [v.name]: e.target.value }))
+                        }
+                      >
+                        <option value="formula-pr">formula-pr (CLI tools / libraries)</option>
+                        <option value="cask-pr">cask-pr (GUI desktop apps)</option>
+                      </select>
                     ) : (
                       <input
                         id={`var-${v.name}`}

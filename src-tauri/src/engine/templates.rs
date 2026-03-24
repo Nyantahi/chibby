@@ -99,8 +99,12 @@ fn builtin_template_entries() -> Vec<(&'static str, &'static str)> {
             include_str!("../../templates/stages/version-bump-tag.toml"),
         ),
         (
-            "homebrew-formula.toml",
-            include_str!("../../templates/stages/homebrew-formula.toml"),
+            "homebrew-tap-publish.toml",
+            include_str!("../../templates/stages/homebrew-tap-publish.toml"),
+        ),
+        (
+            "homebrew-core-pr.toml",
+            include_str!("../../templates/stages/homebrew-core-pr.toml"),
         ),
     ]
 }
@@ -239,6 +243,41 @@ fn well_known_variable(name: &str) -> Option<(String, String, bool)> {
         )),
         "project_name" => Some((
             "Name of the project".into(),
+            String::new(),
+            true,
+        )),
+        "version" => Some((
+            "Release version (e.g., 1.2.0). Falls back to VERSION file if present.".into(),
+            String::new(),
+            true,
+        )),
+        "tap_repo_path" => Some((
+            "Local path to your Homebrew tap repo (e.g., ../homebrew-myapp)".into(),
+            String::new(),
+            true,
+        )),
+        "formula_file" => Some((
+            "Path to the formula file within the tap repo (e.g., Formula/myapp.rb or Casks/myapp.rb)".into(),
+            "Formula/app.rb".into(),
+            true,
+        )),
+        "tarball_path" => Some((
+            "Path to the release tarball to compute SHA256 from".into(),
+            "dist/*.tar.gz".into(),
+            true,
+        )),
+        "formula_type" => Some((
+            "Homebrew formula type: formula-pr (CLI tools) or cask-pr (GUI apps)".into(),
+            "formula-pr".into(),
+            true,
+        )),
+        "formula_name" => Some((
+            "Name of the formula/cask in homebrew-core or homebrew-cask".into(),
+            String::new(),
+            true,
+        )),
+        "download_url" => Some((
+            "Public download URL for the release asset".into(),
             String::new(),
             true,
         )),

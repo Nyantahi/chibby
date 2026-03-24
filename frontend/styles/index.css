@@ -198,11 +198,24 @@ a:hover {
   display: flex;
   gap: var(--space-xl);
   max-width: 1200px;
+  overflow: hidden;
 }
 
 .page-with-sidebar .page-main {
   flex: 1;
   min-width: 0;
+}
+
+/* Stack sidebar below main content on narrow screens */
+@media (max-width: 1024px) {
+  .page-with-sidebar {
+    flex-direction: column;
+  }
+
+  .project-sidebar {
+    width: 100%;
+    padding-top: 0;
+  }
 }
 
 .page-header {
@@ -211,6 +224,18 @@ a:hover {
   justify-content: space-between;
   margin-bottom: var(--space-xl);
   gap: var(--space-lg);
+}
+
+/* Wrap header actions on narrow screens */
+@media (max-width: 700px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .header-actions {
+    flex-wrap: wrap;
+  }
 }
 
 .page-title {

@@ -8,7 +8,7 @@ Chibby helps developers turn existing scripts into visual, repeatable pipelines 
 
 ## Features
 
-- **Pipeline Templates** — 19 built-in templates (9 full pipelines + 10 stage snippets) with variable substitution, import/export, and 3-layer resolution ([Templates docs](docs/features/templates.md))
+- **Pipeline Templates** — 20 built-in templates (9 full pipelines + 11 stage snippets) with variable substitution, import/export, and 3-layer resolution ([Templates docs](docs/features/templates.md))
 - **GitHub Actions Import** — Import stages from existing `.github/workflows/` into your pipeline
 - **CLI** — Standalone command-line interface for headless servers and scripting ([CLI docs](docs/features/cli-commands.md))
 - **Script Import** — Detect and import existing scripts from your repo
