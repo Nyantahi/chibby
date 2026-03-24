@@ -25,7 +25,7 @@ Chibby helps developers turn existing scripts into visual, repeatable pipelines 
 ## Install
 
 Download the latest release for your platform from
-[GitHub Releases](https://github.com/chibby-app/chibby/releases).
+[GitHub Releases](https://github.com/Nyantahi/chibby/releases).
 
 | Platform | Download |
 |----------|----------|
@@ -42,7 +42,7 @@ instructions, SSH setup, and secrets configuration per platform.
 ### Build from source
 
 ```bash
-git clone https://github.com/chibby-app/chibby.git
+git clone https://github.com/Nyantahi/chibby.git
 cd chibby
 npm install
 npm run tauri:build
