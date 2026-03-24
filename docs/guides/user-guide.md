@@ -8,11 +8,13 @@ This guide walks you through using Chibby to manage CI/CD pipelines for your pro
 2. [Adding a Project](#adding-a-project)
 3. [Understanding the Dashboard](#understanding-the-dashboard)
 4. [Working with Pipelines](#working-with-pipelines)
-5. [Running Pipelines](#running-pipelines)
-6. [Viewing Run History](#viewing-run-history)
-7. [Pipeline Configuration](#pipeline-configuration)
-8. [Command Line Interface (CLI)](#command-line-interface-cli)
-9. [Troubleshooting](#troubleshooting)
+5. [Pipeline Templates](#pipeline-templates)
+6. [Running Pipelines](#running-pipelines)
+7. [Viewing Run History](#viewing-run-history)
+8. [Pipeline Configuration](#pipeline-configuration)
+9. [App Settings](#app-settings)
+10. [Command Line Interface (CLI)](#command-line-interface-cli)
+11. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -45,40 +47,31 @@ details including SSH configuration and keychain access.
 
 ## Adding a Project
 
-### Step 1: Open Add Project
+The Add Project wizard walks you through a 4-step flow to set up a new project with a pipeline.
 
-From the Dashboard, click the **Add Project** button in the top right corner.
+### Step 1: Select Repository
 
-### Step 2: Select Repository
+From the Dashboard, click **Add Project**. Click **Browse** to pick your project's root directory, or type the path directly. Optionally set a custom project name.
 
-Click **Browse** to open the file picker and navigate to your project's root directory. Select the folder containing your source code.
+Click **Scan Repository** to detect build files and continue.
 
-### Step 3: Script Detection
+### Step 2: Choose Pipeline Source
 
-Chibby automatically scans for:
+After scanning, Chibby shows what it found (build files, GitHub Actions workflows) and offers three options:
 
-- Shell scripts: `deploy.sh`, `build.sh`, `release.sh`
-- Task runners: `Makefile`, `justfile`
-- Container files: `Dockerfile`, `docker-compose.yml`
-- Package scripts: `package.json` scripts, `Cargo.toml`
+- **Auto-detect** — Generate a pipeline from detected scripts (`Makefile`, `package.json`, `Cargo.toml`, `deploy.sh`, `Dockerfile`, etc.)
+- **GitHub Actions** — Import stages from your existing `.github/workflows/` files. Only shown if workflows are detected.
+- **From Template** — Browse the built-in and custom template library to start from a proven pipeline configuration.
 
-Detected scripts appear in a list showing the file name, path, and type.
+If you arrived here from the **Templates** page via "Apply Template" or "Use as Starting Point", the template is pre-selected and shown as a banner. Just scan the repo and the template variable dialog opens automatically.
 
-### Step 4: Generate Pipeline
+### Step 3: Configure Stages
 
-Click **Generate Pipeline** to create a draft pipeline from detected scripts. Chibby analyzes your project structure and suggests appropriate stages.
+Toggle individual stages on or off. When using GitHub Actions import, Chibby may suggest additional stages based on detected build files that aren't covered by the imported workflow.
 
-### Step 5: Review and Save
+### Step 4: Review and Create
 
-Review the generated pipeline. You can:
-
-- Edit stage names
-- Modify commands
-- Reorder stages
-- Remove unnecessary stages
-- Add new stages
-
-Click **Save Pipeline** to finalize. The pipeline is stored as `.chibby/pipeline.toml` in your project.
+Review the final project setup showing project name, path, source method, stage count, and all selected stages. Click **Create Project** to save. The pipeline is stored as `.chibby/pipeline.toml` in your project.
 
 ---
 
@@ -132,7 +125,26 @@ In the Project Detail view, the Pipeline section displays all stages as cards. E
 
 ### Editing Pipelines
 
-To modify a pipeline, edit the `.chibby/pipeline.toml` file directly in your code editor. The format is human-readable TOML:
+The Pipeline Editor in the Project Detail view lets you modify pipelines visually:
+
+- Add, remove, and reorder stages
+- Edit stage names, commands, backend type, and working directory
+- Configure health checks per stage
+- Drag stages to reorder them
+
+#### Import from GitHub Actions
+
+Click **Import CI** to import stages from your GitHub Actions workflows. A modal shows all workflows from `.github/workflows/` with their jobs and steps. Select the steps you want and they become new pipeline stages.
+
+#### Add Stage Templates
+
+Click **Stage Templates** to browse the template library filtered to stage snippets. Select a template (e.g., Docker Build & Push, S3 Deploy, Version Bump & Tag) and fill in any variables. The stages are appended to your pipeline.
+
+#### Save as Template
+
+Click **Save as Template** to save the current pipeline as a reusable template. Add a name, description, category, and tags, then choose to save it globally (user scope) or per-project. Saved templates appear in the template browser for future use.
+
+You can also edit `.chibby/pipeline.toml` directly in your code editor. The format is human-readable TOML:
 
 ```toml
 name = "My App Build"
@@ -149,6 +161,48 @@ commands = ["npm run build"]
 backend = "local"
 fail_fast = true
 ```
+
+---
+
+## Pipeline Templates
+
+Chibby includes a template system for creating, sharing, and reusing pipeline configurations. For full details, see the [Templates documentation](../features/templates.md).
+
+### Browsing Templates
+
+Navigate to the **Templates** page from the sidebar. The template browser lets you:
+
+- Search by name, description, or tags
+- Filter by category (Rust, Node.js, Python, Go, Docker, Deployment)
+- Filter by type (Full Pipelines vs Stage Snippets)
+- Filter by source (Built-in, User, Project)
+
+Expand any template to preview its stages and required tools.
+
+### Applying a Template
+
+Click **Apply Template** to use a template for a new project. This navigates to the Add Project wizard with the template pre-selected. After selecting a repository, fill in any template variables (e.g., project name, SSH host) and the pipeline is generated.
+
+Click **Use as Starting Point** to do the same but with the intent to customize the pipeline further in the configure step.
+
+### Built-in Templates
+
+Chibby ships with 19 built-in templates:
+
+**Full Pipelines:** Rust CLI, Rust Library, Node.js Web App, Python Django, Python FastAPI, Go Web Service, Static Site, Tauri Desktop, Docker Compose Deploy
+
+**Stage Snippets:** GitHub Release, Docker Build & Push, Docker Compose SSH, SSH Rsync Deploy, Cargo Publish, npm Publish, S3 Deploy, Tauri Bundle, Version Bump & Tag, Homebrew Formula
+
+### Custom Templates
+
+Save your own templates from the Pipeline Editor ("Save as Template" button) or import templates from TOML files. Templates are stored in:
+
+- **User scope:** `~/.chibby/templates/` (available across all projects)
+- **Project scope:** `<repo>/.chibby/templates/` (shareable via version control)
+
+### Template Variables
+
+Templates can include `{{variable}}` placeholders that are filled in when applied. For example, the Version Bump & Tag template includes a `{{bump_level}}` variable that lets you choose between `patch`, `minor`, or `major` version increments.
 
 ---
 
@@ -290,6 +344,26 @@ fail_fast = true
 ```
 
 If any command fails (non-zero exit code) and `fail_fast = true`, the pipeline stops.
+
+---
+
+## App Settings
+
+Navigate to the **Settings** page from the sidebar to configure app-wide defaults.
+
+### Notifications
+
+- **Notify on successful runs** — Show a desktop notification when a pipeline run completes successfully
+- **Notify on failed runs** — Show a desktop notification when a pipeline run fails
+
+These defaults apply to all projects unless a project has its own `.chibby/notify.toml` configuration.
+
+### Retention
+
+- **Artifact retention** — Number of artifact versions to keep per project (default: 5)
+- **Run history retention** — Number of run records to keep per project (default: 50)
+
+After each pipeline run, Chibby automatically prunes old artifacts and run history based on these limits. Per-project `.chibby/cleanup.toml` overrides the app defaults.
 
 ---
 

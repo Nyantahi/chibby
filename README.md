@@ -8,19 +8,22 @@ Chibby helps developers turn existing scripts into visual, repeatable pipelines 
 
 ## Features
 
+- **Pipeline Templates** — 19 built-in templates (9 full pipelines + 10 stage snippets) with variable substitution, import/export, and 3-layer resolution ([Templates docs](docs/features/templates.md))
+- **GitHub Actions Import** — Import stages from existing `.github/workflows/` into your pipeline
 - **CLI** — Standalone command-line interface for headless servers and scripting ([CLI docs](docs/features/cli-commands.md))
 - **Script Import** — Detect and import existing scripts from your repo
 - **Pipeline Generation** — Auto-generate pipelines from detected commands (heuristic + LLM-assisted)
 - **Local Execution** — Run stages as local processes with live log streaming
 - **SSH Execution** — Deploy over SSH with direct commands or Docker Compose
 - **Environments & Secrets** — Per-environment config with OS keychain integration
-- **Versioning** — Semver bumping across config files with automatic git tagging
+- **Versioning** — Semver bumping across config files with automatic git tagging, configurable bump level (patch/minor/major)
 - **Code Signing** — macOS notarization, Windows Authenticode, Linux GPG
 - **Artifacts** — Consistent naming, SHA256 checksums, configurable retention
 - **Tauri Updater** — Generate `latest.json`, sign update bundles, publish to hosting
 - **Security Gates** — Secret scanning (gitleaks), CVE scanning, commit linting
 - **Run History** — Full history with retry from failure and explicit rollback
 - **Notifications** — Desktop OS notifications and webhooks (Slack, Discord, HTTP)
+- **App Settings** — Configurable notification and retention defaults that apply across all projects
 - **Cross-Platform** — Works on macOS, Linux, and Windows
 
 ## Install
@@ -55,8 +58,8 @@ Requires Node.js 20+, Rust (stable), and
 ## Quick Start
 
 1. **Add a Project** — Click "Add Project" and select a local repository
-2. **Review Detected Scripts** — Chibby scans for `deploy.sh`, `Makefile`, `justfile`, `docker-compose.yml`, and package scripts
-3. **Generate Pipeline** — Accept the suggested pipeline or customize stages
+2. **Choose a Source** — Auto-detect from build files, import from GitHub Actions, or start from a template
+3. **Configure Stages** — Toggle, reorder, and edit the generated stages
 4. **Run** — Click "Run Pipeline" to execute all stages
 5. **Monitor** — Watch live logs and stage status in real time
 
@@ -119,7 +122,9 @@ chibby/
 - **Pipeline config**: `.chibby/pipeline.toml` (in repo, version controlled)
 - **Environment config**: `.chibby/environments.toml` (in repo)
 - **Secret references**: `.chibby/secrets.toml` (names only, no values)
-- **Run history**: Platform app data directory
+- **Project templates**: `.chibby/templates/` (in repo, shareable with team)
+- **User templates**: `~/.chibby/templates/` (global, personal collection)
+- **Run history & settings**: Platform app data directory
   - macOS: `~/Library/Application Support/Chibby/`
   - Linux: `~/.local/share/chibby/`
   - Windows: `%APPDATA%\Chibby\`

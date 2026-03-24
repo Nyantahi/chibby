@@ -203,7 +203,9 @@ function Settings() {
           ))}
         </section>
 
-        {agentStatus && (
+        {agentStatus && (() => {
+          const status = agentStatus!;
+          return (
           <section className="settings-section">
             <h3 className="settings-section-title">
               <Bot size={16} /> CI/CD Agent
@@ -213,15 +215,16 @@ function Settings() {
             </p>
             <div className="settings-info-row">
               <span className="settings-info-label">Status</span>
-              <span className={`settings-info-value ${agentStatus.available ? 'text-green-400' : 'text-yellow-400'}`}>
-                {agentStatus.available ? 'Active' : 'Not configured'}
+              <span className={`settings-info-value ${status.available ? 'text-green-400' : 'text-yellow-400'}`}>
+                {status.available ? 'Active' : 'Not configured'}
               </span>
             </div>
-            {agentStatus.error && (
-              <p className="text-sm text-yellow-400 mt-1">{agentStatus.error}</p>
+            {status.error && (
+              <p className="text-sm text-yellow-400 mt-1">{status.error}</p>
             )}
           </section>
-        )}
+          );
+        })()}
         </>
       )}
 
