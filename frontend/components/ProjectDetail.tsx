@@ -567,7 +567,7 @@ function ProjectDetail() {
               </select>
             )}
 
-            {/* Environment selector */}
+            {/* Deploy target selector */}
             {envsConfig?.environments?.length > 0 && (
               <select
                 className="input input-sm env-select"
@@ -577,7 +577,7 @@ function ProjectDetail() {
                   setPreflightResult(null);
                 }}
               >
-                <option value="">No environment</option>
+                <option value="">No target</option>
                 {envsConfig?.environments?.map((env) => (
                   <option key={env.name} value={env.name}>
                     {env.name}
