@@ -1,0 +1,49 @@
+[meta]
+name = "Tauri Desktop App"
+description = "Full CI pipeline for Tauri apps: install, quality checks, frontend + backend tests, and build"
+author = "chibby"
+version = "1.0.0"
+category = "rust"
+tags = ["tauri", "desktop", "rust", "node", "typescript"]
+project_types = ["tauri", "node", "rust"]
+required_tools = ["npm", "cargo"]
+template_type = "pipeline"
+
+[pipeline]
+name = "{{project_name}} Pipeline"
+
+[[pipeline.stages]]
+name = "install"
+commands = ["npm ci"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "type-check"
+commands = ["npm run type-check"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "lint"
+commands = ["npm run lint"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "test-frontend"
+commands = ["npm run test:run"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "test-backend"
+commands = ["cd src-tauri && cargo test"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "build"
+commands = ["npm run tauri:build"]
+backend = "local"
+fail_fast = true

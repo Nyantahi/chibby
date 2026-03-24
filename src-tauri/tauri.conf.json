@@ -74,6 +74,7 @@
       }
     },
     "category": "DeveloperTool",
+    "resources": ["templates/**/*.toml"],
     "shortDescription": "Local-first CI/CD for solo developers",
     "longDescription": "Chibby is a local-first, open-source CI/CD and deployment tool that helps developers turn existing scripts into visual, repeatable pipelines. Import your deploy.sh, Makefile, or Docker Compose files and get clear logs, run history, retry, and rollback capabilities — all without a cloud CI platform."
   }

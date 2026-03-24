@@ -1,0 +1,19 @@
+[meta]
+name = "Docker Build & Push"
+description = "Build a Docker image and push it to a container registry"
+author = "chibby"
+version = "1.0.0"
+category = "deployment"
+tags = ["docker", "container", "registry"]
+required_tools = ["docker"]
+template_type = "stage"
+
+[[stages]]
+name = "docker-push"
+commands = [
+  "docker build -t {{image_name}}:latest .",
+  "docker tag {{image_name}}:latest {{registry}}/{{image_name}}:latest",
+  "docker push {{registry}}/{{image_name}}:latest"
+]
+backend = "local"
+fail_fast = true

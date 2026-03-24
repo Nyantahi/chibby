@@ -1,0 +1,37 @@
+[meta]
+name = "Rust Library"
+description = "CI pipeline for Rust libraries and crates: formatting, linting, testing, and doc generation"
+author = "chibby"
+version = "1.0.0"
+category = "rust"
+tags = ["rust", "library", "crate", "cargo"]
+project_types = ["rust"]
+required_tools = ["cargo", "rustfmt", "clippy"]
+template_type = "pipeline"
+
+[pipeline]
+name = "{{project_name}} Pipeline"
+
+[[pipeline.stages]]
+name = "format-check"
+commands = ["cargo fmt --check"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "clippy"
+commands = ["cargo clippy -- -D warnings"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "test"
+commands = ["cargo test"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "doc"
+commands = ["cargo doc --no-deps"]
+backend = "local"
+fail_fast = true

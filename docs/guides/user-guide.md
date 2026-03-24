@@ -811,7 +811,7 @@ Projects, run history, and settings are accessible from both interfaces.
 
 - Check the [README](../README.md) for setup instructions
 - Review [pipeline examples](../../docs/phase-0-audit.md) for common patterns
-- See the [phased roadmap](../plans/chibby-phased-build-roadmap.md) for feature status
+- See the [changelog](../../CHANGELOG.md) for feature history
 
 ### Reset Chibby Data
 
@@ -848,9 +848,6 @@ Pipeline configurations remain in each project's `.chibby/` folder.
 
 ---
 
-## Next Steps
+## What's Next
 
-- **Phase 8** (planned): Agent-assisted failure recovery and optimization
-- **Phase 9** (planned): Optional shared mode and remote agents
-
-See [chibby-phased-build-roadmap.md](../plans/chibby-phased-build-roadmap.md) for the full development timeline.
+See the [changelog](../../CHANGELOG.md) for completed features and recent changes.

@@ -8,6 +8,7 @@ Chibby helps developers turn existing scripts into visual, repeatable pipelines 
 
 ## Features
 
+- **CLI** — Standalone command-line interface for headless servers and scripting ([CLI docs](docs/features/cli-commands.md))
 - **Script Import** — Detect and import existing scripts from your repo
 - **Pipeline Generation** — Auto-generate pipelines from detected commands (heuristic + LLM-assisted)
 - **Local Execution** — Run stages as local processes with live log streaming
@@ -133,25 +134,6 @@ npm run format         # Prettier
 npm test               # Vitest
 npm run tauri:build    # Production build
 ```
-
-## Roadmap
-
-| Phase | Status | Description |
-|-------|--------|-------------|
-| 0 | Done | Dogfood on Okapian project |
-| 1 | Done | Core engine prototype |
-| 2 | Done | Script detection and pipeline generation |
-| 3 | Done | Tauri desktop shell and basic UX |
-| 4 | Done | Environments, secrets, and SSH deploys |
-| 5 | Done | Versioning, signing, and artifact management |
-| 5.5 | Done | Tauri updater integration |
-| 5.8 | Done | Security and quality gates |
-| 6 | Done | Run history, retry, and rollback |
-| 7 | Done | Packaging, OSS readiness, and early adopters |
-| 8 | Planned | Agent-assisted failure recovery |
-| 9 | Planned | Optional shared mode and remote agents |
-
-See [docs/plans/chibby-phased-build-roadmap.md](docs/plans/chibby-phased-build-roadmap.md) for details.
 
 ## Contributing
 

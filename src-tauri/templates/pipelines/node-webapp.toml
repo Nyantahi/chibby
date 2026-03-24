@@ -1,0 +1,46 @@
+[meta]
+name = "Node.js Web App"
+description = "Full CI/CD pipeline for Node.js web applications: install, lint, test, build, and deploy via SSH"
+author = "chibby"
+version = "1.0.0"
+category = "node"
+tags = ["node", "javascript", "typescript", "web", "deployment"]
+project_types = ["node"]
+required_tools = ["node", "npm"]
+template_type = "pipeline"
+
+[pipeline]
+name = "{{project_name}} Pipeline"
+
+[[pipeline.stages]]
+name = "install"
+commands = ["npm ci"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "lint"
+commands = ["npm run lint"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "test"
+commands = ["npm test"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "build"
+commands = ["npm run build"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "deploy"
+commands = [
+  "rsync -avz --delete dist/ {{ssh_user}}@{{ssh_host}}:/var/www/{{project_name}}/",
+  "ssh {{ssh_user}}@{{ssh_host}} 'sudo systemctl restart {{project_name}}'"
+]
+backend = "ssh"
+fail_fast = true

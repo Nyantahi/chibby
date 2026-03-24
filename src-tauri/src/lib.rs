@@ -14,6 +14,7 @@ use commands::project_commands;
 use commands::run_commands;
 use commands::updater_commands;
 use commands::settings_commands;
+use commands::template_commands;
 use commands::version_commands;
 
 /// Entry point for the Tauri application.
@@ -109,6 +110,15 @@ pub fn run() {
             gate_commands::run_dependency_audit,
             gate_commands::run_commit_lint,
             gate_commands::create_secret_scan_baseline,
+            // Template commands
+            template_commands::get_templates,
+            template_commands::get_template,
+            template_commands::get_template_variables,
+            template_commands::apply_template,
+            template_commands::save_custom_template,
+            template_commands::delete_custom_template,
+            template_commands::export_template,
+            template_commands::import_template,
             // Agent commands (Phase 8)
             agent_commands::get_agent_status,
             agent_commands::analyze_run,

@@ -615,3 +615,42 @@ export interface MemoryEntry {
   created_at: string;
   project_id?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Pipeline Templates
+// ---------------------------------------------------------------------------
+
+/** Where a template was loaded from (highest priority first). */
+export type TemplateSource = 'project' | 'user' | 'built_in';
+
+/** Whether the template is a full pipeline or a single stage snippet. */
+export type TemplateType = 'pipeline' | 'stage';
+
+/** Metadata block for a pipeline template. */
+export interface TemplateMeta {
+  name: string;
+  description: string;
+  author: string;
+  version: string;
+  category: string;
+  tags: string[];
+  project_types: string[];
+  required_tools: string[];
+  template_type: TemplateType;
+}
+
+/** A {{variable}} placeholder found in a template. */
+export interface TemplateVariable {
+  name: string;
+  description: string;
+  default_value: string;
+  required: boolean;
+}
+
+/** A resolved pipeline template with its source. */
+export interface PipelineTemplate {
+  meta: TemplateMeta;
+  source: TemplateSource;
+  pipeline?: Pipeline;
+  stages?: Stage[];
+}

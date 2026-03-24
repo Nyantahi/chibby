@@ -1,0 +1,47 @@
+[meta]
+name = "Docker Compose Deploy"
+description = "Build images locally, push to a registry, and deploy on a remote host with Docker Compose"
+author = "chibby"
+version = "1.0.0"
+category = "docker"
+tags = ["docker", "compose", "container", "deployment"]
+project_types = ["docker"]
+required_tools = ["docker"]
+template_type = "pipeline"
+
+[pipeline]
+name = "{{project_name}} Pipeline"
+
+[[pipeline.stages]]
+name = "test"
+commands = ["docker compose run --rm app npm test"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "build"
+commands = ["docker compose build --no-cache"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "push"
+commands = ["docker compose push"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "deploy"
+commands = [
+  "docker compose pull",
+  "docker compose up -d --remove-orphans",
+  "docker image prune -f"
+]
+backend = "ssh"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "health-check"
+commands = ["curl -sf http://localhost:{{health_port}}/health || exit 1"]
+backend = "ssh"
+fail_fast = true

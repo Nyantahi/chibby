@@ -1,0 +1,18 @@
+[meta]
+name = "S3 / CloudFront Deploy"
+description = "Sync static assets to S3 and invalidate CloudFront cache"
+author = "chibby"
+version = "1.0.0"
+category = "deployment"
+tags = ["aws", "s3", "cloudfront", "static", "deploy"]
+required_tools = ["aws"]
+template_type = "stage"
+
+[[stages]]
+name = "s3-deploy"
+commands = [
+  "aws s3 sync ./dist/ s3://{{s3_bucket}}/ --delete",
+  "aws cloudfront create-invalidation --distribution-id {{cloudfront_id}} --paths \"/*\""
+]
+backend = "local"
+fail_fast = true

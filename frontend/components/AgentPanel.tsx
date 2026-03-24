@@ -10,8 +10,8 @@ import {
   Loader2,
   Sparkles,
 } from 'lucide-react';
-import { analyzeRun, agentChat, getAgentStatus } from '../services/api';
-import type { AgentAnalysis, AgentResponse, Finding, Severity } from '../types';
+import { analyzeRun, agentChat } from '../services/api';
+import type { AgentAnalysis, Finding, Severity } from '../types';
 
 interface AgentPanelProps {
   runId: string;

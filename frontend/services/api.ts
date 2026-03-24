@@ -38,6 +38,8 @@ import type {
   SecretScanResult,
   AuditResult,
   CommitLintResult,
+  PipelineTemplate,
+  TemplateVariable,
 } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -593,4 +595,92 @@ export async function deleteAgentMemory(key: string, projectId?: string): Promis
 /** Rebuild the agent (e.g., after changing API keys). */
 export async function rebuildAgent(): Promise<AgentSystemStatus> {
   return invoke<AgentSystemStatus>('rebuild_agent');
+}
+
+// ---------------------------------------------------------------------------
+// Template commands
+// ---------------------------------------------------------------------------
+
+/** Get all templates (built-in + user + project), merged and de-duplicated. */
+export async function getTemplates(repoPath?: string): Promise<PipelineTemplate[]> {
+  return invoke<PipelineTemplate[]>('get_templates', { repoPath: repoPath ?? null });
+}
+
+/** Get a single template by name. */
+export async function getTemplate(
+  name: string,
+  repoPath?: string,
+): Promise<PipelineTemplate> {
+  return invoke<PipelineTemplate>('get_template', { name, repoPath: repoPath ?? null });
+}
+
+/** Extract the {{variable}} placeholders from a template. */
+export async function getTemplateVariables(
+  name: string,
+  repoPath?: string,
+): Promise<TemplateVariable[]> {
+  return invoke<TemplateVariable[]>('get_template_variables', {
+    name,
+    repoPath: repoPath ?? null,
+  });
+}
+
+/** Apply a template with variable values, producing a concrete Pipeline. */
+export async function applyTemplate(
+  name: string,
+  variables: Record<string, string>,
+  repoPath?: string,
+): Promise<Pipeline> {
+  return invoke<Pipeline>('apply_template', {
+    name,
+    repoPath: repoPath ?? null,
+    variables,
+  });
+}
+
+/** Save a custom template to user-global or project scope. */
+export async function saveCustomTemplate(
+  template: PipelineTemplate,
+  scope: 'user' | 'project',
+  repoPath?: string,
+): Promise<void> {
+  return invoke<void>('save_custom_template', {
+    template,
+    scope,
+    repoPath: repoPath ?? null,
+  });
+}
+
+/** Delete a custom template from user-global or project scope. */
+export async function deleteCustomTemplate(
+  name: string,
+  scope: 'user' | 'project',
+  repoPath?: string,
+): Promise<void> {
+  return invoke<void>('delete_custom_template', {
+    name,
+    scope,
+    repoPath: repoPath ?? null,
+  });
+}
+
+/** Export a template as a TOML string for sharing. */
+export async function exportTemplate(
+  name: string,
+  repoPath?: string,
+): Promise<string> {
+  return invoke<string>('export_template', { name, repoPath: repoPath ?? null });
+}
+
+/** Import a template from a TOML string and save to the given scope. */
+export async function importTemplate(
+  tomlContent: string,
+  scope: 'user' | 'project',
+  repoPath?: string,
+): Promise<PipelineTemplate> {
+  return invoke<PipelineTemplate>('import_template', {
+    tomlContent,
+    scope,
+    repoPath: repoPath ?? null,
+  });
 }

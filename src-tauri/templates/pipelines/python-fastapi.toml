@@ -1,0 +1,45 @@
+[meta]
+name = "Python FastAPI"
+description = "CI/CD pipeline for FastAPI projects: linting, type checking, testing, and deployment"
+author = "chibby"
+version = "1.0.0"
+category = "python"
+tags = ["python", "fastapi", "api", "web", "deployment"]
+project_types = ["python"]
+required_tools = ["python3", "pip", "ruff"]
+template_type = "pipeline"
+
+[pipeline]
+name = "{{project_name}} Pipeline"
+
+[[pipeline.stages]]
+name = "lint"
+commands = [
+  "ruff check .",
+  "ruff format --check ."
+]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "type-check"
+commands = ["mypy ."]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "test"
+commands = ["pytest --cov"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "deploy"
+commands = [
+  "git pull origin main",
+  "pip install -r requirements.txt",
+  "alembic upgrade head",
+  "sudo systemctl restart {{project_name}}"
+]
+backend = "ssh"
+fail_fast = true

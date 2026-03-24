@@ -1,0 +1,15 @@
+[meta]
+name = "Cargo Publish"
+description = "Publish a Rust crate to crates.io with a dry-run check first"
+author = "chibby"
+version = "1.0.0"
+category = "deployment"
+tags = ["rust", "cargo", "crates", "publish"]
+required_tools = ["cargo"]
+template_type = "stage"
+
+[[stages]]
+name = "cargo-publish"
+commands = ["cargo publish --dry-run", "cargo publish"]
+backend = "local"
+fail_fast = true

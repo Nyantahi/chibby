@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   FolderOpen,
   Search,
@@ -10,6 +10,7 @@ import {
   Wand2,
   GitBranch,
   Plus,
+  BookTemplate,
 } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
@@ -22,10 +23,12 @@ import {
 } from '../services/api';
 import { repoNameFromPath } from '../utils/format';
 import { FileTypeIcon } from './FileTypeIcon';
-import type { DetectedScript, Pipeline, Stage, WorkflowInfo } from '../types';
+import TemplateBrowser from './TemplateBrowser';
+import TemplateVariableDialog from './TemplateVariableDialog';
+import type { DetectedScript, Pipeline, PipelineTemplate, Stage, WorkflowInfo } from '../types';
 
 type WizardStep = 'select' | 'source' | 'configure' | 'review' | 'done';
-type PipelineSource = 'auto' | 'github';
+type PipelineSource = 'auto' | 'github' | 'template';
 
 const WIZARD_STEPS: { key: WizardStep; label: string }[] = [
   { key: 'select', label: 'Select' },
@@ -124,6 +127,7 @@ function computeSuggestions(
 
 function AddProject() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [step, setStep] = useState<WizardStep>('select');
   const [repoPath, setRepoPath] = useState('');
@@ -136,6 +140,21 @@ function AddProject() {
   const [stageSelection, setStageSelection] = useState<Record<number, boolean>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Template state
+  const [showTemplateBrowser, setShowTemplateBrowser] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<PipelineTemplate | null>(null);
+
+  // Pick up template passed from the Templates page via router state
+  useEffect(() => {
+    const state = location.state as { template?: PipelineTemplate; editMode?: boolean } | null;
+    if (state?.template) {
+      setSelectedTemplate(state.template);
+      setPipelineSource('template');
+      // Clear state so refreshing doesn't re-trigger
+      window.history.replaceState({}, '');
+    }
+  }, [location.state]);
 
   const currentStepIdx = WIZARD_STEPS.findIndex((s) => s.key === step);
 
@@ -413,6 +432,21 @@ function AddProject() {
                   : 'No workflows found in .github/workflows/'}
               </span>
             </button>
+
+            <button
+              className="wizard-source-card"
+              onClick={() => {
+                setPipelineSource('template');
+                setShowTemplateBrowser(true);
+              }}
+              disabled={loading}
+            >
+              <BookTemplate size={24} className="source-icon" />
+              <span className="source-title">From Template</span>
+              <span className="source-desc">
+                Choose from built-in or custom pipeline templates.
+              </span>
+            </button>
           </div>
 
           <div className="form-actions">
@@ -550,6 +584,48 @@ function AddProject() {
           <h3>Project added!</h3>
           <p>Redirecting to projects...</p>
         </div>
+      )}
+
+      {/* Template browser modal */}
+      {showTemplateBrowser && (
+        <div className="modal-backdrop" onClick={() => setShowTemplateBrowser(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 700, maxHeight: '80vh', overflow: 'auto' }}>
+            <div className="modal-header">
+              <h3>Choose a Pipeline Template</h3>
+              <button className="btn-icon" onClick={() => setShowTemplateBrowser(false)}>
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <TemplateBrowser
+                repoPath={repoPath}
+                filterType="pipeline"
+                onApply={(t) => {
+                  setSelectedTemplate(t);
+                  setShowTemplateBrowser(false);
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Template variable dialog */}
+      {selectedTemplate && (
+        <TemplateVariableDialog
+          template={selectedTemplate}
+          repoPath={repoPath}
+          projectName={repoName}
+          onApplied={(pipeline) => {
+            setDraft(pipeline);
+            const sel: Record<number, boolean> = {};
+            pipeline.stages.forEach((_, i) => { sel[i] = true; });
+            setStageSelection(sel);
+            setSelectedTemplate(null);
+            setStep('configure');
+          }}
+          onCancel={() => setSelectedTemplate(null)}
+        />
       )}
     </div>
   );

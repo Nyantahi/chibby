@@ -1,0 +1,51 @@
+[meta]
+name = "Python Django"
+description = "Full CI/CD pipeline for Django web apps: linting, testing, migration checks, and SSH deployment"
+author = "chibby"
+version = "1.0.0"
+category = "python"
+tags = ["python", "django", "web", "deployment"]
+project_types = ["python"]
+required_tools = ["python3", "pip", "ruff"]
+template_type = "pipeline"
+
+[pipeline]
+name = "{{project_name}} Pipeline"
+
+[[pipeline.stages]]
+name = "lint"
+commands = [
+  "ruff check .",
+  "ruff format --check ."
+]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "test"
+commands = ["python manage.py test --parallel"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "check-migrations"
+commands = ["python manage.py makemigrations --check --dry-run"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "collect-static"
+commands = ["python manage.py collectstatic --noinput"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "deploy"
+commands = [
+  "git pull origin main",
+  "pip install -r requirements.txt",
+  "python manage.py migrate --noinput",
+  "sudo systemctl restart gunicorn"
+]
+backend = "ssh"
+fail_fast = true

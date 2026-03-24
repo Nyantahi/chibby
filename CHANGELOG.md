@@ -30,3 +30,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew cask formula template
 - Build-time validation modules for macOS, Linux, and Windows
 - CI pipeline with lint, test, and build on all three platforms
+- Pipeline templates system with 3-layer resolution (built-in, user, project)
+- 19 built-in templates: 9 full pipelines + 10 stage snippets
+- Template variable substitution with `{{variable}}` placeholders
+- Template Browser component with search, category, type, and source filters
+- Template Variable Dialog for filling in placeholders before applying
+- Save As Template dialog for saving pipelines as reusable templates
+- Template integration in Add Project wizard ("From Template" source option)
+- Template integration in Pipeline Editor (dynamic stage templates from API)
+- Tauri IPC commands for template CRUD, import, and export
+- Frontend API service functions for all template operations
+- CLI documentation (docs/features/cli-commands.md)
+- Deploy step templates in Pipeline Editor (GitHub Release, Homebrew, Docker, SSH, S3, npm, Cargo, Tauri)
+- Homebrew templates auto-detect repo URL and formula paths via `gh` CLI
+
+### Changed
+
+- README: added CLI feature entry with link to CLI docs
+- README: removed internal roadmap section
+- User guide: replaced roadmap references with changelog links

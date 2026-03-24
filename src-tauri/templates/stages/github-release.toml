@@ -1,0 +1,17 @@
+[meta]
+name = "GitHub Release"
+description = "Create a GitHub release with auto-generated notes, optionally uploading dist assets"
+author = "chibby"
+version = "1.0.0"
+category = "deployment"
+tags = ["github", "release", "publish"]
+template_type = "stage"
+
+[[stages]]
+name = "github-release"
+commands = [
+  "VERSION=$(cat VERSION || echo \"{{version}}\")",
+  "gh release create \"v${VERSION}\" --generate-notes --draft ./dist/*.tar.gz ./dist/*.zip"
+]
+backend = "local"
+fail_fast = true

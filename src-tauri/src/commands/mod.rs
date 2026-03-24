@@ -8,5 +8,6 @@ pub mod notify_commands;
 pub mod pipeline_commands;
 pub mod project_commands;
 pub mod run_commands;
+pub mod template_commands;
 pub mod updater_commands;
 pub mod version_commands;

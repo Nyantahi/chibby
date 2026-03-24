@@ -1,0 +1,18 @@
+[meta]
+name = "SSH Deploy (rsync)"
+description = "Deploy files to a remote server via rsync over SSH and restart the service"
+author = "chibby"
+version = "1.0.0"
+category = "deployment"
+tags = ["ssh", "rsync", "deploy"]
+required_tools = ["rsync", "ssh"]
+template_type = "stage"
+
+[[stages]]
+name = "ssh-deploy"
+commands = [
+  "rsync -avz --delete ./dist/ {{ssh_user}}@{{ssh_host}}:{{deploy_path}}/",
+  "ssh {{ssh_user}}@{{ssh_host}} 'sudo systemctl restart {{service_name}}'"
+]
+backend = "local"
+fail_fast = true

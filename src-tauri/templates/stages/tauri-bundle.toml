@@ -1,0 +1,15 @@
+[meta]
+name = "Tauri Build & Bundle"
+description = "Build a Tauri desktop application bundle"
+author = "chibby"
+version = "1.0.0"
+category = "deployment"
+tags = ["tauri", "desktop", "build", "bundle"]
+required_tools = ["npm", "cargo"]
+template_type = "stage"
+
+[[stages]]
+name = "tauri-bundle"
+commands = ["npm run tauri build"]
+backend = "local"
+fail_fast = true

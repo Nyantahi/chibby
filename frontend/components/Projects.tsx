@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { FolderGit2, Clock, CircleCheck, CircleX, Circle } from 'lucide-react';
+import { FolderGit2, CircleCheck, CircleX, Circle } from 'lucide-react';
 import { listProjects, getAllRuns } from '../services/api';
 import { formatDate, statusClass, capitalize } from '../utils/format';
 import type { ProjectInfo, PipelineRun } from '../types';
@@ -141,18 +141,17 @@ function Projects() {
                   {has_pipeline ? 'Pipeline configured' : 'No pipeline'}
                 </span>
                 {project.last_run_status && (
-                  <span className="project-last-run">
-                    {statusIcon(project.last_run_status)}
-                    <span className={`status-text status-${statusClass(project.last_run_status)}`}>
-                      {capitalize(project.last_run_status)}
+                  <div className="project-last-run">
+                    <span className="project-run-status">
+                      {statusIcon(project.last_run_status)}
+                      <span className={`status-text status-${statusClass(project.last_run_status)}`}>
+                        {capitalize(project.last_run_status)}
+                      </span>
                     </span>
                     {project.last_run_at && (
-                      <span className="run-date">
-                        <Clock size={12} />
-                        {formatDate(project.last_run_at)}
-                      </span>
+                      <span className="run-date">{formatDate(project.last_run_at)}</span>
                     )}
-                  </span>
+                  </div>
                 )}
               </div>
             </Link>

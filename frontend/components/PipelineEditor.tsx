@@ -11,9 +11,14 @@ import {
   Heart,
   Download,
   GitBranch,
+  Save,
+  Layers,
 } from 'lucide-react';
 import { savePipeline, getGithubWorkflows } from '../services/api';
-import type { Pipeline, Stage, Backend, HealthCheck, WorkflowInfo } from '../types';
+import type { Pipeline, Stage, Backend, HealthCheck, WorkflowInfo, PipelineTemplate } from '../types';
+import TemplateBrowser from './TemplateBrowser';
+import TemplateVariableDialog from './TemplateVariableDialog';
+import SaveAsTemplate from './SaveAsTemplate';
 
 interface Props {
   repoPath: string;
@@ -38,6 +43,13 @@ function PipelineEditor({ repoPath, pipeline, onSaved }: Props) {
   const [expandedStage, setExpandedStage] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Stage templates (loaded from API)
+  const [showStageBrowser, setShowStageBrowser] = useState(false);
+  const [selectedStageTemplate, setSelectedStageTemplate] = useState<PipelineTemplate | null>(null);
+
+  // Save as template
+  const [showSaveAsTemplate, setShowSaveAsTemplate] = useState(false);
 
   // Import from GitHub Actions
   const [showImport, setShowImport] = useState(false);
@@ -167,6 +179,23 @@ function PipelineEditor({ repoPath, pipeline, onSaved }: Props) {
     setExpandedStage(stages.length);
   }
 
+  function handleStageTemplateApply(template: PipelineTemplate) {
+    setSelectedStageTemplate(template);
+  }
+
+  function handleStageTemplateApplied(applied: Pipeline) {
+    // Add all stages from the applied template
+    const newStages = applied.stages.map((s) => ({
+      ...s,
+      commands: [...s.commands],
+      health_check: s.health_check ? { ...s.health_check } : undefined,
+    }));
+    setStages([...stages, ...newStages]);
+    setExpandedStage(stages.length);
+    setSelectedStageTemplate(null);
+    setShowStageBrowser(false);
+  }
+
   function updateCommand(stageIdx: number, cmdIdx: number, value: string) {
     const cmds = [...stages[stageIdx].commands];
     cmds[cmdIdx] = value;
@@ -216,8 +245,22 @@ function PipelineEditor({ repoPath, pipeline, onSaved }: Props) {
           >
             <Download size={14} /> Import CI
           </button>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => setShowStageBrowser(true)}
+            title="Browse stage templates"
+          >
+            <Layers size={14} /> Stage Templates
+          </button>
           <button className="btn btn-secondary btn-sm" onClick={addStage}>
             <Plus size={14} /> Add Stage
+          </button>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => setShowSaveAsTemplate(true)}
+            title="Save this pipeline as a reusable template"
+          >
+            <Save size={14} /> Save as Template
           </button>
           {hasChanges && (
             <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
@@ -304,6 +347,49 @@ function PipelineEditor({ repoPath, pipeline, onSaved }: Props) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Stage template browser modal */}
+      {showStageBrowser && (
+        <div className="modal-backdrop" onClick={() => setShowStageBrowser(false)}>
+          <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>
+                <Layers size={16} /> Stage Templates
+              </h3>
+              <button className="btn btn-icon" onClick={() => setShowStageBrowser(false)}>
+                <X size={14} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <TemplateBrowser
+                repoPath={repoPath}
+                filterType="stage"
+                onApply={handleStageTemplateApply}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Template variable dialog for stage templates */}
+      {selectedStageTemplate && (
+        <TemplateVariableDialog
+          template={selectedStageTemplate}
+          repoPath={repoPath}
+          onApplied={handleStageTemplateApplied}
+          onCancel={() => setSelectedStageTemplate(null)}
+        />
+      )}
+
+      {/* Save as template dialog */}
+      {showSaveAsTemplate && (
+        <SaveAsTemplate
+          pipeline={{ name, stages: stages.filter((s) => s.name.trim()) }}
+          repoPath={repoPath}
+          onSaved={() => setShowSaveAsTemplate(false)}
+          onCancel={() => setShowSaveAsTemplate(false)}
+        />
       )}
 
       {error && <div className="alert alert-error">{error}</div>}

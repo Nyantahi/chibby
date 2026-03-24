@@ -5,6 +5,7 @@ import ProjectDetail from './components/ProjectDetail';
 import AddProject from './components/AddProject';
 import RunDetail from './components/RunDetail';
 import Settings from './components/Settings';
+import Templates from './components/Templates';
 import AgentChat from './components/AgentChat';
 
 function App() {
@@ -17,6 +18,7 @@ function App() {
           <Route path="project/:projectId" element={<ProjectDetail />} />
           <Route path="add-project" element={<AddProject />} />
           <Route path="run/:runId" element={<RunDetail />} />
+          <Route path="templates" element={<Templates />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

@@ -1,0 +1,40 @@
+[meta]
+name = "Go Web Service"
+description = "CI/CD pipeline for Go web services: vetting, linting, testing, building, and deployment"
+author = "chibby"
+version = "1.0.0"
+category = "go"
+tags = ["go", "golang", "web", "api", "deployment"]
+project_types = ["go"]
+required_tools = ["go"]
+template_type = "pipeline"
+
+[pipeline]
+name = "{{project_name}} Pipeline"
+
+[[pipeline.stages]]
+name = "vet"
+commands = ["go vet ./..."]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "test"
+commands = ["go test -race -cover ./..."]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "build"
+commands = ["CGO_ENABLED=0 go build -o ./bin/{{project_name}} ./cmd/{{project_name}}"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "deploy"
+commands = [
+  "scp ./bin/{{project_name}} {{ssh_user}}@{{ssh_host}}:/opt/{{project_name}}/",
+  "ssh {{ssh_user}}@{{ssh_host}} 'sudo systemctl restart {{project_name}}'"
+]
+backend = "ssh"
+fail_fast = true

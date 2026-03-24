@@ -1,0 +1,33 @@
+[meta]
+name = "Static Site"
+description = "Build and deploy a static site (Hugo, Astro, Next.js export, etc.) via rsync over SSH"
+author = "chibby"
+version = "1.0.0"
+category = "node"
+tags = ["static", "html", "web", "deployment"]
+project_types = ["node", "static"]
+required_tools = ["npm"]
+template_type = "pipeline"
+
+[pipeline]
+name = "{{project_name}} Pipeline"
+
+[[pipeline.stages]]
+name = "install"
+commands = ["npm ci"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "build"
+commands = ["npm run build"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "deploy"
+commands = [
+  "rsync -avz --delete ./dist/ {{ssh_user}}@{{ssh_host}}:/var/www/{{project_name}}/"
+]
+backend = "ssh"
+fail_fast = true

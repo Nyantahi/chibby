@@ -1,0 +1,15 @@
+[meta]
+name = "npm Publish"
+description = "Publish a package to the npm registry"
+author = "chibby"
+version = "1.0.0"
+category = "deployment"
+tags = ["node", "npm", "publish", "registry"]
+required_tools = ["npm"]
+template_type = "stage"
+
+[[stages]]
+name = "npm-publish"
+commands = ["npm publish --access public"]
+backend = "local"
+fail_fast = true

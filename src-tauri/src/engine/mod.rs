@@ -16,5 +16,6 @@ pub mod preflight;
 pub mod recommendations;
 pub mod secrets;
 pub mod signing;
+pub mod templates;
 pub mod updater;
 pub mod version;
