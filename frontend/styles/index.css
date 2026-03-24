@@ -605,6 +605,42 @@ select.input {
   border: 1px solid rgba(244, 112, 103, 0.25);
 }
 
+.failed-run-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-md);
+  border-radius: var(--radius-md);
+  background: var(--color-failed-bg);
+  border: 1px solid rgba(244, 112, 103, 0.2);
+  font-size: var(--font-size-sm);
+}
+
+.failed-run-banner-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--color-failed);
+}
+
+.failed-run-banner-link {
+  color: var(--color-text-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.failed-run-banner-link:hover {
+  color: var(--color-text);
+}
+
+.failed-run-banner-actions {
+  display: flex;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+}
+
 /* ============================================================
    Badges
    ============================================================ */

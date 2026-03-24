@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useParams, Link, useLocation } from 'react-router-dom';
+import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Play,
   Clock,
@@ -48,7 +48,6 @@ import {
   getLastSuccessfulRun,
   clearRunHistory,
   isPipelineRunning,
-  retryRun,
 } from '../services/api';
 import { formatDate, formatDuration, statusClass, capitalize } from '../utils/format';
 import type {
@@ -84,6 +83,7 @@ type TabId = 'pipeline' | 'history' | 'settings';
 function ProjectDetail() {
   const { projectId } = useParams<{ projectId: string }>();
   const location = useLocation();
+  const navigate = useNavigate();
   const initialTab = (location.state as { tab?: TabId })?.tab;
 
   const [project, setProject] = useState<ProjectInfo | null>(null);
@@ -146,9 +146,6 @@ function ProjectDetail() {
   type CmdStatus = 'pending' | 'running' | 'done' | 'failed';
   const [cmdStatuses, setCmdStatuses] = useState<Record<string, CmdStatus>>({});
   const cmdStatusRef = useRef<Record<string, CmdStatus>>({});
-
-  // Retry from banner
-  const [retryingBanner, setRetryingBanner] = useState(false);
 
   // Collapsible sections
   const [showEnvSection, setShowEnvSection] = useState(false);
@@ -391,16 +388,17 @@ function ProjectDetail() {
     }
   }
 
-  async function handleBannerRetry(runId: string, fromStage?: string) {
-    try {
-      setRetryingBanner(true);
-      setError(null);
-      const newRun = await retryRun(runId, fromStage);
-      // Navigate to the new run detail
-      window.location.href = `/run/${newRun.id}`;
-    } catch (err) {
-      setError(String(err));
-      setRetryingBanner(false);
+  function handleBannerRetry(fromStage?: string) {
+    if (!pipeline) return;
+    if (fromStage) {
+      // Run from the failed stage onwards
+      const stageIdx = pipeline.stages.findIndex((s) => s.name === fromStage);
+      if (stageIdx >= 0) {
+        const stagesToRun = pipeline.stages.slice(stageIdx).map((s) => s.name);
+        handleRun(stagesToRun);
+      }
+    } else {
+      handleRun();
     }
   }
 
@@ -460,7 +458,7 @@ function ProjectDetail() {
     if (!project) return;
     try {
       await removeProject(project.project.id);
-      window.location.href = '/';
+      navigate('/');
     } catch (err) {
       setError(String(err));
     }
@@ -689,66 +687,33 @@ function ProjectDetail() {
                 (() => {
                   const lastFailed = runs[0];
                   const failedStage = lastFailed.stage_results.find((s) => s.status === 'failed');
-                  const timeAgo = (() => {
-                    const diff = Date.now() - new Date(lastFailed.started_at).getTime();
-                    const mins = Math.floor(diff / 60000);
-                    if (mins < 1) return 'just now';
-                    if (mins < 60) return `${mins}m ago`;
-                    const hours = Math.floor(mins / 60);
-                    if (hours < 24) return `${hours}h ago`;
-                    return `${Math.floor(hours / 24)}d ago`;
-                  })();
                   return (
-                    <div
-                      className="alert alert-error"
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '12px',
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          flexWrap: 'wrap',
-                        }}
-                      >
-                        <XCircle size={16} />
-                        <span>
-                          Last run failed
-                          {failedStage ? ` at stage "${failedStage.stage_name}"` : ''} — {timeAgo}
-                        </span>
-                        <Link
-                          to={`/run/${lastFailed.id}`}
-                          className="btn btn-sm"
-                          style={{ marginLeft: '4px' }}
-                        >
-                          <Eye size={12} /> View Details
+                    <div className="failed-run-banner">
+                      <div className="failed-run-banner-info">
+                        <XCircle size={14} />
+                        <span>Failed{failedStage ? ` at ${failedStage.stage_name}` : ''}</span>
+                        <Link to={`/run/${lastFailed.id}`} className="failed-run-banner-link">
+                          View log
                         </Link>
                       </div>
-                      <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                      <div className="failed-run-banner-actions">
                         {failedStage && (
                           <button
                             className="btn btn-sm"
-                            onClick={() => handleBannerRetry(lastFailed.id, failedStage.stage_name)}
-                            disabled={retryingBanner}
+                            onClick={() => handleBannerRetry(failedStage.stage_name)}
+                            disabled={running}
                           >
                             <RotateCcw size={12} />
-                            {retryingBanner
-                              ? ' Retrying...'
-                              : ` Retry from ${failedStage.stage_name}`}
+                            Retry from {failedStage.stage_name}
                           </button>
                         )}
                         <button
                           className="btn btn-sm btn-primary"
-                          onClick={() => handleBannerRetry(lastFailed.id)}
-                          disabled={retryingBanner}
+                          onClick={() => handleBannerRetry()}
+                          disabled={running}
                         >
                           <RotateCcw size={12} />
-                          {retryingBanner ? ' Retrying...' : ' Retry All'}
+                          Retry All
                         </button>
                       </div>
                     </div>
