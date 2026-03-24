@@ -11,9 +11,7 @@ template_type = "stage"
 [[stages]]
 name = "homebrew-core-pr"
 commands = [
-  "VERSION=$(cat VERSION 2>/dev/null || echo \"{{version}}\")",
-  "DOWNLOAD_URL=\"{{download_url}}\"",
-  "brew bump-{{formula_type}}-pr --version \"${VERSION}\" --url \"${DOWNLOAD_URL}\" --no-browse {{formula_name}}"
+  "V=$(cat VERSION 2>/dev/null || echo \"{{version}}\") && brew bump-{{formula_type}}-pr --version \"$V\" --url \"{{download_url}}\" --no-browse {{formula_name}}"
 ]
 backend = "local"
 fail_fast = true

@@ -10,10 +10,7 @@ template_type = "stage"
 [[stages]]
 name = "github-release"
 commands = [
-  "VERSION=$(cat VERSION 2>/dev/null || echo \"{{version}}\")",
-  "if [ -z \"$VERSION\" ]; then echo 'Error: No VERSION file found and no {{version}} variable provided'; exit 1; fi",
-  "ASSETS=$(find ./dist -name '*.tar.gz' -o -name '*.zip' 2>/dev/null || true)",
-  "if [ -n \"$ASSETS\" ]; then gh release create \"v${VERSION}\" --generate-notes --draft $ASSETS; else gh release create \"v${VERSION}\" --generate-notes --draft; fi"
+  "V=$(cat VERSION 2>/dev/null || echo \"{{version}}\") && if [ -z \"$V\" ]; then echo 'Error: No VERSION file found and no version variable provided'; exit 1; fi && ASSETS=$(find ./dist -name '*.tar.gz' -o -name '*.zip' 2>/dev/null || true) && if [ -n \"$ASSETS\" ]; then gh release create \"v$V\" --generate-notes --draft $ASSETS; else gh release create \"v$V\" --generate-notes --draft; fi"
 ]
 backend = "local"
 fail_fast = true

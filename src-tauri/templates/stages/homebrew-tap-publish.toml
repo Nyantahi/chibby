@@ -11,14 +11,7 @@ template_type = "stage"
 [[stages]]
 name = "homebrew-tap-publish"
 commands = [
-  "VERSION=$(cat VERSION 2>/dev/null || echo \"{{version}}\")",
-  "TAP_DIR=\"{{tap_repo_path}}\"",
-  "FORMULA=\"${TAP_DIR}/{{formula_file}}\"",
-  "TARBALL=\"{{tarball_path}}\"",
-  "SHA256=$(shasum -a 256 \"${TARBALL}\" | cut -d ' ' -f1)",
-  "sed -i '' \"s/version \\\".*\\\"/version \\\"${VERSION}\\\"/\" \"${FORMULA}\"",
-  "sed -i '' \"s/sha256 \\\"PLACEHOLDER.*\\\"/sha256 \\\"${SHA256}\\\"/\" \"${FORMULA}\"",
-  "cd \"${TAP_DIR}\" && git add -A && git commit -m \"Update to v${VERSION}\" && git push"
+  "V=$(cat VERSION 2>/dev/null || echo \"{{version}}\") && TAP_DIR=\"{{tap_repo_path}}\" && FORMULA=\"${TAP_DIR}/{{formula_file}}\" && SHA=$(shasum -a 256 \"{{tarball_path}}\" | cut -d ' ' -f1) && sed -i '' \"s/version \\\".*\\\"/version \\\"$V\\\"/\" \"$FORMULA\" && sed -i '' \"s/sha256 \\\"PLACEHOLDER.*\\\"/sha256 \\\"$SHA\\\"/\" \"$FORMULA\" && cd \"$TAP_DIR\" && git add -A && git commit -m \"Update to v$V\" && git push"
 ]
 backend = "local"
 fail_fast = true
