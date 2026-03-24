@@ -41,11 +41,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tauri IPC commands for template CRUD, import, and export
 - Frontend API service functions for all template operations
 - CLI documentation (docs/features/cli-commands.md)
+- Templates documentation (docs/features/templates.md)
 - Deploy step templates in Pipeline Editor (GitHub Release, Homebrew, Docker, SSH, S3, npm, Cargo, Tauri)
 - Homebrew templates auto-detect repo URL and formula paths via `gh` CLI
+- GitHub Actions import: parse `.github/workflows/` and convert steps to pipeline stages
+- GitHub Actions import available in both Add Project wizard and Pipeline Editor
+- "Apply Template" and "Use as Starting Point" buttons on Templates page navigate to Add Project wizard with template pre-selected
+- Add Project wizard shows pre-selected template banner and skips source step when template is provided
+- App Settings page with configurable notification and retention defaults
+- Default notification settings (notify on success/failure) applied when no per-project config exists
+- Default retention settings (artifact count, run history count) applied when no per-project config exists
+- Post-run cleanup: automatic pruning of old artifacts and run history based on retention limits
+- Configurable version bump level (`patch`, `minor`, `major`) in Version Bump & Tag template via `{{bump_level}}` variable
+- Well-known template variable defaults with descriptions (bump_level, project_name)
+- Dropdown selector for bump_level variable in Template Variable Dialog
 
 ### Changed
 
-- README: added CLI feature entry with link to CLI docs
-- README: removed internal roadmap section
-- User guide: replaced roadmap references with changelog links
+- README: added templates, GitHub Actions import, settings, and versioning features
+- README: updated Quick Start to reflect new wizard flow with source selection
+- README: added template storage paths to Data Storage section
+- User guide: rewrote "Adding a Project" to cover 4-step wizard with template and GitHub Actions support
+- User guide: added Pipeline Templates section with browsing, applying, and creating templates
+- User guide: added Pipeline Editor enhancements (Import CI, Stage Templates, Save as Template)
+- User guide: added App Settings section for notifications and retention defaults
+- Version Bump & Tag template: bump level is now configurable instead of hardcoded to patch
