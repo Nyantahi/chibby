@@ -32,6 +32,8 @@ import {
 import {
   listProjects,
   loadPipeline,
+  listPipelines,
+  loadPipelineByName,
   runPipeline,
   cancelPipeline,
   getRunHistory,
@@ -88,6 +90,8 @@ function ProjectDetail() {
 
   const [project, setProject] = useState<ProjectInfo | null>(null);
   const [pipeline, setPipeline] = useState<Pipeline | null>(null);
+  const [pipelineNames, setPipelineNames] = useState<string[]>([]);
+  const [selectedPipeline, setSelectedPipeline] = useState<string>('pipeline');
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -172,7 +176,15 @@ function ProjectDetail() {
       setProject(p);
 
       if (p?.has_pipeline) {
-        const pl = await loadPipeline(p.project.path);
+        // Load available pipelines
+        const names = await listPipelines(p.project.path).catch(() => ['pipeline']);
+        setPipelineNames(names);
+
+        // Load the selected pipeline (or default)
+        const pl =
+          selectedPipeline === 'pipeline'
+            ? await loadPipeline(p.project.path)
+            : await loadPipelineByName(p.project.path, selectedPipeline);
         setPipeline(pl);
         // Validate the pipeline
         try {
@@ -230,6 +242,33 @@ function ProjectDetail() {
             }
           })
           .catch(() => {});
+      }
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function handleSwitchPipeline(name: string) {
+    if (!project) return;
+    try {
+      setSelectedPipeline(name);
+      setStageStatuses({});
+      setCmdStatuses({});
+      cmdStatusRef.current = {};
+      setSelectedStageResult(null);
+      setLiveOutput({});
+      liveOutputRef.current = {};
+      const pl =
+        name === 'pipeline'
+          ? await loadPipeline(project.project.path)
+          : await loadPipelineByName(project.project.path, name);
+      setPipeline(pl);
+      // Re-validate
+      try {
+        const val = await validatePipeline(project.project.path);
+        setValidation(val);
+      } catch {
+        setValidation(null);
       }
     } catch (err) {
       setError(String(err));
@@ -338,7 +377,12 @@ function ProjectDetail() {
       );
 
       // Run the pipeline
-      await runPipeline(project.project.path, selectedEnv || undefined, stages);
+      await runPipeline(
+        project.project.path,
+        selectedEnv || undefined,
+        stages,
+        selectedPipeline !== 'pipeline' ? selectedPipeline : undefined
+      );
 
       // Clean up listener
       unlisten();
@@ -507,6 +551,22 @@ function ProjectDetail() {
             )}
           </div>
           <div className="header-actions">
+            {/* Pipeline selector */}
+            {pipelineNames.length > 1 && (
+              <select
+                className="input input-sm env-select"
+                value={selectedPipeline}
+                onChange={(e) => handleSwitchPipeline(e.target.value)}
+                disabled={running}
+              >
+                {pipelineNames.map((name) => (
+                  <option key={name} value={name}>
+                    {name === 'pipeline' ? 'CI' : name.charAt(0).toUpperCase() + name.slice(1)}
+                  </option>
+                ))}
+              </select>
+            )}
+
             {/* Environment selector */}
             {envsConfig?.environments?.length > 0 && (
               <select

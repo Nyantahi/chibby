@@ -64,6 +64,7 @@ pub async fn run_pipeline(
     repo_path: String,
     environment: Option<String>,
     stages: Option<Vec<String>>,
+    pipeline_file: Option<String>,
 ) -> Result<PipelineRun, String> {
     // Mark pipeline as started (not cancelled)
     {
@@ -72,7 +73,11 @@ pub async fn run_pipeline(
     }
 
     let path = Path::new(&repo_path);
-    let p = pipeline::load_pipeline(path).map_err(|e| e.to_string())?;
+    let p = if let Some(ref name) = pipeline_file {
+        pipeline::load_pipeline_by_name(path, name).map_err(|e| e.to_string())?
+    } else {
+        pipeline::load_pipeline(path).map_err(|e| e.to_string())?
+    };
 
     // Resolve environment and secrets if an environment is specified.
     let (env_ref, env_vars) = if let Some(ref env_name) = environment {

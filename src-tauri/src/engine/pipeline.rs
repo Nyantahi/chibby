@@ -36,6 +36,62 @@ pub fn has_pipeline(repo_path: &Path) -> bool {
     repo_path.join(".chibby").join("pipeline.toml").exists()
 }
 
+/// List all pipeline TOML files in .chibby/ directory.
+/// Returns a list of file stems (e.g. ["pipeline", "release"]).
+pub fn list_pipelines(repo_path: &Path) -> Vec<String> {
+    let chibby_dir = repo_path.join(".chibby");
+    let mut names = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&chibby_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("toml") {
+                // Skip non-pipeline config files
+                let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                if stem == "environments" || stem == "secrets" {
+                    continue;
+                }
+                // Try to parse as a pipeline to confirm it's valid
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if toml::from_str::<Pipeline>(&content).is_ok() {
+                        names.push(stem.to_string());
+                    }
+                }
+            }
+        }
+    }
+    // Sort with "pipeline" first, then alphabetically
+    names.sort_by(|a, b| {
+        if a == "pipeline" { std::cmp::Ordering::Less }
+        else if b == "pipeline" { std::cmp::Ordering::Greater }
+        else { a.cmp(b) }
+    });
+    names
+}
+
+/// Load a specific pipeline by file stem (e.g. "release" loads .chibby/release.toml).
+pub fn load_pipeline_by_name(repo_path: &Path, name: &str) -> Result<Pipeline> {
+    let file_path = repo_path.join(".chibby").join(format!("{}.toml", name));
+    let content = std::fs::read_to_string(&file_path)
+        .with_context(|| format!("Failed to read {}", file_path.display()))?;
+    let pipeline: Pipeline = toml::from_str(&content)
+        .with_context(|| format!("Failed to parse {}", file_path.display()))?;
+    Ok(pipeline)
+}
+
+/// Save a pipeline to a specific file in .chibby/ (e.g. "release" saves to .chibby/release.toml).
+pub fn save_pipeline_by_name(repo_path: &Path, name: &str, pipeline: &Pipeline) -> Result<()> {
+    let chibby_dir = repo_path.join(".chibby");
+    std::fs::create_dir_all(&chibby_dir)
+        .with_context(|| format!("Failed to create .chibby directory in {}", repo_path.display()))?;
+    let toml_str = toml::to_string_pretty(pipeline)
+        .context("Failed to serialize pipeline to TOML")?;
+    let file_path = chibby_dir.join(format!("{}.toml", name));
+    std::fs::write(&file_path, &toml_str)
+        .with_context(|| format!("Failed to write {}", file_path.display()))?;
+    log::info!("Saved pipeline to {}", file_path.display());
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Environments persistence (.chibby/environments.toml)
 // ---------------------------------------------------------------------------

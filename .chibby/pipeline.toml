@@ -1,4 +1,4 @@
-name = "chibby Pipeline"
+name = "chibby CI"
 
 [[stages]]
 name = "install"
@@ -39,38 +39,5 @@ fail_fast = true
 [[stages]]
 name = "test-all"
 commands = ["npm run test:all"]
-backend = "local"
-fail_fast = true
-
-[[stages]]
-name = "version-tag"
-commands = [
-    "npm version patch --no-git-tag-version || true",
-    "V=$(node -p \"require('./package.json').version\") && [ -f src-tauri/tauri.conf.json ] && sed -i '' \"s/\\\"version\\\": \\\"[^\\\"]*\\\"/\\\"version\\\": \\\"$V\\\"/\" src-tauri/tauri.conf.json || true",
-    "V=$(node -p \"require('./package.json').version\") && [ -f src-tauri/Cargo.toml ] && sed -i '' \"s/^version = \\\"[^\\\"]*\\\"/version = \\\"$V\\\"/\" src-tauri/Cargo.toml || true",
-    "V=$(node -p \"require('./package.json').version\") && git add -A && git commit -m \"chore: bump version\" && git tag \"v$V\" && git push --follow-tags",
-]
-backend = "local"
-fail_fast = true
-
-[[stages]]
-name = "tauri-build"
-commands = ["npm run tauri:build"]
-backend = "local"
-fail_fast = true
-
-[[stages]]
-name = "github-release-upload"
-commands = [
-    "V=$(node -p \"require('./package.json').version\" 2>/dev/null || cat VERSION 2>/dev/null || echo \"0.1.0\") && ASSETS=$(find ./dist -name '*.tar.gz' -o -name '*.zip' 2>/dev/null || true) && if [ -n \"$ASSETS\" ]; then gh release create \"v$V\" --generate-notes --draft $ASSETS; else gh release create \"v$V\" --generate-notes --draft; fi",
-]
-backend = "local"
-fail_fast = true
-
-[[stages]]
-name = "homebrew-publish"
-commands = [
-    "V=$(node -p \"require('./package.json').version\" 2>/dev/null || cat VERSION 2>/dev/null || echo \"0.1.0\") && SHA=$(shasum -a 256 dist/*-macos-universal.tar.gz | cut -d ' ' -f1) && sed -i '' \"s/version \\\".*\\\"/version \\\"$V\\\"/\" packaging/homebrew/chibby-cli.rb && sed -i '' \"s/sha256 \\\".*\\\"/sha256 \\\"$SHA\\\"/\" packaging/homebrew/chibby-cli.rb",
-]
 backend = "local"
 fail_fast = true

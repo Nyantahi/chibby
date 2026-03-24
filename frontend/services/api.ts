@@ -129,6 +129,16 @@ export async function loadPipeline(repoPath: string): Promise<Pipeline> {
   return invoke<Pipeline>('load_pipeline', { repoPath });
 }
 
+/** List all available pipeline files in .chibby/ directory. */
+export async function listPipelines(repoPath: string): Promise<string[]> {
+  return invoke<string[]>('list_pipelines', { repoPath });
+}
+
+/** Load a specific pipeline by file name (e.g. "release"). */
+export async function loadPipelineByName(repoPath: string, name: string): Promise<Pipeline> {
+  return invoke<Pipeline>('load_pipeline_by_name', { repoPath, name });
+}
+
 /** Validate a pipeline against the actual project configuration. */
 export async function validatePipeline(repoPath: string): Promise<PipelineValidation> {
   return invoke<PipelineValidation>('validate_pipeline', { repoPath });
@@ -157,9 +167,10 @@ export async function getRecommendations(repoPath: string): Promise<ProjectRecom
 export async function runPipeline(
   repoPath: string,
   environment?: string,
-  stages?: string[]
+  stages?: string[],
+  pipelineFile?: string
 ): Promise<PipelineRun> {
-  return invoke<PipelineRun>('run_pipeline', { repoPath, environment, stages });
+  return invoke<PipelineRun>('run_pipeline', { repoPath, environment, stages, pipelineFile });
 }
 
 /** Cancel a running pipeline. */

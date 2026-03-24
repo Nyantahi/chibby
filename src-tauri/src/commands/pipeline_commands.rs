@@ -70,6 +70,24 @@ pub fn load_pipeline(repo_path: String) -> Result<Pipeline, String> {
     pipeline::load_pipeline(Path::new(&repo_path)).map_err(|e| e.to_string())
 }
 
+/// List all available pipelines in .chibby/ directory.
+#[tauri::command]
+pub fn list_pipelines(repo_path: String) -> Result<Vec<String>, String> {
+    Ok(pipeline::list_pipelines(Path::new(&repo_path)))
+}
+
+/// Load a specific pipeline by name (file stem).
+#[tauri::command]
+pub fn load_pipeline_by_name(repo_path: String, name: String) -> Result<Pipeline, String> {
+    pipeline::load_pipeline_by_name(Path::new(&repo_path), &name).map_err(|e| e.to_string())
+}
+
+/// Save a pipeline to a specific file by name.
+#[tauri::command]
+pub fn save_pipeline_by_name(repo_path: String, name: String, p: Pipeline) -> Result<(), String> {
+    pipeline::save_pipeline_by_name(Path::new(&repo_path), &name, &p).map_err(|e| e.to_string())
+}
+
 /// Validate a pipeline against the actual project configuration.
 ///
 /// Checks for issues like missing npm scripts, Makefile targets, or shell scripts.
