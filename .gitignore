@@ -43,5 +43,5 @@ coverage/
 # Internal / private docs (not for public release)
 private/
 
-# Claude Code local settings
-.claude/settings.local.json
+# Claude Code (personal per user)
+.claude/
