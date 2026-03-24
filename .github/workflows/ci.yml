@@ -92,7 +92,7 @@ jobs:
         run: npm run test:run -- --coverage
       
       - name: Upload coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         if: always()
         with:
           files: chibby/coverage/lcov.info
