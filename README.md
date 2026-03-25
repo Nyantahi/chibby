@@ -26,6 +26,23 @@ Chibby helps developers turn existing scripts into visual, repeatable pipelines 
 - **App Settings** — Configurable notification and retention defaults that apply across all projects
 - **Cross-Platform** — Works on macOS, Linux, and Windows
 
+## Why Chibby?
+
+| | Chibby | GitHub Actions | GitLab CI | Jenkins | CircleCI |
+|---|---|---|---|---|---|
+| **Runs locally** | Yes — native, no containers needed | No (cloud) | No (cloud or self-hosted runner) | Self-hosted only | No (cloud) |
+| **Zero config start** | Auto-detects scripts & generates pipelines | Manual YAML | Manual YAML | Manual Jenkinsfile | Manual YAML |
+| **Internet required** | No — fully offline | Yes | Yes (or self-hosted) | No (self-hosted) | Yes |
+| **Pricing** | Free & open-source | Free tier, paid minutes | Free tier, paid minutes | Free (self-hosted) | Free tier, paid credits |
+| **Setup complexity** | Download and run | Repo + config + cloud | Repo + config + runners | Server + plugins + agents | Repo + config + cloud |
+| **Secret management** | OS keychain (native) | Cloud secrets | Cloud variables | Credentials plugin | Cloud contexts |
+| **Live logs** | Real-time in GUI & CLI | Delayed (cloud round-trip) | Delayed | Plugin-dependent | Delayed |
+| **Run history & rollback** | Built-in with retry from failure | Re-run workflows | Retry jobs | Rebuild | Re-run |
+| **SSH deploy** | First-class (direct + Docker Compose) | Via custom actions | Via scripts | Via plugins | Via orbs |
+| **Best for** | Solo devs & tiny teams | Teams on GitHub | Teams on GitLab | Enterprise self-hosted | Teams wanting managed CI |
+
+> **TL;DR** — Chibby is built for developers who want repeatable pipelines without cloud lock-in, YAML sprawl, or CI minutes. Import your existing scripts, run locally, deploy over SSH — done.
+
 ## Install
 
 Download the latest release for your platform from
@@ -142,7 +159,7 @@ npm run tauri:build    # Production build
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, workflow, and code style guidelines.
+See [CONTRIBUTING.md](docs/community/CONTRIBUTING.md) for development setup, workflow, and code style guidelines.
 
 ## License
 

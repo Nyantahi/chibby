@@ -64,8 +64,8 @@ cd src-tauri && cargo test  # Rust tests
 
 ## Reporting Issues
 
-Use the [issue templates](.github/ISSUE_TEMPLATE/) for bug reports and feature requests.
+Use the [issue templates](../../.github/ISSUE_TEMPLATE/) for bug reports and feature requests.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
+By contributing, you agree that your contributions will be licensed under the [MIT License](../../LICENSE).
