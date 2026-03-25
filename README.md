@@ -6,6 +6,12 @@ Local-first, open-source CI/CD and deployment tool for solo developers and tiny 
 
 Chibby helps developers turn existing scripts into visual, repeatable pipelines that run locally or over SSH. Instead of learning complex CI platforms, you import your existing `deploy.sh`, `Makefile`, `justfile`, or package scripts and get clear logs, run history, retry, and rollback capabilities.
 
+## Screenshots
+
+| Add Project | Pipeline Templates | Pipeline Run |
+| --- | --- | --- |
+| ![Add Project](docs/screenshots/chibby-add-project-view.jpg) | ![Pipeline Templates](docs/screenshots/chibby-pipeline-templates.jpg) | ![Pipeline Failed](docs/screenshots/chibby-pipeline-failed.jpg) |
+
 ## Features
 
 - **Pipeline Templates** — 20 built-in templates (9 full pipelines + 11 stage snippets) with variable substitution, import/export, and 3-layer resolution ([Templates docs](docs/features/templates.md))
