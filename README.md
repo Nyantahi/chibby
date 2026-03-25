@@ -29,7 +29,7 @@ Chibby helps developers turn existing scripts into visual, repeatable pipelines 
 ## Why Chibby?
 
 | | Chibby | GitHub Actions | GitLab CI | Jenkins | CircleCI |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | **Runs locally** | Yes — native, no containers needed | No (cloud) | No (cloud or self-hosted runner) | Self-hosted only | No (cloud) |
 | **Zero config start** | Auto-detects scripts & generates pipelines | Manual YAML | Manual YAML | Manual Jenkinsfile | Manual YAML |
 | **Internet required** | No — fully offline | Yes | Yes (or self-hosted) | No (self-hosted) | Yes |
@@ -49,7 +49,7 @@ Download the latest release for your platform from
 [GitHub Releases](https://github.com/Nyantahi/chibby/releases).
 
 | Platform | Download |
-|----------|----------|
+| --- | --- |
 | macOS (Apple Silicon) | `.dmg` |
 | macOS (Intel) | `.dmg` |
 | Linux (Debian/Ubuntu) | `.deb` |
@@ -118,7 +118,7 @@ Compose, Tauri desktop apps, and static sites.
 
 ## Project Structure
 
-```
+```text
 chibby/
   frontend/           # React frontend
     components/       # UI components

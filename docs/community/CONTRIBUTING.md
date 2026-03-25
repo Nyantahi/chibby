@@ -26,7 +26,7 @@ npm run tauri:dev
 
 ### Project Structure
 
-```
+```text
 chibby/
 ├── frontend/          # React TypeScript UI
 │   ├── components/    # React components
@@ -54,8 +54,8 @@ npm run test:run       # Vitest
 cd src-tauri && cargo test  # Rust tests
 ```
 
-4. Commit with a descriptive message (we use [Conventional Commits](https://www.conventionalcommits.org/))
-5. Open a pull request against `main`
+1. Commit with a descriptive message (we use [Conventional Commits](https://www.conventionalcommits.org/))
+2. Open a pull request against `main`
 
 ## Code Style
 
