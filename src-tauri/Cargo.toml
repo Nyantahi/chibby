@@ -46,7 +46,7 @@ async-trait = "0.1"
 # CLI dependencies
 clap = { version = "4", features = ["derive", "env"], optional = true }
 owo-colors = { version = "4", features = ["supports-colors"], optional = true }
-console = { version = "0.15", optional = true }
+console = { version = "0.16", optional = true }
 indicatif = { version = "0.18", optional = true }
 
 [dev-dependencies]
