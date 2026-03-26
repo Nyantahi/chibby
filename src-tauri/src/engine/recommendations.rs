@@ -236,7 +236,7 @@ fn add_universal_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommenda
         priority: RecommendationPriority::Medium,
         category: RecommendationCategory::Documentation,
         docs_url: Some("https://docs.github.com/en/communities/setting-up-your-project-for-healthy-contributions".to_string()),
-        exists: repo_path.join("CONTRIBUTING.md").exists(),
+        exists: repo_path.join("CONTRIBUTING.md").exists() || repo_path.join("docs/community/CONTRIBUTING.md").exists(),
         template_hint: Some("Include: Setup, Code style, PR process, Issue reporting".to_string()),
     });
 
@@ -248,7 +248,7 @@ fn add_universal_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommenda
         priority: RecommendationPriority::Medium,
         category: RecommendationCategory::Documentation,
         docs_url: Some("https://keepachangelog.com/".to_string()),
-        exists: repo_path.join("CHANGELOG.md").exists(),
+        exists: repo_path.join("CHANGELOG.md").exists() || repo_path.join("docs/community/CHANGELOG.md").exists(),
         template_hint: Some("Follow Keep a Changelog format".to_string()),
     });
 
@@ -260,7 +260,7 @@ fn add_universal_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommenda
         priority: RecommendationPriority::Medium,
         category: RecommendationCategory::Security,
         docs_url: Some("https://docs.github.com/en/code-security/getting-started/adding-a-security-policy-to-your-repository".to_string()),
-        exists: repo_path.join("SECURITY.md").exists() || repo_path.join(".github/SECURITY.md").exists(),
+        exists: repo_path.join("SECURITY.md").exists() || repo_path.join(".github/SECURITY.md").exists() || repo_path.join("docs/community/SECURITY.md").exists(),
         template_hint: Some("Include: Supported versions, Reporting process".to_string()),
     });
 
@@ -286,7 +286,7 @@ fn add_universal_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommenda
         priority: RecommendationPriority::Low,
         category: RecommendationCategory::Documentation,
         docs_url: Some("https://www.contributor-covenant.org/".to_string()),
-        exists: repo_path.join("CODE_OF_CONDUCT.md").exists(),
+        exists: repo_path.join("CODE_OF_CONDUCT.md").exists() || repo_path.join("docs/community/CODE_OF_CONDUCT.md").exists(),
         template_hint: Some("Contributor Covenant is widely used".to_string()),
     });
 
