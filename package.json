@@ -1,6 +1,6 @@
 {
   "name": "chibby",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "Local-first open-source CI/CD for solo developers",
   "type": "module",
   "scripts": {
