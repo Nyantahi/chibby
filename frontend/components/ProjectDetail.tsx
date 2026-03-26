@@ -369,7 +369,7 @@ function ProjectDetail() {
             // Capture live output lines (keep last MAX_LIVE_LINES), strip ANSI
             const clean = stripAnsi(message);
             const currentLines = liveOutputRef.current[stage] || [];
-            const newLines = [...currentLines, clean].slice(-5);
+            const newLines = [...currentLines, clean].slice(-50);
             liveOutputRef.current[stage] = newLines;
             setLiveOutput({ ...liveOutputRef.current });
           }
@@ -415,6 +415,12 @@ function ProjectDetail() {
         setStageStatuses(finalStatuses);
         setCmdStatuses(finalCmds);
         cmdStatusRef.current = finalCmds;
+
+        // Auto-expand the failed stage so the user can immediately see what went wrong
+        const failedResult = latestRun.stage_results?.find((r) => r.status === 'failed');
+        if (failedResult) {
+          setSelectedStageResult(failedResult);
+        }
       }
 
       setRunningStageName(null);
@@ -954,23 +960,24 @@ function ProjectDetail() {
                                     );
                                   })}
                                 </div>
-                                {/* Live output preview for running stage */}
-                                {isRunning && liveOutput[stage.name]?.length > 0 && (
-                                  <div className="live-output-preview">
-                                    <div className="live-output-header">
-                                      <span className="live-output-dot" />
-                                      <span>Live Output</span>
+                                {/* Live output preview — visible while running AND after completion */}
+                                {(isRunning || isFailed || isSuccess) &&
+                                  liveOutput[stage.name]?.length > 0 && (
+                                    <div className="live-output-preview">
+                                      <div className="live-output-header">
+                                        {isRunning && <span className="live-output-dot" />}
+                                        <span>{isRunning ? 'Live Output' : 'Output'}</span>
+                                      </div>
+                                      <pre className="live-output-lines">
+                                        {liveOutput[stage.name].map((line, i) => (
+                                          <span key={i} className="live-output-line">
+                                            {line}
+                                            {'\n'}
+                                          </span>
+                                        ))}
+                                      </pre>
                                     </div>
-                                    <pre className="live-output-lines">
-                                      {liveOutput[stage.name].map((line, i) => (
-                                        <span key={i} className="live-output-line">
-                                          {line}
-                                          {'\n'}
-                                        </span>
-                                      ))}
-                                    </pre>
-                                  </div>
-                                )}
+                                  )}
                               </div>
                               {/* Inline stage result viewer — appears right below the clicked stage */}
                               {isSelected && selectedStageResult && (
