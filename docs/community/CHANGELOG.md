@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-03-26
+
+### Added
+
+- Failed-run retry banner in UI
+- Split Homebrew template into Tap Publish and Core PR templates
+- App-level notification and retention defaults wired into pipeline runs
+- Post-run housekeeping and backlog planning
+
+### Fixed
+
+- Resolve peer dependency conflicts preventing `npm ci` (@eslint/js, @vitest/coverage-v8, typescript)
+- Preserve pipeline snapshots for retry and rollback
+- Chain shell commands so variables persist across execution
+- Sync versions across config files and fix version-bump stage
+- GitHub-release template errors
+- TS18047 null-check errors in Settings agent status block
+
+### Changed
+
+- Replace app icon with new Chibby bolt logo across all platforms (macOS, Windows, Linux, web favicon)
+- Replace all GitHub URLs from okapian to Nyantahi/chibby
+- Replace email contacts with GitHub-based alternatives (Security Advisories, Issues)
+- Gitignore `.chibby/` and `.claude/` directories (unique per install)
+- Move community files to docs/community/
+- Add comparison table and screenshots section to README
+
+### Dependencies
+
+- Downgrade @eslint/js ^10.0.1 → ^9.39.4
+- Downgrade typescript ^6.0.2 → ^5.9.3
+- Bump @vitest/coverage-v8 ^4.1.0 → ^4.1.1
+- Bump happy-dom, react-router-dom, vitest, @vitejs/plugin-react, vite, lucide-react
+- Bump Rust crates: reqwest, toml, console, indicatif
+- Bump GitHub Actions: checkout v6, setup-node v6, upload-artifact v7, codecov v5, github-script v8
+
+## [0.1.0] - Initial Release
+
 ### Added
 
 - Initial Tauri + React scaffold
