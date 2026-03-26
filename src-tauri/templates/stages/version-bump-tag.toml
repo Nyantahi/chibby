@@ -2,7 +2,7 @@
 name = "Version Bump & Tag"
 description = "Bump the npm version (patch, minor, or major), commit, tag, and push to remote"
 author = "chibby"
-version = "1.1.0"
+version = "1.2.0"
 category = "deployment"
 tags = ["version", "tag", "git", "release"]
 required_tools = ["npm", "git"]
@@ -12,9 +12,9 @@ template_type = "stage"
 name = "version-tag"
 commands = [
   "npm version {{bump_level}} --no-git-tag-version || true",
-  "V=$(node -p \"require('./package.json').version\") && [ -f src-tauri/tauri.conf.json ] && sed -i '' \"s/\\\"version\\\": \\\"[^\\\"]*\\\"/\\\"version\\\": \\\"$V\\\"/\" src-tauri/tauri.conf.json || true",
-  "V=$(node -p \"require('./package.json').version\") && [ -f src-tauri/Cargo.toml ] && sed -i '' \"s/^version = \\\"[^\\\"]*\\\"/version = \\\"$V\\\"/\" src-tauri/Cargo.toml || true",
-  "V=$(node -p \"require('./package.json').version\") && git add -A && git commit -m \"chore: bump version\" && git tag \"v$V\" && git push --follow-tags"
+  "V=$(grep '\"version\"' package.json | head -1 | sed 's/.*\"version\": *\"\\([^\"]*\\)\".*/\\1/') && [ -f src-tauri/tauri.conf.json ] && sed -i '' \"s/\\\"version\\\": \\\"[^\\\"]*\\\"/\\\"version\\\": \\\"$V\\\"/\" src-tauri/tauri.conf.json || true",
+  "V=$(grep '\"version\"' package.json | head -1 | sed 's/.*\"version\": *\"\\([^\"]*\\)\".*/\\1/') && [ -f src-tauri/Cargo.toml ] && sed -i '' \"s/^version = \\\"[^\\\"]*\\\"/version = \\\"$V\\\"/\" src-tauri/Cargo.toml || true",
+  "V=$(grep '\"version\"' package.json | head -1 | sed 's/.*\"version\": *\"\\([^\"]*\\)\".*/\\1/') && git add -A && git commit -m \"chore: bump version\" && git tag \"v$V\" && git push --follow-tags"
 ]
 backend = "local"
 fail_fast = true
