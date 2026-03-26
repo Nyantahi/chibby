@@ -99,7 +99,16 @@ pub async fn validate_preflight(
         }
     }
 
-    // 5. Warn about stages without health checks on SSH deploys.
+    // 5. Warn about uncommitted changes in the working directory.
+    if let Ok(has_changes) = check_uncommitted_changes(project_path).await {
+        if has_changes {
+            warnings.push(
+                "You have uncommitted changes in your working directory — consider committing or stashing before running".to_string(),
+            );
+        }
+    }
+
+    // 6. Warn about stages without health checks on SSH deploys.
     for stage in &pipeline.stages {
         if stage.backend == Backend::Ssh && stage.health_check.is_none() {
             let has_deploy_cmd = stage
@@ -141,6 +150,18 @@ async fn ssh_available() -> bool {
         Ok(output) => output.status.success(),
         Err(_) => false,
     }
+}
+
+/// Check if the project has uncommitted changes (staged or unstaged).
+async fn check_uncommitted_changes(project_path: &str) -> Result<bool> {
+    let output = tokio::process::Command::new("git")
+        .arg("status")
+        .arg("--porcelain")
+        .current_dir(project_path)
+        .output()
+        .await?;
+
+    Ok(!output.stdout.is_empty())
 }
 
 /// Test SSH connectivity to a host.
