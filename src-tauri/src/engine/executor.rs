@@ -494,6 +494,7 @@ fn build_local_command(
     let shell_flag = get_shell_flag();
 
     let child = Command::new(&shell)
+        .arg("-l")
         .arg(&shell_flag)
         .arg(cmd_str)
         .current_dir(&work_dir)
