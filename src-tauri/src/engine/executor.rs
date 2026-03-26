@@ -138,17 +138,56 @@ pub async fn run_pipeline(
                 cb(&stage.name, "cmd", &format!("$ {}", cmd_str));
             }
 
+            log::info!(
+                "[executor] stage='{}' spawning command: {}",
+                stage.name,
+                cmd_str.chars().take(120).collect::<String>()
+            );
+
             let mut child = match stage.backend {
                 Backend::Local => {
-                    build_local_command(cmd_str, repo_path, &stage.working_dir, &env_vars)?
+                    match build_local_command(cmd_str, repo_path, &stage.working_dir, &env_vars) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            log::error!(
+                                "[executor] stage='{}' failed to spawn command: {}",
+                                stage.name, e
+                            );
+                            if let Some(ref cb) = on_log {
+                                cb(&stage.name, "error", &format!("Failed to spawn: {}", e));
+                            }
+                            stage_stderr.push_str(&format!("Failed to spawn command: {}\n", e));
+                            stage_status = StageStatus::Failed;
+                            break;
+                        }
+                    }
                 }
                 Backend::Ssh => {
-                    build_ssh_command(cmd_str, environment, &stage.working_dir, &env_vars)?
+                    match build_ssh_command(cmd_str, environment, &stage.working_dir, &env_vars) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            log::error!(
+                                "[executor] stage='{}' SSH command error: {}",
+                                stage.name, e
+                            );
+                            if let Some(ref cb) = on_log {
+                                cb(&stage.name, "error", &format!("SSH error: {}", e));
+                            }
+                            stage_stderr.push_str(&format!("SSH command error: {}\n", e));
+                            stage_status = StageStatus::Failed;
+                            break;
+                        }
+                    }
                 }
             };
 
             // Register the child PID for cancellation handling
             let child_pid = child.id();
+            log::info!(
+                "[executor] stage='{}' spawned pid={:?}",
+                stage.name,
+                child_pid
+            );
             if let (Some(ref state), Some(pid)) = (&cancel_state, child_pid) {
                 let mut guard = state.write().await;
                 guard.set_running_pid(&repo_path.to_string_lossy(), pid);
@@ -284,8 +323,29 @@ pub async fn run_pipeline(
                 return Ok(run);
             }
 
-            let output = child.wait().await?;
+            log::info!("[executor] stage='{}' I/O complete, waiting for exit", stage.name);
+            let output = match child.wait().await {
+                Ok(status) => status,
+                Err(e) => {
+                    log::error!(
+                        "[executor] stage='{}' wait() failed: {}",
+                        stage.name, e
+                    );
+                    if let Some(ref cb) = on_log {
+                        cb(&stage.name, "error", &format!("Process wait failed: {}", e));
+                    }
+                    stage_stderr.push_str(&format!("Process wait failed: {}\n", e));
+                    stage_status = StageStatus::Failed;
+                    break;
+                }
+            };
             stage_exit_code = output.code();
+            log::info!(
+                "[executor] stage='{}' exited code={:?} success={}",
+                stage.name,
+                stage_exit_code,
+                output.success()
+            );
 
             if !output.success() {
                 stage_status = StageStatus::Failed;
