@@ -1,23 +1,37 @@
 pub mod agent;
 pub mod ai;
+#[cfg(feature = "gui")]
 pub mod commands;
 pub mod engine;
 pub mod state;
 
+#[cfg(feature = "gui")]
 use commands::agent_commands;
+#[cfg(feature = "gui")]
 use commands::artifact_commands;
+#[cfg(feature = "gui")]
 use commands::env_commands;
+#[cfg(feature = "gui")]
 use commands::gate_commands;
+#[cfg(feature = "gui")]
 use commands::notify_commands;
+#[cfg(feature = "gui")]
 use commands::pipeline_commands;
+#[cfg(feature = "gui")]
 use commands::project_commands;
+#[cfg(feature = "gui")]
 use commands::run_commands;
-use commands::updater_commands;
+#[cfg(feature = "gui")]
 use commands::settings_commands;
+#[cfg(feature = "gui")]
 use commands::template_commands;
+#[cfg(feature = "gui")]
+use commands::updater_commands;
+#[cfg(feature = "gui")]
 use commands::version_commands;
 
 /// Entry point for the Tauri application.
+#[cfg(feature = "gui")]
 pub fn run() {
     tauri::Builder::default()
         .plugin(

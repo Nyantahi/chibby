@@ -296,6 +296,12 @@ pub struct PipelineRun {
     pub started_at: DateTime<Utc>,
     pub finished_at: Option<DateTime<Utc>>,
     pub duration_ms: Option<u64>,
+    /// The exact pipeline definition executed for this run.
+    #[serde(default)]
+    pub pipeline_snapshot: Option<Pipeline>,
+    /// The source pipeline file name used for this run (`pipeline` by default).
+    #[serde(default)]
+    pub pipeline_file: Option<String>,
     /// What kind of run this is (normal, retry, or rollback).
     #[serde(default)]
     pub run_kind: RunKind,
@@ -328,6 +334,8 @@ impl PipelineRun {
             started_at: Utc::now(),
             finished_at: None,
             duration_ms: None,
+            pipeline_snapshot: None,
+            pipeline_file: None,
             run_kind: RunKind::Normal,
             parent_run_id: None,
             retry_number: None,
@@ -1222,10 +1230,13 @@ mod tests {
 
     #[test]
     fn test_stage_defaults() {
-        let stage: Stage = serde_json::from_str(r#"{
+        let stage: Stage = serde_json::from_str(
+            r#"{
             "name": "test",
             "commands": ["echo hello"]
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
 
         assert_eq!(stage.backend, Backend::Local);
         assert!(stage.fail_fast);
@@ -1235,9 +1246,12 @@ mod tests {
 
     #[test]
     fn test_health_check_defaults() {
-        let hc: HealthCheck = serde_json::from_str(r#"{
+        let hc: HealthCheck = serde_json::from_str(
+            r#"{
             "command": "curl http://localhost:8080/health"
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
 
         assert_eq!(hc.retries, 3);
         assert_eq!(hc.delay_secs, 5);
@@ -1247,16 +1261,14 @@ mod tests {
     fn test_pipeline_serialization_roundtrip() {
         let pipeline = Pipeline {
             name: "Test Pipeline".to_string(),
-            stages: vec![
-                Stage {
-                    name: "build".to_string(),
-                    commands: vec!["npm run build".to_string()],
-                    backend: Backend::Local,
-                    working_dir: None,
-                    fail_fast: true,
-                    health_check: None,
-                },
-            ],
+            stages: vec![Stage {
+                name: "build".to_string(),
+                commands: vec!["npm run build".to_string()],
+                backend: Backend::Local,
+                working_dir: None,
+                fail_fast: true,
+                health_check: None,
+            }],
         };
 
         let json = serde_json::to_string(&pipeline).unwrap();

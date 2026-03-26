@@ -1,56 +1,45 @@
 use crate::engine::executor;
-use crate::engine::models::{DeploymentRecord, NotifyPayload, PipelineRun, RunKind};
-use crate::engine::{artifacts, cleanup, notify, persistence, pipeline, secrets};
+use crate::engine::models::{DeploymentRecord, PipelineRun, RunKind};
+use crate::engine::{persistence, run_support};
 use crate::state::SharedPipelineState;
-use std::collections::HashMap;
+use std::future::Future;
 use std::path::Path;
 use tauri::{AppHandle, Emitter, State};
 
-/// Post-run housekeeping: send notifications and run cleanup.
-/// Failures are logged but never propagate — housekeeping must not block the caller.
-async fn post_run_housekeeping(repo_path: &str, run: &PipelineRun) {
-    let path = Path::new(repo_path);
+fn build_log_callback(app: AppHandle) -> executor::LogCallback {
+    Box::new(move |stage: &str, log_type: &str, msg: &str| {
+        let _ = app.emit(
+            "pipeline:log",
+            serde_json::json!({
+                "stage": stage,
+                "type": log_type,
+                "message": msg,
+            }),
+        );
+    })
+}
 
-    // --- Notifications ---
-    match notify::resolve_notify_config(path) {
-        Ok(config) => {
-            let status_label = match run.status {
-                crate::engine::models::RunStatus::Success => "succeeded",
-                crate::engine::models::RunStatus::Failed => "failed",
-                crate::engine::models::RunStatus::Cancelled => "cancelled",
-                _ => "completed",
-            };
-            let payload = NotifyPayload {
-                project: run.pipeline_name.clone(),
-                version: None,
-                environment: run.environment.clone(),
-                status: run.status.clone(),
-                duration_ms: run.duration_ms,
-                message: format!("Pipeline '{}' {}", run.pipeline_name, status_label),
-            };
-            notify::send_notifications(&config, &payload).await;
-        }
-        Err(e) => log::warn!("Failed to load notify config for {repo_path}: {e}"),
+async fn with_pipeline_tracking<T, F>(
+    pipeline_state: SharedPipelineState,
+    repo_path: &str,
+    operation: F,
+) -> Result<T, String>
+where
+    F: Future<Output = Result<T, String>>,
+{
+    {
+        let mut state = pipeline_state.write().await;
+        state.start(repo_path);
     }
 
-    // --- Cleanup (prune old artifacts & runs) ---
-    let cleanup_config = match cleanup::resolve_cleanup_config(path) {
-        Ok(c) => c,
-        Err(e) => {
-            log::warn!("Failed to load cleanup config for {repo_path}: {e}");
-            return;
-        }
-    };
-    let artifact_config = match artifacts::load_artifact_config(path) {
-        Ok(c) => c,
-        Err(e) => {
-            log::warn!("Failed to load artifact config for {repo_path}: {e}");
-            return;
-        }
-    };
-    if let Err(e) = cleanup::run_cleanup(path, &cleanup_config, &artifact_config, false) {
-        log::warn!("Post-run cleanup failed for {repo_path}: {e}");
+    let result = operation.await;
+
+    {
+        let mut state = pipeline_state.write().await;
+        state.cleanup(repo_path);
     }
+
+    result
 }
 
 /// Run a pipeline for a given repo path.
@@ -66,97 +55,37 @@ pub async fn run_pipeline(
     stages: Option<Vec<String>>,
     pipeline_file: Option<String>,
 ) -> Result<PipelineRun, String> {
-    // Mark pipeline as started (not cancelled)
-    {
-        let mut state = pipeline_state.write().await;
-        state.start(&repo_path);
-    }
-
     let path = Path::new(&repo_path);
-    let p = if let Some(ref name) = pipeline_file {
-        pipeline::load_pipeline_by_name(path, name).map_err(|e| e.to_string())?
-    } else {
-        pipeline::load_pipeline(path).map_err(|e| e.to_string())?
-    };
-
-    // Resolve environment and secrets if an environment is specified.
-    let (env_ref, env_vars) = if let Some(ref env_name) = environment {
-        let envs_config = pipeline::load_environments(path).map_err(|e| e.to_string())?;
-        let env = envs_config
-            .environments
-            .iter()
-            .find(|e| e.name == *env_name)
-            .cloned();
-
-        let mut vars: HashMap<String, String> = HashMap::new();
-
-        if let Some(ref env) = env {
-            // Start with environment variables.
-            vars.extend(env.variables.clone());
-        }
-
-        // Resolve secrets from keychain.
-        let secrets_config =
-            pipeline::load_secrets_config(path).map_err(|e| e.to_string())?;
-        if !secrets_config.secrets.is_empty() {
-            match secrets::resolve_secrets_for_env(&repo_path, env_name, &secrets_config) {
-                Ok(secret_vars) => vars.extend(secret_vars),
-                Err(e) => return Err(format!("Secret resolution failed: {}", e)),
-            }
-        }
-
-        (env, vars)
-    } else {
-        (None, HashMap::new())
-    };
-
-    // Stream log events to the frontend via Tauri events.
-    let on_log: executor::LogCallback = Box::new(move |stage: &str, log_type: &str, msg: &str| {
-        let _ = app.emit(
-            "pipeline:log",
-            serde_json::json!({
-                "stage": stage,
-                "type": log_type,
-                "message": msg,
-            }),
-        );
-    });
-
-    // Clone the state for passing to executor
     let cancel_state = (*pipeline_state).clone();
+    let run = with_pipeline_tracking(cancel_state.clone(), &repo_path, async move {
+        let p = run_support::load_selected_pipeline(path, pipeline_file.as_deref())
+            .map_err(|e| e.to_string())?;
+        let (env_ref, env_vars) =
+            run_support::resolve_execution_context(path, environment.as_deref())
+                .map_err(|e| e.to_string())?;
 
-    let run = executor::run_pipeline(
-        &p,
-        path,
-        env_ref.as_ref(),
-        env_vars,
-        Some(on_log),
-        stages.as_deref(),
-        Some(cancel_state.clone()),
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+        let mut run = executor::run_pipeline(
+            &p,
+            path,
+            env_ref.as_ref(),
+            env_vars,
+            Some(build_log_callback(app)),
+            stages.as_deref(),
+            Some(cancel_state.clone()),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
 
-    // Clean up pipeline state
-    {
-        let mut state = cancel_state.write().await;
-        state.cleanup(&repo_path);
-    }
+        run_support::annotate_run(&mut run, &p, pipeline_file.as_deref());
+        Ok(run)
+    })
+    .await?;
 
     // Persist the run.
-    persistence::save_run(&run).map_err(|e| e.to_string())?;
-
-    // Update project last run status.
-    if let Ok(mut projects) = persistence::load_projects() {
-        if let Some(proj) = projects.iter_mut().find(|p| p.path == repo_path) {
-            proj.last_run_at = Some(run.started_at);
-            proj.last_run_status = Some(run.status.clone());
-            let _ = persistence::save_projects(&projects);
-        }
-    }
+    run_support::persist_completed_run(&run).map_err(|e| e.to_string())?;
 
     // Post-run housekeeping (notifications + cleanup).
-    post_run_housekeeping(&repo_path, &run).await;
+    run_support::post_run_housekeeping(&repo_path, &run).await;
 
     Ok(run)
 }
@@ -219,7 +148,7 @@ pub async fn retry_run(
 
     let repo_path = original.repo_path.clone();
     let path = Path::new(&repo_path);
-    let p = pipeline::load_pipeline(path).map_err(|e| e.to_string())?;
+    let p = run_support::pipeline_snapshot_for_run(&original).map_err(|e| e.to_string())?;
 
     // Determine which stage to retry from.
     let retry_stage = from_stage.clone().unwrap_or_else(|| {
@@ -236,77 +165,36 @@ pub async fn retry_run(
     });
 
     // Build stage filter: include the retry stage and everything after it.
-    let retry_idx = p
-        .stages
-        .iter()
-        .position(|s| s.name == retry_stage)
-        .unwrap_or(0);
-    let stages_to_run: Vec<String> = p.stages[retry_idx..].iter().map(|s| s.name.clone()).collect();
+    let stages_to_run =
+        run_support::stages_to_run_from_stage(&p, &retry_stage).map_err(|e| e.to_string())?;
 
     // Calculate retry number.
     let parent_id = original.parent_run_id.as_deref().unwrap_or(&run_id);
     let existing_retries = persistence::retry_count_for_run(parent_id).unwrap_or(0);
     let retry_number = existing_retries + 1;
 
-    // Mark pipeline as started.
-    {
-        let mut state = pipeline_state.write().await;
-        state.start(&repo_path);
-    }
-
-    // Resolve environment and secrets (same as run_pipeline).
-    let (env_ref, env_vars) = if let Some(ref env_name) = original.environment {
-        let envs_config = pipeline::load_environments(path).map_err(|e| e.to_string())?;
-        let env = envs_config
-            .environments
-            .iter()
-            .find(|e| e.name == *env_name)
-            .cloned();
-
-        let mut vars: HashMap<String, String> = HashMap::new();
-        if let Some(ref env) = env {
-            vars.extend(env.variables.clone());
-        }
-
-        let secrets_config =
-            pipeline::load_secrets_config(path).map_err(|e| e.to_string())?;
-        if !secrets_config.secrets.is_empty() {
-            match secrets::resolve_secrets_for_env(&repo_path, env_name, &secrets_config) {
-                Ok(secret_vars) => vars.extend(secret_vars),
-                Err(e) => return Err(format!("Secret resolution failed: {}", e)),
-            }
-        }
-
-        (env, vars)
-    } else {
-        (None, HashMap::new())
-    };
-
-    // Stream log events to the frontend.
-    let on_log: executor::LogCallback = Box::new(move |stage: &str, log_type: &str, msg: &str| {
-        let _ = app.emit(
-            "pipeline:log",
-            serde_json::json!({
-                "stage": stage,
-                "type": log_type,
-                "message": msg,
-            }),
-        );
-    });
-
     let cancel_state = (*pipeline_state).clone();
+    let mut run = with_pipeline_tracking(cancel_state.clone(), &repo_path, async move {
+        let (env_ref, env_vars) =
+            run_support::resolve_execution_context(path, original.environment.as_deref())
+                .map_err(|e| e.to_string())?;
 
-    let mut run = executor::run_pipeline(
-        &p,
-        path,
-        env_ref.as_ref(),
-        env_vars,
-        Some(on_log),
-        Some(&stages_to_run),
-        Some(cancel_state.clone()),
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+        let mut run = executor::run_pipeline(
+            &p,
+            path,
+            env_ref.as_ref(),
+            env_vars,
+            Some(build_log_callback(app)),
+            Some(&stages_to_run),
+            Some(cancel_state.clone()),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+        run_support::annotate_run(&mut run, &p, original.pipeline_file.as_deref());
+        Ok(run)
+    })
+    .await?;
 
     // Tag the run as a retry.
     run.run_kind = RunKind::Retry;
@@ -314,26 +202,11 @@ pub async fn retry_run(
     run.retry_number = Some(retry_number);
     run.retry_from_stage = Some(retry_stage);
 
-    // Clean up pipeline state.
-    {
-        let mut state = cancel_state.write().await;
-        state.cleanup(&repo_path);
-    }
-
     // Persist the run.
-    persistence::save_run(&run).map_err(|e| e.to_string())?;
-
-    // Update project last run status.
-    if let Ok(mut projects) = persistence::load_projects() {
-        if let Some(proj) = projects.iter_mut().find(|p| p.path == repo_path) {
-            proj.last_run_at = Some(run.started_at);
-            proj.last_run_status = Some(run.status.clone());
-            let _ = persistence::save_projects(&projects);
-        }
-    }
+    run_support::persist_completed_run(&run).map_err(|e| e.to_string())?;
 
     // Post-run housekeeping (notifications + cleanup).
-    post_run_housekeeping(&repo_path, &run).await;
+    run_support::post_run_housekeeping(&repo_path, &run).await;
 
     Ok(run)
 }
@@ -360,92 +233,40 @@ pub async fn rollback_to_run(
 
     let repo_path = target.repo_path.clone();
     let path = Path::new(&repo_path);
-    let p = pipeline::load_pipeline(path).map_err(|e| e.to_string())?;
-
-    // Mark pipeline as started.
-    {
-        let mut state = pipeline_state.write().await;
-        state.start(&repo_path);
-    }
-
-    // Resolve environment and secrets for the target's environment.
-    let (env_ref, env_vars) = if let Some(ref env_name) = target.environment {
-        let envs_config = pipeline::load_environments(path).map_err(|e| e.to_string())?;
-        let env = envs_config
-            .environments
-            .iter()
-            .find(|e| e.name == *env_name)
-            .cloned();
-
-        let mut vars: HashMap<String, String> = HashMap::new();
-        if let Some(ref env) = env {
-            vars.extend(env.variables.clone());
-        }
-
-        let secrets_config =
-            pipeline::load_secrets_config(path).map_err(|e| e.to_string())?;
-        if !secrets_config.secrets.is_empty() {
-            match secrets::resolve_secrets_for_env(&repo_path, env_name, &secrets_config) {
-                Ok(secret_vars) => vars.extend(secret_vars),
-                Err(e) => return Err(format!("Secret resolution failed: {}", e)),
-            }
-        }
-
-        (env, vars)
-    } else {
-        (None, HashMap::new())
-    };
-
-    // Stream log events to the frontend.
-    let on_log: executor::LogCallback = Box::new(move |stage: &str, log_type: &str, msg: &str| {
-        let _ = app.emit(
-            "pipeline:log",
-            serde_json::json!({
-                "stage": stage,
-                "type": log_type,
-                "message": msg,
-            }),
-        );
-    });
+    let p = run_support::pipeline_snapshot_for_run(&target).map_err(|e| e.to_string())?;
 
     let cancel_state = (*pipeline_state).clone();
+    let mut run = with_pipeline_tracking(cancel_state.clone(), &repo_path, async move {
+        let (env_ref, env_vars) =
+            run_support::resolve_execution_context(path, target.environment.as_deref())
+                .map_err(|e| e.to_string())?;
 
-    let mut run = executor::run_pipeline(
-        &p,
-        path,
-        env_ref.as_ref(),
-        env_vars,
-        Some(on_log),
-        None, // Run all stages for rollback
-        Some(cancel_state.clone()),
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+        let mut run = executor::run_pipeline(
+            &p,
+            path,
+            env_ref.as_ref(),
+            env_vars,
+            Some(build_log_callback(app)),
+            None,
+            Some(cancel_state.clone()),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+        run_support::annotate_run(&mut run, &p, target.pipeline_file.as_deref());
+        Ok(run)
+    })
+    .await?;
 
     // Tag the run as a rollback.
     run.run_kind = RunKind::Rollback;
     run.rollback_target_id = Some(target_run_id);
 
-    // Clean up pipeline state.
-    {
-        let mut state = cancel_state.write().await;
-        state.cleanup(&repo_path);
-    }
-
     // Persist the run.
-    persistence::save_run(&run).map_err(|e| e.to_string())?;
-
-    // Update project last run status.
-    if let Ok(mut projects) = persistence::load_projects() {
-        if let Some(proj) = projects.iter_mut().find(|p| p.path == repo_path) {
-            proj.last_run_at = Some(run.started_at);
-            proj.last_run_status = Some(run.status.clone());
-            let _ = persistence::save_projects(&projects);
-        }
-    }
+    run_support::persist_completed_run(&run).map_err(|e| e.to_string())?;
 
     // Post-run housekeeping (notifications + cleanup).
-    post_run_housekeeping(&repo_path, &run).await;
+    run_support::post_run_housekeeping(&repo_path, &run).await;
 
     Ok(run)
 }
@@ -456,8 +277,7 @@ pub fn get_last_successful_run(
     repo_path: String,
     environment: Option<String>,
 ) -> Result<Option<PipelineRun>, String> {
-    persistence::last_successful_run(&repo_path, environment.as_deref())
-        .map_err(|e| e.to_string())
+    persistence::last_successful_run(&repo_path, environment.as_deref()).map_err(|e| e.to_string())
 }
 
 /// Get deployment history for a project and environment.
@@ -479,4 +299,39 @@ pub fn delete_run(id: String) -> Result<(), String> {
 #[tauri::command]
 pub fn clear_run_history(repo_path: String) -> Result<u32, String> {
     persistence::clear_runs_for_project(&repo_path).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::create_pipeline_state;
+
+    #[tokio::test]
+    async fn test_with_pipeline_tracking_cleans_up_after_error() {
+        let state = create_pipeline_state();
+        let repo_path = "/tmp/chibby-run-error";
+
+        let result: Result<(), String> =
+            with_pipeline_tracking(state.clone(), repo_path, async { Err("boom".to_string()) })
+                .await;
+
+        assert_eq!(result.unwrap_err(), "boom");
+
+        let guard = state.read().await;
+        assert!(!guard.is_running(repo_path));
+    }
+
+    #[tokio::test]
+    async fn test_with_pipeline_tracking_cleans_up_after_success() {
+        let state = create_pipeline_state();
+        let repo_path = "/tmp/chibby-run-success";
+
+        let result =
+            with_pipeline_tracking(state.clone(), repo_path, async { Ok::<_, String>(42) }).await;
+
+        assert_eq!(result.unwrap(), 42);
+
+        let guard = state.read().await;
+        assert!(!guard.is_running(repo_path));
+    }
 }

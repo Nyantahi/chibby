@@ -9,9 +9,9 @@
 mod build_checks;
 
 fn main() {
-    // Run pre-build validation checks
-    build_checks::validate();
-
-    tauri_build::build()
+    if std::env::var_os("CARGO_FEATURE_GUI").is_some() {
+        // Run pre-build validation checks
+        build_checks::validate();
+        tauri_build::build();
+    }
 }
-

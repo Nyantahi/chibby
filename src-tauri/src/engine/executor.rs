@@ -29,6 +29,7 @@ pub async fn run_pipeline(
     let env_name = environment.map(|e| e.name.clone());
     let mut run = PipelineRun::new(&pipeline.name, &repo_path.to_string_lossy(), env_name);
     run.status = RunStatus::Running;
+    let mut had_failures = false;
 
     for stage in &pipeline.stages {
         // Skip stages not in the filter (if a filter is provided).
@@ -195,7 +196,7 @@ pub async fn run_pipeline(
                 // Race the I/O tasks against the cancellation monitor
                 tokio::select! {
                     biased;
-                    
+
                     (out, err) = async { tokio::join!(stdout_task, stderr_task) } => {
                         stage_stdout.push_str(&out);
                         stage_stderr.push_str(&err);
@@ -308,7 +309,10 @@ pub async fn run_pipeline(
             } else {
                 // Auto-check docker compose services if a compose up command was run.
                 if stage.backend == Backend::Ssh
-                    && stage.commands.iter().any(|c| c.contains("docker compose up"))
+                    && stage
+                        .commands
+                        .iter()
+                        .any(|c| c.contains("docker compose up"))
                 {
                     let docker_ok = check_docker_compose_services(
                         environment,
@@ -345,6 +349,10 @@ pub async fn run_pipeline(
             health_check_passed,
         });
 
+        if stage_status == StageStatus::Failed {
+            had_failures = true;
+        }
+
         if stage_status == StageStatus::Failed && stage.fail_fast {
             run.status = RunStatus::Failed;
             // Mark remaining stages as skipped.
@@ -367,7 +375,11 @@ pub async fn run_pipeline(
     }
 
     if run.status == RunStatus::Running {
-        run.status = RunStatus::Success;
+        run.status = if had_failures {
+            RunStatus::Failed
+        } else {
+            RunStatus::Success
+        };
     }
 
     let end = Utc::now();
@@ -418,9 +430,10 @@ fn build_ssh_command(
     let env = environment.ok_or_else(|| {
         anyhow::anyhow!("SSH backend requires an environment with ssh_host configured")
     })?;
-    let host = env.ssh_host.as_ref().ok_or_else(|| {
-        anyhow::anyhow!("Environment '{}' has no ssh_host configured", env.name)
-    })?;
+    let host = env
+        .ssh_host
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Environment '{}' has no ssh_host configured", env.name))?;
 
     // Build the remote command string with env exports and cd.
     let mut remote_parts = Vec::new();
@@ -440,8 +453,10 @@ fn build_ssh_command(
     let remote_cmd = remote_parts.join(" && ");
 
     let mut cmd = Command::new("ssh");
-    cmd.arg("-o").arg("BatchMode=yes")
-        .arg("-o").arg("StrictHostKeyChecking=accept-new");
+    cmd.arg("-o")
+        .arg("BatchMode=yes")
+        .arg("-o")
+        .arg("StrictHostKeyChecking=accept-new");
 
     if let Some(port) = env.ssh_port {
         cmd.arg("-p").arg(port.to_string());
@@ -522,11 +537,7 @@ async fn run_health_check(
             }
             Err(e) => {
                 if let Some(ref cb) = on_log {
-                    cb(
-                        stage_name,
-                        "error",
-                        &format!("Health check error: {}", e),
-                    );
+                    cb(stage_name, "error", &format!("Health check error: {}", e));
                 }
             }
         }
@@ -539,8 +550,10 @@ async fn run_health_check(
                     &format!("Retrying in {} seconds...", health_check.delay_secs),
                 );
             }
-            tokio::time::sleep(std::time::Duration::from_secs(health_check.delay_secs as u64))
-                .await;
+            tokio::time::sleep(std::time::Duration::from_secs(
+                health_check.delay_secs as u64,
+            ))
+            .await;
         }
     }
 
@@ -663,5 +676,54 @@ fn get_shell_flag() -> String {
     #[cfg(not(target_os = "windows"))]
     {
         "-c".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::models::{Backend, Pipeline, Stage};
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_non_fail_fast_failure_marks_run_failed() {
+        let repo = TempDir::new().unwrap();
+        let pipeline = Pipeline {
+            name: "test".to_string(),
+            stages: vec![
+                Stage {
+                    name: "fails".to_string(),
+                    commands: vec!["exit 1".to_string()],
+                    backend: Backend::Local,
+                    working_dir: None,
+                    fail_fast: false,
+                    health_check: None,
+                },
+                Stage {
+                    name: "still-runs".to_string(),
+                    commands: vec!["echo ok".to_string()],
+                    backend: Backend::Local,
+                    working_dir: None,
+                    fail_fast: true,
+                    health_check: None,
+                },
+            ],
+        };
+
+        let run = run_pipeline(
+            &pipeline,
+            repo.path(),
+            None,
+            HashMap::new(),
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(run.status, RunStatus::Failed);
+        assert_eq!(run.stage_results[0].status, StageStatus::Failed);
+        assert_eq!(run.stage_results[1].status, StageStatus::Success);
     }
 }
