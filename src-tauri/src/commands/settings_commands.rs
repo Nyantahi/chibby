@@ -41,3 +41,27 @@ pub fn get_app_data_dir() -> Result<String, String> {
 pub fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
+
+/// Read the crash log (if any) for debugging.
+#[tauri::command]
+pub fn get_crash_log() -> Result<Option<String>, String> {
+    let dir = crate::engine::persistence::data_dir().map_err(|e| e.to_string())?;
+    let crash_file = dir.join("crash.log");
+    if crash_file.exists() {
+        let content = std::fs::read_to_string(&crash_file).map_err(|e| e.to_string())?;
+        Ok(Some(content))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Clear the crash log after it has been reviewed.
+#[tauri::command]
+pub fn clear_crash_log() -> Result<(), String> {
+    let dir = crate::engine::persistence::data_dir().map_err(|e| e.to_string())?;
+    let crash_file = dir.join("crash.log");
+    if crash_file.exists() {
+        std::fs::remove_file(&crash_file).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}

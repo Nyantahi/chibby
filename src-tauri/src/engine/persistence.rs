@@ -221,6 +221,24 @@ pub fn recover_interrupted_runs() -> Result<u32> {
                 if run.finished_at.is_none() {
                     run.finished_at = Some(chrono::Utc::now());
                 }
+
+                // Find the stage that was running when the crash happened
+                // and mark it as failed with a crash message.
+                for stage in &mut run.stage_results {
+                    if stage.status == crate::engine::models::StageStatus::Running {
+                        stage.status = crate::engine::models::StageStatus::Failed;
+                        stage.finished_at = Some(chrono::Utc::now());
+                        stage.stderr = format!(
+                            "{}\n[chibby] App crashed during this stage. Check system logs for details.",
+                            stage.stderr
+                        );
+                        log::info!(
+                            "Recovered interrupted run {}: crashed during stage '{}'",
+                            run.id, stage.stage_name
+                        );
+                    }
+                }
+
                 let updated = serde_json::to_string_pretty(&run)?;
                 std::fs::write(&path, updated)?;
                 count += 1;

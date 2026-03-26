@@ -343,7 +343,7 @@ pub fn generate_changelog(repo_path: &Path, since_tag: Option<&str>) -> Result<V
             let parts: Vec<&str> = line.splitn(4, '|').collect();
             if parts.len() == 4 {
                 Some(ChangelogEntry {
-                    hash: parts[0][..8].to_string(), // short hash
+                    hash: parts[0].get(..8).unwrap_or(parts[0]).to_string(),
                     subject: parts[1].to_string(),
                     author: parts[2].to_string(),
                     date: parts[3].to_string(),

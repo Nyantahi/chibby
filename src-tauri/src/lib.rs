@@ -33,6 +33,39 @@ use commands::version_commands;
 /// Entry point for the Tauri application.
 #[cfg(feature = "gui")]
 pub fn run() {
+    // Install a panic hook that writes crash details to a file before the
+    // process dies. This is critical for diagnosing mid-pipeline crashes
+    // that would otherwise leave zero information.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let crash_msg = format!(
+            "[{}] PANIC: {}\nLocation: {}\nThread: {:?}\n",
+            chrono::Utc::now().to_rfc3339(),
+            info.payload()
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
+                .unwrap_or("unknown"),
+            info.location()
+                .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+                .unwrap_or_else(|| "unknown".to_string()),
+            std::thread::current().name().unwrap_or("unnamed"),
+        );
+
+        // Write to crash log next to the runs directory.
+        if let Ok(dir) = engine::persistence::data_dir() {
+            let crash_file = dir.join("crash.log");
+            // Append to existing crash log.
+            let mut existing = std::fs::read_to_string(&crash_file).unwrap_or_default();
+            existing.push_str(&crash_msg);
+            existing.push('\n');
+            let _ = std::fs::write(&crash_file, existing);
+        }
+
+        // Also run the default hook (prints to stderr).
+        default_hook(info);
+    }));
+
     // Recover any runs that were in-progress when the app last crashed.
     // These are marked as Failed so they appear in history and can be retried.
     if let Err(e) = engine::persistence::recover_interrupted_runs() {
@@ -159,6 +192,8 @@ pub fn run() {
             settings_commands::has_app_api_key,
             settings_commands::get_app_data_dir,
             settings_commands::get_app_version,
+            settings_commands::get_crash_log,
+            settings_commands::clear_crash_log,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Chibby");

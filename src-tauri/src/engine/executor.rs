@@ -64,6 +64,25 @@ pub async fn run_pipeline(
             );
         }
 
+        // Push a Running placeholder and persist BEFORE execution starts.
+        // If the app crashes mid-stage, recovery will see which stage was active.
+        run.stage_results.push(StageResult {
+            stage_name: stage.name.clone(),
+            status: StageStatus::Running,
+            exit_code: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            started_at: Some(stage_start),
+            finished_at: None,
+            duration_ms: None,
+            health_check_passed: None,
+        });
+        if let Some(ref cb) = on_stage_complete {
+            cb(&run);
+        }
+        // Remove the placeholder — we'll push the real result after execution.
+        run.stage_results.pop();
+
         let mut stage_stdout = String::new();
         let mut stage_stderr = String::new();
         let mut stage_exit_code: Option<i32> = None;
