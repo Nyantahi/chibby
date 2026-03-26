@@ -19,7 +19,8 @@ import { getRun, retryRun, rollbackToRun, cancelPipeline } from '../services/api
 import { formatDate, formatDuration, statusClass, capitalize } from '../utils/format';
 import type { PipelineRun, StageResult } from '../types';
 import LogViewer from './LogViewer';
-import AgentPanel from './AgentPanel';
+// TODO: Re-enable when Agent feature is complete (see private/plans)
+// import AgentPanel from './AgentPanel';
 import { listen } from '@tauri-apps/api/event';
 
 // Strip ANSI escape sequences from live output
@@ -381,8 +382,8 @@ function RunDetail() {
         </div>
       )}
 
-      {/* Agent Panel */}
-      {run && <AgentPanel runId={run.id} projectId={projectId} isFailed={isFailed} />}
+      {/* TODO: Re-enable Agent Panel when feature is complete (see private/plans) */}
+      {/* {run && <AgentPanel runId={run.id} projectId={projectId} isFailed={isFailed} />} */}
     </div>
   );
 }

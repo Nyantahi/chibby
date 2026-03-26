@@ -6,7 +6,8 @@ import AddProject from './components/AddProject';
 import RunDetail from './components/RunDetail';
 import Settings from './components/Settings';
 import Templates from './components/Templates';
-import AgentChat from './components/AgentChat';
+// TODO: Re-enable when Agent feature is complete (see private/plans)
+// import AgentChat from './components/AgentChat';
 
 function App() {
   return (
@@ -22,7 +23,8 @@ function App() {
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
-      <AgentChat />
+      {/* TODO: Re-enable Agent Chat when feature is complete (see private/plans) */}
+      {/* <AgentChat /> */}
     </>
   );
 }
