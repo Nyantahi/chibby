@@ -493,8 +493,12 @@ fn build_local_command(
     let shell = get_shell();
     let shell_flag = get_shell_flag();
 
+    // Use an interactive login shell so the user's PATH (from .zshrc/.bashrc)
+    // is available. Tauri apps launched from Dock/Finder get a minimal env
+    // without tools like npm, node, cargo, etc.
     let child = Command::new(&shell)
         .arg("-l")
+        .arg("-i")
         .arg(&shell_flag)
         .arg(cmd_str)
         .current_dir(&work_dir)
@@ -746,12 +750,20 @@ fn shell_escape(s: &str) -> String {
 }
 
 /// Get the default shell for the current platform.
+///
+/// On macOS, prefer /bin/zsh (the system default) over $SHELL because Tauri
+/// apps launched from the Dock may not have $SHELL set, falling back to
+/// /bin/sh which doesn't source the user's profile.
 fn get_shell() -> String {
     #[cfg(target_os = "windows")]
     {
         "cmd".to_string()
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
     }
