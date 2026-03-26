@@ -33,6 +33,12 @@ use commands::version_commands;
 /// Entry point for the Tauri application.
 #[cfg(feature = "gui")]
 pub fn run() {
+    // Recover any runs that were in-progress when the app last crashed.
+    // These are marked as Failed so they appear in history and can be retried.
+    if let Err(e) = engine::persistence::recover_interrupted_runs() {
+        eprintln!("Warning: failed to recover interrupted runs: {e}");
+    }
+
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()

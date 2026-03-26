@@ -196,6 +196,41 @@ pub fn deployment_history(
         .collect())
 }
 
+/// Recover runs that were in-progress when the app crashed.
+///
+/// Any run still marked as `Running` on startup was interrupted by a crash.
+/// This marks them as `Failed` so they appear correctly in history and can
+/// be retried.
+pub fn recover_interrupted_runs() -> Result<u32> {
+    let dir = runs_dir()?;
+    if !dir.exists() {
+        return Ok(0);
+    }
+
+    let mut count = 0u32;
+    for entry in std::fs::read_dir(&dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let content = std::fs::read_to_string(&path)?;
+        if let Ok(mut run) = serde_json::from_str::<PipelineRun>(&content) {
+            if run.status == RunStatus::Running {
+                run.status = RunStatus::Failed;
+                if run.finished_at.is_none() {
+                    run.finished_at = Some(chrono::Utc::now());
+                }
+                let updated = serde_json::to_string_pretty(&run)?;
+                std::fs::write(&path, updated)?;
+                count += 1;
+                log::info!("Recovered interrupted run: {}", run.id);
+            }
+        }
+    }
+    Ok(count)
+}
+
 /// Count how many retries exist for a given parent run.
 pub fn retry_count_for_run(parent_run_id: &str) -> Result<u32> {
     let runs = load_runs()?;

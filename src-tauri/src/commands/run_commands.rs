@@ -19,6 +19,16 @@ fn build_log_callback(app: AppHandle) -> executor::LogCallback {
     })
 }
 
+/// Build a callback that persists the run to disk after each stage completes.
+/// This ensures partial results survive an app crash mid-pipeline.
+fn build_stage_callback() -> executor::StageCallback {
+    Box::new(move |run: &PipelineRun| {
+        if let Err(e) = persistence::save_run(run) {
+            log::warn!("Failed to persist intermediate run state: {e}");
+        }
+    })
+}
+
 async fn with_pipeline_tracking<T, F>(
     pipeline_state: SharedPipelineState,
     repo_path: &str,
@@ -72,6 +82,7 @@ pub async fn run_pipeline(
             Some(build_log_callback(app)),
             stages.as_deref(),
             Some(cancel_state.clone()),
+            Some(build_stage_callback()),
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -187,6 +198,7 @@ pub async fn retry_run(
             Some(build_log_callback(app)),
             Some(&stages_to_run),
             Some(cancel_state.clone()),
+            Some(build_stage_callback()),
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -249,6 +261,7 @@ pub async fn rollback_to_run(
             Some(build_log_callback(app)),
             None,
             Some(cancel_state.clone()),
+            Some(build_stage_callback()),
         )
         .await
         .map_err(|e| e.to_string())?;

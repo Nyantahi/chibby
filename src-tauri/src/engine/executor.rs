@@ -13,6 +13,10 @@ use tokio::process::Command;
 /// Callback signature for streaming log lines during execution.
 pub type LogCallback = Box<dyn Fn(&str, &str, &str) + Send + Sync>;
 
+/// Callback invoked after each stage completes, receiving the in-progress run.
+/// Used for incremental persistence so partial results survive a crash.
+pub type StageCallback = Box<dyn Fn(&PipelineRun) + Send + Sync>;
+
 /// Execute an entire pipeline, stage by stage.
 ///
 /// Supports both local and SSH execution backends. Environment variables
@@ -25,6 +29,7 @@ pub async fn run_pipeline(
     on_log: Option<LogCallback>,
     stage_filter: Option<&[String]>,
     cancel_state: Option<SharedPipelineState>,
+    on_stage_complete: Option<StageCallback>,
 ) -> Result<PipelineRun> {
     let env_name = environment.map(|e| e.name.clone());
     let mut run = PipelineRun::new(&pipeline.name, &repo_path.to_string_lossy(), env_name);
@@ -348,6 +353,11 @@ pub async fn run_pipeline(
             duration_ms: Some(duration),
             health_check_passed,
         });
+
+        // Persist partial run state so results survive a crash.
+        if let Some(ref cb) = on_stage_complete {
+            cb(&run);
+        }
 
         if stage_status == StageStatus::Failed {
             had_failures = true;
@@ -715,6 +725,7 @@ mod tests {
             repo.path(),
             None,
             HashMap::new(),
+            None,
             None,
             None,
             None,
