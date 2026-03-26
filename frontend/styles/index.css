@@ -2827,7 +2827,7 @@ select.input {
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
-  padding-top: 60px; /* align below header */
+  padding-top: 140px; /* align below header + action bar */
 }
 
 .project-sidebar-card {
