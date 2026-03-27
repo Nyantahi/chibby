@@ -1,6 +1,6 @@
 [package]
 name = "chibby"
-version = "0.1.19"
+version = "0.1.20"
 description = "Local-first open-source CI/CD for solo developers"
 authors = [""]
 license = "MIT"
