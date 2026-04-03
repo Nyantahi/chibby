@@ -1,0 +1,20 @@
+[meta]
+name = "Railway Deploy"
+description = "Deploy applications to Railway"
+author = "chibby"
+version = "1.0.0"
+category = "deployment"
+tags = ["railway", "cloud", "deploy"]
+required_tools = ["railway"]
+template_type = "stage"
+
+[[stages]]
+name = "railway-deploy"
+commands = ["railway up --service {{service_name}}"]
+backend = "local"
+fail_fast = true
+
+[stages.health_check]
+command = "curl -sf {{health_url}}"
+retries = 5
+delay_secs = 10

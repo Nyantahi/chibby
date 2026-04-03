@@ -1,0 +1,17 @@
+[meta]
+name = "DigitalOcean App Platform Deploy"
+description = "Deploy to DigitalOcean App Platform"
+author = "chibby"
+version = "1.0.0"
+category = "deployment"
+tags = ["digitalocean", "app-platform", "deploy"]
+required_tools = ["doctl"]
+template_type = "stage"
+
+[[stages]]
+name = "do-app-deploy"
+commands = [
+  "doctl apps create-deployment {{app_id}} --wait"
+]
+backend = "local"
+fail_fast = true

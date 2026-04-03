@@ -1,0 +1,23 @@
+[meta]
+name = "Akamai/Linode Deploy (SSH)"
+description = "Deploy to Akamai Linode instances via SSH"
+author = "chibby"
+version = "1.0.0"
+category = "deployment"
+tags = ["akamai", "linode", "ssh", "deploy"]
+required_tools = ["rsync", "ssh"]
+template_type = "stage"
+
+[[stages]]
+name = "linode-deploy"
+commands = [
+  "rsync -avz --delete ./dist/ {{ssh_user}}@{{linode_ip}}:{{deploy_path}}/",
+  "ssh {{ssh_user}}@{{linode_ip}} 'sudo systemctl restart {{service_name}}'"
+]
+backend = "local"
+fail_fast = true
+
+[stages.health_check]
+command = "curl -sf http://{{linode_ip}}:{{health_port}}/health"
+retries = 3
+delay_secs = 5

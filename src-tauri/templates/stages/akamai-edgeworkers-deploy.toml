@@ -1,0 +1,18 @@
+[meta]
+name = "Akamai EdgeWorkers Deploy"
+description = "Deploy serverless functions to Akamai EdgeWorkers"
+author = "chibby"
+version = "1.0.0"
+category = "deployment"
+tags = ["akamai", "edgeworkers", "serverless", "deploy"]
+required_tools = ["akamai"]
+template_type = "stage"
+
+[[stages]]
+name = "edgeworkers-deploy"
+commands = [
+  "akamai edgeworkers upload --bundle {{bundle_path}} --ewId {{edgeworker_id}}",
+  "akamai edgeworkers activate --ewId {{edgeworker_id}} --version {{version}} --network {{network}}"
+]
+backend = "local"
+fail_fast = true

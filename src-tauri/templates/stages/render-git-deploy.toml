@@ -1,0 +1,15 @@
+[meta]
+name = "Render Deploy (Git)"
+description = "Deploy to Render by pushing to a git branch"
+author = "chibby"
+version = "1.0.0"
+category = "deployment"
+tags = ["render", "git", "deploy"]
+required_tools = ["git"]
+template_type = "stage"
+
+[[stages]]
+name = "render-git"
+commands = ["git push {{render_remote}} {{branch}}:main"]
+backend = "local"
+fail_fast = true

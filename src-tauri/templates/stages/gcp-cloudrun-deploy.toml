@@ -1,0 +1,22 @@
+[meta]
+name = "Google Cloud Run Deploy"
+description = "Deploy containers to Google Cloud Run"
+author = "chibby"
+version = "1.0.0"
+category = "deployment"
+tags = ["gcp", "google", "cloudrun", "container", "deploy"]
+required_tools = ["gcloud"]
+template_type = "stage"
+
+[[stages]]
+name = "cloudrun-deploy"
+commands = [
+  "gcloud run deploy {{service_name}} --image {{image_url}} --region {{gcp_region}} --platform managed --allow-unauthenticated"
+]
+backend = "local"
+fail_fast = true
+
+[stages.health_check]
+command = "gcloud run services describe {{service_name}} --region {{gcp_region}} --format='value(status.url)' | xargs curl -sf"
+retries = 5
+delay_secs = 10

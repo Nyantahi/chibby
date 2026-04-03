@@ -1,0 +1,22 @@
+[meta]
+name = "AWS ECS Deploy"
+description = "Deploy containers to AWS ECS (Fargate or EC2)"
+author = "chibby"
+version = "1.0.0"
+category = "deployment"
+tags = ["aws", "ecs", "container", "fargate", "deploy"]
+required_tools = ["aws"]
+template_type = "stage"
+
+[[stages]]
+name = "ecs-deploy"
+commands = [
+  "aws ecs update-service --cluster {{cluster_name}} --service {{service_name}} --force-new-deployment --region {{aws_region}}"
+]
+backend = "local"
+fail_fast = true
+
+[stages.health_check]
+command = "aws ecs describe-services --cluster {{cluster_name}} --services {{service_name}} --region {{aws_region}} | grep -q RUNNING"
+retries = 10
+delay_secs = 15

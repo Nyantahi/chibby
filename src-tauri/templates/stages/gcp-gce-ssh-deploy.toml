@@ -1,0 +1,18 @@
+[meta]
+name = "Google Compute Engine Deploy (SSH)"
+description = "Deploy to GCE instances via SSH"
+author = "chibby"
+version = "1.0.0"
+category = "deployment"
+tags = ["gcp", "google", "gce", "ssh", "deploy"]
+required_tools = ["gcloud", "rsync"]
+template_type = "stage"
+
+[[stages]]
+name = "gce-deploy"
+commands = [
+  "gcloud compute scp --recurse ./dist/* {{instance_name}}:{{deploy_path}}/ --zone {{gcp_zone}}",
+  "gcloud compute ssh {{instance_name}} --zone {{gcp_zone}} --command 'sudo systemctl restart {{service_name}}'"
+]
+backend = "local"
+fail_fast = true

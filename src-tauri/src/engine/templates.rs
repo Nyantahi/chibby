@@ -106,6 +106,67 @@ fn builtin_template_entries() -> Vec<(&'static str, &'static str)> {
             "homebrew-core-pr.toml",
             include_str!("../../templates/stages/homebrew-core-pr.toml"),
         ),
+        // Cloud provider deployment templates
+        (
+            "flyio-deploy.toml",
+            include_str!("../../templates/stages/flyio-deploy.toml"),
+        ),
+        (
+            "flyio-static-deploy.toml",
+            include_str!("../../templates/stages/flyio-static-deploy.toml"),
+        ),
+        (
+            "render-deploy.toml",
+            include_str!("../../templates/stages/render-deploy.toml"),
+        ),
+        (
+            "render-git-deploy.toml",
+            include_str!("../../templates/stages/render-git-deploy.toml"),
+        ),
+        (
+            "aws-ecs-deploy.toml",
+            include_str!("../../templates/stages/aws-ecs-deploy.toml"),
+        ),
+        (
+            "aws-ec2-ssh-deploy.toml",
+            include_str!("../../templates/stages/aws-ec2-ssh-deploy.toml"),
+        ),
+        (
+            "gcp-cloudrun-deploy.toml",
+            include_str!("../../templates/stages/gcp-cloudrun-deploy.toml"),
+        ),
+        (
+            "gcp-gce-ssh-deploy.toml",
+            include_str!("../../templates/stages/gcp-gce-ssh-deploy.toml"),
+        ),
+        (
+            "azure-webapp-deploy.toml",
+            include_str!("../../templates/stages/azure-webapp-deploy.toml"),
+        ),
+        (
+            "railway-deploy.toml",
+            include_str!("../../templates/stages/railway-deploy.toml"),
+        ),
+        (
+            "digitalocean-app-deploy.toml",
+            include_str!("../../templates/stages/digitalocean-app-deploy.toml"),
+        ),
+        (
+            "digitalocean-droplet-deploy.toml",
+            include_str!("../../templates/stages/digitalocean-droplet-deploy.toml"),
+        ),
+        (
+            "hetzner-deploy.toml",
+            include_str!("../../templates/stages/hetzner-deploy.toml"),
+        ),
+        (
+            "akamai-linode-deploy.toml",
+            include_str!("../../templates/stages/akamai-linode-deploy.toml"),
+        ),
+        (
+            "akamai-edgeworkers-deploy.toml",
+            include_str!("../../templates/stages/akamai-edgeworkers-deploy.toml"),
+        ),
     ]
 }
 
