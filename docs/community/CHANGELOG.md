@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.26] - 2026-04-03
+
+### Added
+
+- 15 cloud provider deployment stage templates:
+  - **Fly.io**: Container deploy, Static site deploy
+  - **Render**: CLI deploy, Git push deploy
+  - **AWS**: ECS (Fargate/EC2) deploy, EC2 SSH deploy
+  - **Google Cloud**: Cloud Run deploy, GCE SSH deploy
+  - **Azure**: Web App / App Service deploy
+  - **Railway**: CLI deploy
+  - **DigitalOcean**: App Platform deploy, Droplet SSH deploy
+  - **Hetzner**: Cloud SSH deploy
+  - **Akamai/Linode**: Linode SSH deploy, EdgeWorkers deploy
+- Health check configurations for deployment verification (retries, delays)
+- Preflight tool validation for cloud CLIs (flyctl, gcloud, az, railway, doctl, akamai)
+
 ## [0.1.8] - 2026-03-26
 
 ### Added
