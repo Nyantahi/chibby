@@ -28,7 +28,9 @@ function Layout() {
   const [version, setVersion] = useState<string>('');
 
   useEffect(() => {
-    getAppVersion().then(setVersion).catch(() => setVersion('unknown'));
+    getAppVersion()
+      .then(setVersion)
+      .catch(() => setVersion('unknown'));
   }, []);
 
   return (
