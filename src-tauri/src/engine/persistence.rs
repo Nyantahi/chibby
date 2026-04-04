@@ -21,6 +21,16 @@ pub fn data_dir() -> Result<PathBuf> {
 
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("Failed to create data directory: {}", dir.display()))?;
+
+    // Ensure the data directory has restrictive permissions (owner-only)
+    // to protect run logs and pipeline configs that may contain sensitive data.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o700);
+        let _ = std::fs::set_permissions(&dir, perms);
+    }
+
     Ok(dir)
 }
 

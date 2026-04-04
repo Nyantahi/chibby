@@ -1,6 +1,8 @@
+import { useState, useEffect } from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
 import { FolderGit2, PlusCircle, Settings, Layers } from 'lucide-react';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { getAppVersion } from '../services/api';
 
 function ChibbyLogo({ size = 22 }: { size?: number }) {
   return (
@@ -23,6 +25,11 @@ function ChibbyLogo({ size = 22 }: { size?: number }) {
 
 function Layout() {
   useKeyboardShortcuts();
+  const [version, setVersion] = useState<string>('');
+
+  useEffect(() => {
+    getAppVersion().then(setVersion).catch(() => setVersion('unknown'));
+  }, []);
 
   return (
     <div className="app-layout">
@@ -52,7 +59,7 @@ function Layout() {
             <Settings size={16} />
             <span>Settings</span>
           </NavLink>
-          <span className="version-label">v0.1.0</span>
+          <span className="version-label">v{version}</span>
         </div>
       </aside>
 

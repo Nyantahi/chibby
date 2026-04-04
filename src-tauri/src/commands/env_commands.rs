@@ -2,6 +2,7 @@ use crate::engine::models::{EnvironmentsConfig, SecretsConfig};
 use crate::engine::pipeline;
 use crate::engine::preflight;
 use crate::engine::secrets;
+use crate::engine::audit;
 use std::path::Path;
 
 /// Load environments config from a project's .chibby/environments.toml.
@@ -16,6 +17,11 @@ pub fn save_environments(
     repo_path: String,
     config: EnvironmentsConfig,
 ) -> Result<(), String> {
+    let env_names: Vec<&str> = config.environments.iter().map(|e| e.name.as_str()).collect();
+    audit::log_event(
+        "save_environments",
+        &format!("project={} envs={:?}", repo_path, env_names),
+    );
     pipeline::save_environments(Path::new(&repo_path), &config).map_err(|e| e.to_string())
 }
 
@@ -42,6 +48,10 @@ pub fn set_secret(
     secret_name: String,
     value: String,
 ) -> Result<(), String> {
+    audit::log_event(
+        "set_secret",
+        &format!("project={} env={} secret={}", project_path, env_name, secret_name),
+    );
     secrets::set_secret(&project_path, &env_name, &secret_name, &value)
         .map_err(|e| e.to_string())
 }
@@ -53,6 +63,10 @@ pub fn delete_secret(
     env_name: String,
     secret_name: String,
 ) -> Result<(), String> {
+    audit::log_event(
+        "delete_secret",
+        &format!("project={} env={} secret={}", project_path, env_name, secret_name),
+    );
     secrets::delete_secret(&project_path, &env_name, &secret_name).map_err(|e| e.to_string())
 }
 

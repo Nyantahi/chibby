@@ -529,11 +529,22 @@ fn build_ssh_command(
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Environment '{}' has no ssh_host configured", env.name))?;
 
+    // Validate SSH host to prevent option injection (e.g. "-o ProxyCommand=...")
+    if host.starts_with('-') || host.contains(' ') || host.contains('\n') {
+        anyhow::bail!("Invalid ssh_host value '{}': must not start with '-' or contain spaces", host);
+    }
+
     // Build the remote command string with env exports and cd.
     let mut remote_parts = Vec::new();
 
     // Export environment variables on the remote side.
     for (key, value) in env_vars {
+        if !is_valid_env_var_name(key) {
+            anyhow::bail!(
+                "Invalid environment variable name '{}': must match [A-Za-z_][A-Za-z0-9_]*",
+                key
+            );
+        }
         remote_parts.push(format!("export {}={}", key, shell_escape(value)));
     }
 
@@ -747,6 +758,18 @@ async fn check_docker_compose_services(
 fn shell_escape(s: &str) -> String {
     // Use single quotes with escaped single quotes.
     format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// Validate that an environment variable name is safe for shell use.
+fn is_valid_env_var_name(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let first = name.as_bytes()[0];
+    if !(first.is_ascii_alphabetic() || first == b'_') {
+        return false;
+    }
+    name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
 /// Get the default shell for the current platform.

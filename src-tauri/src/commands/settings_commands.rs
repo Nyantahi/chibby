@@ -1,4 +1,5 @@
 use crate::engine::app_settings;
+use crate::engine::audit;
 
 /// Load app-level settings.
 #[tauri::command]
@@ -9,18 +10,21 @@ pub fn load_app_settings() -> Result<app_settings::AppSettings, String> {
 /// Save app-level settings.
 #[tauri::command]
 pub fn save_app_settings(settings: app_settings::AppSettings) -> Result<(), String> {
+    audit::log_event("save_app_settings", "settings updated");
     app_settings::save_app_settings(&settings).map_err(|e| e.to_string())
 }
 
 /// Store an API key in the OS keychain.
 #[tauri::command]
 pub fn set_app_api_key(provider: String, value: String) -> Result<(), String> {
+    audit::log_event("set_app_api_key", &format!("provider={}", provider));
     app_settings::set_app_secret(&provider, &value).map_err(|e| e.to_string())
 }
 
 /// Delete an API key from the OS keychain.
 #[tauri::command]
 pub fn delete_app_api_key(provider: String) -> Result<(), String> {
+    audit::log_event("delete_app_api_key", &format!("provider={}", provider));
     app_settings::delete_app_secret(&provider).map_err(|e| e.to_string())
 }
 

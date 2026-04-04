@@ -9,7 +9,7 @@
 class ChibbyCli < Formula
   desc "Local-first CI/CD CLI for solo developers"
   homepage "https://github.com/Nyantahi/chibby"
-  version "0.1.0"
+  version "0.1.28"
   license "MIT"
 
   on_macos do

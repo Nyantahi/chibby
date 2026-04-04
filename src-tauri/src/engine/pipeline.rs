@@ -68,8 +68,27 @@ pub fn list_pipelines(repo_path: &Path) -> Vec<String> {
     names
 }
 
+/// Validate that a pipeline name is safe (no path traversal or special characters).
+fn validate_pipeline_name(name: &str) -> Result<()> {
+    if name.is_empty() {
+        anyhow::bail!("Pipeline name cannot be empty");
+    }
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        anyhow::bail!("Pipeline name contains invalid path characters");
+    }
+    if name.starts_with('.') || name.starts_with('-') {
+        anyhow::bail!("Pipeline name cannot start with '.' or '-'");
+    }
+    // Allow only alphanumeric, dash, underscore
+    if !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        anyhow::bail!("Pipeline name may only contain alphanumeric characters, dashes, and underscores");
+    }
+    Ok(())
+}
+
 /// Load a specific pipeline by file stem (e.g. "release" loads .chibby/release.toml).
 pub fn load_pipeline_by_name(repo_path: &Path, name: &str) -> Result<Pipeline> {
+    validate_pipeline_name(name)?;
     let file_path = repo_path.join(".chibby").join(format!("{}.toml", name));
     let content = std::fs::read_to_string(&file_path)
         .with_context(|| format!("Failed to read {}", file_path.display()))?;
@@ -80,6 +99,7 @@ pub fn load_pipeline_by_name(repo_path: &Path, name: &str) -> Result<Pipeline> {
 
 /// Save a pipeline to a specific file in .chibby/ (e.g. "release" saves to .chibby/release.toml).
 pub fn save_pipeline_by_name(repo_path: &Path, name: &str, pipeline: &Pipeline) -> Result<()> {
+    validate_pipeline_name(name)?;
     let chibby_dir = repo_path.join(".chibby");
     std::fs::create_dir_all(&chibby_dir)
         .with_context(|| format!("Failed to create .chibby directory in {}", repo_path.display()))?;

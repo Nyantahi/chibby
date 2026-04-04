@@ -1,6 +1,6 @@
 {
   "name": "chibby",
-  "version": "0.1.27",
+  "version": "0.1.28",
   "description": "Local-first open-source CI/CD for solo developers",
   "type": "module",
   "scripts": {
@@ -16,6 +16,7 @@
     "test:coverage": "vitest run --coverage",
     "test:ui": "vitest --ui",
     "test:all": "npm run test:run && cd src-tauri && cargo test",
+    "security:audit": "cd src-tauri && cargo audit",
     "lint": "eslint frontend",
     "lint:fix": "eslint frontend --fix",
     "format": "prettier --write \"frontend/**/*.{ts,tsx,css}\"",
