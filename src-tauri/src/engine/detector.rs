@@ -612,7 +612,7 @@ pub fn generate_draft_pipeline(
 
     // ── Install dependencies ─────────────────────────────────────
     if has(ScriptType::PackageJson) {
-        stages.push(local_stage("install", vec!["npm ci"]));
+        stages.push(local_stage("install", vec!["npm install"]));
     }
 
     // ── Type checking ────────────────────────────────────────────
@@ -757,8 +757,9 @@ pub fn generate_draft_pipeline(
             // For fullstack projects, always generate per-folder stages
             // For single-folder projects, only if no root package.json
             if is_fullstack || !has_root_pkg {
+                // Use npm install (not npm ci) since package-lock.json may not exist
                 stages.push(local_stage(&format!("{}-install", subdir),
-                    vec![&format!("cd {} && npm ci", subdir)]));
+                    vec![&format!("cd {} && npm install", subdir)]));
 
                 if folder.npm_scripts.contains("lint") {
                     stages.push(local_stage(&format!("{}-lint", subdir),

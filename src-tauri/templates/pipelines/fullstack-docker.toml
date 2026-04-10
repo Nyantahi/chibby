@@ -15,7 +15,7 @@ name = "{{project_name}} Pipeline"
 [[pipeline.stages]]
 name = "lint-frontend"
 commands = [
-  "cd frontend && npm ci",
+  "cd frontend && npm install",
   "cd frontend && npm run lint"
 ]
 backend = "local"
