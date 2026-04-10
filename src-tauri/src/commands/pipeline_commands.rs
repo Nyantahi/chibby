@@ -51,10 +51,25 @@ pub fn detect_scripts(repo_path: String) -> Result<Vec<DetectedScriptInfo>, Stri
 }
 
 /// Generate a draft pipeline from detected scripts.
+///
+/// For fullstack Docker projects (multiple folders + docker-compose), this also
+/// generates a separate deploy.toml with Docker deployment stages.
 #[tauri::command]
 pub fn generate_pipeline(repo_path: String, repo_name: String) -> Result<Pipeline, String> {
-    let scripts = detector::detect_scripts(Path::new(&repo_path));
-    let draft = detector::generate_draft_pipeline(&repo_name, &scripts, Path::new(&repo_path));
+    let path = Path::new(&repo_path);
+    let scripts = detector::detect_scripts(path);
+    let draft = detector::generate_draft_pipeline(&repo_name, &scripts, path);
+
+    // For fullstack Docker projects, also generate and save a deploy pipeline
+    if detector::is_fullstack_docker_project(path) {
+        if let Some(deploy_pipeline) = detector::generate_deploy_pipeline(&repo_name, &scripts, path) {
+            // Save the deploy pipeline to deploy.toml
+            if let Err(e) = pipeline::save_pipeline_by_name(path, "deploy", &deploy_pipeline) {
+                log::warn!("Failed to save deploy pipeline: {}", e);
+            }
+        }
+    }
+
     Ok(draft)
 }
 

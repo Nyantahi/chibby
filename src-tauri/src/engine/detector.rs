@@ -47,6 +47,10 @@ const SCRIPT_PATTERNS: &[&str] = &[
     "requirements.txt",
     "Pipfile",
     "tox.ini",
+    // Python test configs
+    "pytest.ini",
+    "conftest.py",
+    ".coveragerc",
     // Ruby
     "Gemfile",
     // Java / Kotlin
@@ -115,6 +119,9 @@ const SCRIPT_PATTERNS: &[&str] = &[
 const CI_DIR_PATTERNS: &[(&str, &str, ScriptType)] = &[
     (".github/workflows", ".github/workflows", ScriptType::GithubActions),
     (".circleci", ".circleci/config.yml", ScriptType::CircleCi),
+    // Python test directories
+    ("tests", "tests/", ScriptType::PythonTestDir),
+    ("test", "test/", ScriptType::PythonTestDir),
 ];
 
 /// Information about a detected script or task source.
@@ -185,6 +192,8 @@ pub enum ScriptType {
     Vitest,
     Jest,
     Mocha,
+    Pytest,
+    PythonTestDir,
     // TypeScript
     TsConfig,
     // Bundlers
@@ -200,6 +209,127 @@ pub enum ScriptType {
     ChibbyConfig,
     Unknown,
 }
+
+/// Common subdirectory names for fullstack projects (frontend/backend).
+const FULLSTACK_SUBDIRS: &[&str] = &[
+    "frontend", "backend", "api", "web", "app", "client", "server", "src", "admin", "dashboard", "portal",
+];
+
+/// Subdirectories that indicate frontend (Node.js) projects.
+const FRONTEND_SUBDIRS: &[&str] = &["frontend", "client", "web", "app", "admin", "dashboard", "portal"];
+
+/// Subdirectories that indicate backend (Python/Node.js) projects.
+const BACKEND_SUBDIRS: &[&str] = &["backend", "api", "server"];
+
+/// Information about a detected project folder with its capabilities.
+#[derive(Debug, Clone)]
+pub struct ProjectFolder {
+    /// Subdirectory name (e.g., "frontend", "backend", "admin").
+    pub name: String,
+    /// Has package.json (Node.js project).
+    pub has_node: bool,
+    /// Has requirements.txt or pyproject.toml (Python project).
+    pub has_python: bool,
+    /// Has tests/ directory or test files.
+    pub has_tests: bool,
+    /// Available npm scripts (if Node.js project).
+    pub npm_scripts: std::collections::HashSet<String>,
+    /// Is this a frontend-type folder.
+    pub is_frontend: bool,
+    /// Is this a backend-type folder.
+    pub is_backend: bool,
+}
+
+/// Detect all project folders in a fullstack repository.
+///
+/// Returns information about each subdirectory that contains a recognizable project
+/// (package.json, requirements.txt, pyproject.toml, etc.).
+pub fn detect_project_folders(repo_path: &Path) -> Vec<ProjectFolder> {
+    let mut folders = Vec::new();
+
+    for subdir in FULLSTACK_SUBDIRS {
+        let subdir_path = repo_path.join(subdir);
+        if !subdir_path.is_dir() {
+            continue;
+        }
+
+        let has_package_json = subdir_path.join("package.json").exists();
+        let has_requirements = subdir_path.join("requirements.txt").exists();
+        let has_pyproject = subdir_path.join("pyproject.toml").exists();
+        let has_python = has_requirements || has_pyproject;
+
+        // Skip if not a recognizable project
+        if !has_package_json && !has_python {
+            continue;
+        }
+
+        // Check for tests
+        let has_tests = subdir_path.join("tests").is_dir()
+            || subdir_path.join("test").is_dir()
+            || subdir_path.join("__tests__").is_dir()
+            || subdir_path.join("vitest.config.ts").exists()
+            || subdir_path.join("jest.config.js").exists()
+            || subdir_path.join("pytest.ini").exists()
+            || subdir_path.join("conftest.py").exists();
+
+        // Read npm scripts if applicable
+        let npm_scripts = if has_package_json {
+            read_package_scripts(&subdir_path).keys().cloned().collect()
+        } else {
+            std::collections::HashSet::new()
+        };
+
+        // Determine if frontend or backend based on folder name
+        let is_frontend = FRONTEND_SUBDIRS.contains(&subdir.to_lowercase().as_str()) || has_package_json && !has_python;
+        let is_backend = BACKEND_SUBDIRS.contains(&subdir.to_lowercase().as_str()) || has_python;
+
+        folders.push(ProjectFolder {
+            name: subdir.to_string(),
+            has_node: has_package_json,
+            has_python,
+            has_tests,
+            npm_scripts,
+            is_frontend,
+            is_backend,
+        });
+    }
+
+    folders
+}
+
+/// Check if project is a fullstack Docker project (multiple folders + docker-compose).
+pub fn is_fullstack_docker_project(repo_path: &Path) -> bool {
+    let folders = detect_project_folders(repo_path);
+    let has_docker_compose = repo_path.join("docker-compose.yml").exists()
+        || repo_path.join("docker-compose.yaml").exists()
+        || repo_path.join("compose.yml").exists()
+        || repo_path.join("compose.yaml").exists();
+
+    // Consider fullstack if we have 2+ project folders and docker-compose
+    folders.len() >= 2 && has_docker_compose
+}
+
+/// Patterns to check in fullstack subdirectories.
+const SUBDIR_PATTERNS: &[&str] = &[
+    // Node / JS / TS
+    "package.json",
+    "tsconfig.json",
+    "vite.config.ts",
+    "vite.config.js",
+    "next.config.js",
+    "next.config.mjs",
+    // Python
+    "pyproject.toml",
+    "requirements.txt",
+    "setup.py",
+    "Pipfile",
+    "pytest.ini",
+    "conftest.py",
+    // Test configs
+    "vitest.config.ts",
+    "jest.config.js",
+    "jest.config.ts",
+];
 
 /// Scan a repository directory for known script and task files.
 pub fn detect_scripts(repo_path: &Path) -> Vec<DetectedScript> {
@@ -230,6 +360,41 @@ pub fn detect_scripts(repo_path: &Path) -> Vec<DetectedScript> {
         }
     }
 
+    // Check fullstack subdirectories (frontend/, backend/, api/, etc.)
+    for subdir in FULLSTACK_SUBDIRS {
+        let subdir_path = repo_path.join(subdir);
+        if subdir_path.is_dir() {
+            for pattern in SUBDIR_PATTERNS {
+                let full = subdir_path.join(pattern);
+                if full.exists() {
+                    let display_name = format!("{}/{}", subdir, pattern);
+                    let script_type = classify_file(pattern);
+                    // Avoid duplicates
+                    if !found.iter().any(|s| s.file_name == display_name) {
+                        found.push(DetectedScript {
+                            file_name: display_name,
+                            file_path: full.to_string_lossy().to_string(),
+                            script_type,
+                        });
+                    }
+                }
+            }
+
+            // Check for tests/ directory inside subdirectory
+            let tests_path = subdir_path.join("tests");
+            if tests_path.is_dir() {
+                let display_name = format!("{}/tests/", subdir);
+                if !found.iter().any(|s| s.file_name == display_name) {
+                    found.push(DetectedScript {
+                        file_name: display_name,
+                        file_path: tests_path.to_string_lossy().to_string(),
+                        script_type: ScriptType::PythonTestDir,
+                    });
+                }
+            }
+        }
+    }
+
     // Scan repo root for *.sh, .env*, and .sln/*.csproj files.
     if let Ok(entries) = std::fs::read_dir(repo_path) {
         for entry in entries.flatten() {
@@ -252,6 +417,33 @@ pub fn detect_scripts(repo_path: &Path) -> Vec<DetectedScript> {
                     file_path: entry.path().to_string_lossy().to_string(),
                     script_type: ScriptType::DotNet,
                 });
+            }
+        }
+    }
+
+    // Scan for Python test files (test_*.py, *_test.py) in repo root and tests/ directories
+    let python_test_dirs = [repo_path.to_path_buf(), repo_path.join("tests"), repo_path.join("test")];
+    for test_dir in &python_test_dirs {
+        if test_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(test_dir) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if is_python_test_file(&name) {
+                        let display_name = if test_dir == repo_path {
+                            name.clone()
+                        } else {
+                            format!("{}/{}", test_dir.file_name().unwrap_or_default().to_string_lossy(), name)
+                        };
+                        // Only add if not already found
+                        if !found.iter().any(|s| s.file_name == display_name) {
+                            found.push(DetectedScript {
+                                file_name: display_name,
+                                file_path: entry.path().to_string_lossy().to_string(),
+                                script_type: ScriptType::Pytest,
+                            });
+                        }
+                    }
+                }
             }
         }
     }
@@ -318,6 +510,7 @@ fn classify_file(name: &str) -> ScriptType {
         "vitest.config.ts" | "vitest.config.js" | "vitest.config.mts" => ScriptType::Vitest,
         "jest.config.js" | "jest.config.ts" | "jest.config.mjs" => ScriptType::Jest,
         ".mocharc.yml" | ".mocharc.yaml" | ".mocharc.json" => ScriptType::Mocha,
+        "pytest.ini" | "conftest.py" | ".coveragerc" => ScriptType::Pytest,
         // TypeScript
         "tsconfig.json" => ScriptType::TsConfig,
         // Bundlers
@@ -344,6 +537,15 @@ fn classify_file(name: &str) -> ScriptType {
 fn is_env_file(name: &str) -> bool {
     name == ".env"
         || (name.starts_with(".env.") && !name.ends_with(".example") && !name.ends_with(".sample"))
+}
+
+/// Check if a file is a Python test file (test_*.py or *_test.py).
+fn is_python_test_file(name: &str) -> bool {
+    if !name.ends_with(".py") {
+        return false;
+    }
+    let base = &name[..name.len() - 3]; // Remove .py
+    base.starts_with("test_") || base.ends_with("_test")
 }
 
 /// Helper to create a local stage.
@@ -512,7 +714,103 @@ pub fn generate_draft_pipeline(
                 "pip install -e ."
             };
             stages.push(local_stage("pip-install", vec![install_cmd]));
-            stages.push(local_stage("pytest", vec!["pytest"]));
+
+            // Only add pytest stage if we detected test files, test directories, or pytest config
+            if has(ScriptType::Pytest) || has(ScriptType::PythonTestDir) {
+                stages.push(local_stage("pytest", vec!["pytest"]));
+            }
+        }
+    }
+
+    // ── Python linting (if Python project without Docker-only setup) ─────
+    if (has(ScriptType::PythonProject) || has(ScriptType::PythonRequirements))
+        && !has(ScriptType::PackageJson) {
+        // Check for common Python linter configs
+        let has_ruff = repo_path.join("ruff.toml").exists() || repo_path.join("pyproject.toml").exists();
+        let has_flake8 = repo_path.join(".flake8").exists() || repo_path.join("setup.cfg").exists();
+
+        if has_ruff {
+            stages.push(local_stage("python-lint", vec!["ruff check ."]));
+        } else if has_flake8 {
+            stages.push(local_stage("python-lint", vec!["flake8 ."]));
+        }
+    }
+
+    // ── Fullstack: Multiple subdirectories ──────────────────────────
+    // Detect and generate stages for ALL project folders (frontend, backend, admin, etc.)
+    let has_subdir_file = |subdir: &str, file: &str| {
+        scripts.iter().any(|s| s.file_name == format!("{}/{}", subdir, file))
+    };
+
+    // Get all project folders with their capabilities
+    let project_folders = detect_project_folders(repo_path);
+    let is_fullstack = project_folders.len() >= 2;
+    let has_root_pkg = has(ScriptType::PackageJson);
+    let has_root_python = has(ScriptType::PythonProject) || has(ScriptType::PythonRequirements);
+
+    // Process each detected project folder
+    for folder in &project_folders {
+        let subdir = &folder.name;
+
+        // Generate Node.js stages for this folder
+        if folder.has_node {
+            // For fullstack projects, always generate per-folder stages
+            // For single-folder projects, only if no root package.json
+            if is_fullstack || !has_root_pkg {
+                stages.push(local_stage(&format!("{}-install", subdir),
+                    vec![&format!("cd {} && npm ci", subdir)]));
+
+                if folder.npm_scripts.contains("lint") {
+                    stages.push(local_stage(&format!("{}-lint", subdir),
+                        vec![&format!("cd {} && npm run lint", subdir)]));
+                }
+
+                // Check for tests
+                let has_test_script = folder.npm_scripts.contains("test");
+                let has_vitest = has_subdir_file(subdir, "vitest.config.ts")
+                    || has_subdir_file(subdir, "vitest.config.js");
+                let has_jest = has_subdir_file(subdir, "jest.config.js")
+                    || has_subdir_file(subdir, "jest.config.ts");
+
+                if has_test_script || has_vitest || has_jest || folder.has_tests {
+                    // Use appropriate test command
+                    let test_cmd = if has_vitest {
+                        format!("cd {} && npx vitest run", subdir)
+                    } else if has_jest {
+                        format!("cd {} && npx jest --ci", subdir)
+                    } else {
+                        format!("cd {} && npm test", subdir)
+                    };
+                    stages.push(local_stage(&format!("{}-test", subdir), vec![&test_cmd]));
+                }
+
+                if folder.npm_scripts.contains("build") {
+                    stages.push(local_stage(&format!("{}-build", subdir),
+                        vec![&format!("cd {} && npm run build", subdir)]));
+                }
+            }
+        }
+
+        // Generate Python stages for this folder
+        if folder.has_python {
+            // For fullstack projects, always generate per-folder stages
+            // For single-folder projects, only if no root Python setup
+            if is_fullstack || !has_root_python {
+                let install_cmd = if has_subdir_file(subdir, "requirements.txt") {
+                    format!("cd {} && pip install -r requirements.txt", subdir)
+                } else {
+                    format!("cd {} && pip install -e .", subdir)
+                };
+                stages.push(local_stage(&format!("{}-install", subdir), vec![&install_cmd]));
+
+                // Check for tests in subdirectory
+                let has_pytest_config = has_subdir_file(subdir, "pytest.ini")
+                    || has_subdir_file(subdir, "conftest.py");
+                if folder.has_tests || has_pytest_config {
+                    stages.push(local_stage(&format!("{}-test", subdir),
+                        vec![&format!("cd {} && pytest", subdir)]));
+                }
+            }
         }
     }
 
@@ -579,7 +877,9 @@ pub fn generate_draft_pipeline(
     if has_file("deploy.sh") {
         stages.push(local_stage("deploy", vec!["./deploy.sh"]));
     }
-    if has(ScriptType::DockerCompose) {
+    // For fullstack projects, deploy stages go in a separate deploy.toml
+    // For single-component projects, include docker-deploy here
+    if has(ScriptType::DockerCompose) && !is_fullstack {
         stages.push(Stage {
             name: "docker-deploy".to_string(),
             commands: vec![
@@ -602,6 +902,43 @@ pub fn generate_draft_pipeline(
         name: format!("{} Pipeline", repo_name),
         stages,
     }
+}
+
+/// Generate a deploy pipeline for fullstack Docker projects.
+///
+/// This creates a separate pipeline focused on deployment stages
+/// (docker compose build, docker compose up) for SSH deployment.
+pub fn generate_deploy_pipeline(
+    repo_name: &str,
+    scripts: &[DetectedScript],
+    _repo_path: &Path,
+) -> Option<Pipeline> {
+    let has = |st: ScriptType| scripts.iter().any(|s| s.script_type == st);
+
+    // Only generate deploy pipeline if Docker Compose is present
+    if !has(ScriptType::DockerCompose) {
+        return None;
+    }
+
+    let stages = vec![
+        local_stage("docker-build", vec!["docker compose build"]),
+        Stage {
+            name: "docker-deploy".to_string(),
+            commands: vec![
+                "docker compose build".to_string(),
+                "docker compose up -d".to_string(),
+            ],
+            backend: Backend::Ssh,
+            working_dir: None,
+            fail_fast: true,
+            health_check: None,
+        },
+    ];
+
+    Some(Pipeline {
+        name: format!("{} Deploy", repo_name),
+        stages,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -840,20 +1177,45 @@ pub fn validate_pipeline(pipeline: &Pipeline, repo_path: &Path) -> PipelineValid
     // Detect duplicate/conflicting config files
     let file_conflicts = detect_file_conflicts(repo_path);
 
-    // Parse available scripts/targets
-    let npm_scripts = parse_package_json_scripts(repo_path);
+    // Parse available scripts/targets from root
+    let mut npm_scripts = parse_package_json_scripts(repo_path);
     let make_targets = parse_makefile_targets(repo_path);
 
-    // Check if package.json exists
-    let has_package_json = repo_path.join("package.json").exists();
+    // Check if package.json exists (root or subdirectories)
+    let has_root_package_json = repo_path.join("package.json").exists();
     let has_makefile = repo_path.join("Makefile").exists()
         || repo_path.join("makefile").exists()
         || repo_path.join("GNUmakefile").exists();
 
+    // Also check subdirectories for package.json (fullstack projects)
+    let mut subdir_package_jsons: std::collections::HashMap<String, HashSet<String>> = std::collections::HashMap::new();
+    for subdir in FULLSTACK_SUBDIRS {
+        let subdir_path = repo_path.join(subdir);
+        if subdir_path.join("package.json").exists() {
+            let scripts = parse_package_json_scripts(&subdir_path);
+            subdir_package_jsons.insert(subdir.to_string(), scripts);
+        }
+    }
+
+    // If no root package.json but subdirs have it, merge scripts for general validation
+    let has_any_package_json = has_root_package_json || !subdir_package_jsons.is_empty();
+    if !has_root_package_json {
+        for scripts in subdir_package_jsons.values() {
+            npm_scripts.extend(scripts.clone());
+        }
+    }
+
     for stage in &pipeline.stages {
         for cmd in &stage.commands {
-            // Check npm commands
-            if let Some(warning) = check_npm_command(cmd, &npm_scripts, has_package_json, &stage.name) {
+            // Check npm commands - use smarter validation for fullstack projects
+            if let Some(warning) = check_npm_command_fullstack(
+                cmd,
+                &npm_scripts,
+                &subdir_package_jsons,
+                has_any_package_json,
+                &stage.name,
+                repo_path,
+            ) {
                 warnings.push(warning);
             }
 
@@ -988,6 +1350,139 @@ fn detect_env_file_conflicts(repo_path: &Path) -> Vec<String> {
     env_files
 }
 
+/// Check if an npm command references a script that exists (fullstack-aware).
+///
+/// Handles:
+/// - Commands with `cd <subdir> &&` prefix
+/// - Fullstack projects where package.json is in subdirectories
+fn check_npm_command_fullstack(
+    cmd: &str,
+    all_npm_scripts: &HashSet<String>,
+    subdir_scripts: &std::collections::HashMap<String, HashSet<String>>,
+    has_any_package_json: bool,
+    stage_name: &str,
+    repo_path: &Path,
+) -> Option<PipelineWarning> {
+    let cmd_trimmed = cmd.trim();
+
+    // Check if command starts with "cd <dir> &&" - if so, validate against that subdir
+    if cmd_trimmed.starts_with("cd ") {
+        if let Some(rest) = cmd_trimmed.strip_prefix("cd ") {
+            // Parse "cd frontend && npm run build" -> ("frontend", "npm run build")
+            if let Some((subdir, npm_cmd)) = rest.split_once(" && ") {
+                let subdir = subdir.trim();
+                let npm_cmd = npm_cmd.trim();
+
+                // Check if the subdir has a package.json
+                if let Some(scripts) = subdir_scripts.get(subdir) {
+                    return check_npm_command(npm_cmd, scripts, true, stage_name);
+                } else if repo_path.join(subdir).join("package.json").exists() {
+                    // Subdir exists but wasn't pre-parsed, treat as valid
+                    return None;
+                }
+                // If cd to a dir without package.json, let it pass for now
+                // (might be Docker or other setup)
+                return None;
+            }
+        }
+    }
+
+    // For regular npm commands, check against all available scripts
+    // For fullstack projects with package.json only in subdirs, use softer validation
+    let has_root_package_json = repo_path.join("package.json").exists();
+    let is_fullstack = !has_root_package_json && !subdir_scripts.is_empty();
+
+    if is_fullstack {
+        // For fullstack projects, npm commands without cd prefix are likely from
+        // imported CI workflows - give a more helpful message
+        return check_npm_command_fullstack_soft(cmd_trimmed, all_npm_scripts, stage_name, subdir_scripts);
+    }
+
+    check_npm_command(cmd_trimmed, all_npm_scripts, has_any_package_json, stage_name)
+}
+
+/// Softer validation for fullstack projects - downgrades errors to warnings
+fn check_npm_command_fullstack_soft(
+    cmd: &str,
+    all_npm_scripts: &HashSet<String>,
+    stage_name: &str,
+    subdir_scripts: &std::collections::HashMap<String, HashSet<String>>,
+) -> Option<PipelineWarning> {
+    let cmd_trimmed = cmd.trim();
+
+    // Match "npm test", "npm run <script>", "npm run-script <script>"
+    if cmd_trimmed.starts_with("npm ") || cmd_trimmed.starts_with("yarn ") || cmd_trimmed.starts_with("pnpm ") {
+        let script_name = extract_npm_script_name(cmd_trimmed);
+
+        if let Some(script) = script_name {
+            // Check if script exists in any subdir
+            let found_in_subdir = subdir_scripts.iter().find(|(_, scripts)| scripts.contains(&script));
+
+            if let Some((subdir, _)) = found_in_subdir {
+                // Script found in a subdirectory - suggest adding cd prefix
+                return Some(PipelineWarning {
+                    stage_name: stage_name.to_string(),
+                    command: cmd.to_string(),
+                    message: format!("Script '{}' found in {}/package.json, not root", script, subdir),
+                    suggestion: Some(format!("Add 'cd {} && ' prefix or move script to root package.json", subdir)),
+                    severity: WarningSeverity::Warning, // Warning, not error
+                });
+            } else if !all_npm_scripts.contains(&script) {
+                // Script not found anywhere - list available subdirs
+                let subdirs: Vec<&str> = subdir_scripts.keys().map(|s| s.as_str()).collect();
+                let subdir_hint = if subdirs.is_empty() {
+                    "a subdirectory".to_string()
+                } else {
+                    subdirs.join("/")
+                };
+                return Some(PipelineWarning {
+                    stage_name: stage_name.to_string(),
+                    command: cmd.to_string(),
+                    message: format!("Script '{}' not found in any package.json", script),
+                    suggestion: Some(format!("Add the script to {}/package.json or remove this stage", subdir_hint)),
+                    severity: WarningSeverity::Warning, // Warning for fullstack projects
+                });
+            }
+        }
+    }
+
+    None
+}
+
+/// Extract the script name from an npm command, handling flags.
+///
+/// Examples:
+/// - "npm run build" -> Some("build")
+/// - "npm run -s lint:docs" -> Some("lint:docs")
+/// - "npm test -- --coverage" -> Some("test")
+/// - "npm run test:critical" -> Some("test:critical")
+fn extract_npm_script_name(cmd: &str) -> Option<String> {
+    let parts: Vec<&str> = cmd.split_whitespace().collect();
+    if parts.len() < 2 {
+        return None;
+    }
+
+    match parts[1] {
+        "test" | "start" | "build" => Some(parts[1].to_string()),
+        "run" | "run-script" => {
+            // Find the script name, skipping flags like -s, --silent, etc.
+            for part in parts.iter().skip(2) {
+                // Skip flags (start with -)
+                if part.starts_with('-') {
+                    continue;
+                }
+                // Skip if it's after -- (passthrough args)
+                if *part == "--" {
+                    break;
+                }
+                return Some(part.to_string());
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
 /// Check if an npm command references a script that exists.
 fn check_npm_command(
     cmd: &str,
@@ -999,18 +1494,7 @@ fn check_npm_command(
 
     // Match "npm test", "npm run <script>", "npm run-script <script>"
     if cmd_trimmed.starts_with("npm ") || cmd_trimmed.starts_with("yarn ") || cmd_trimmed.starts_with("pnpm ") {
-        let parts: Vec<&str> = cmd_trimmed.split_whitespace().collect();
-        if parts.len() < 2 {
-            return None;
-        }
-
-        let script_name = match parts[1] {
-            "test" => Some("test"),
-            "start" => Some("start"),
-            "build" => Some("build"),
-            "run" | "run-script" if parts.len() >= 3 => Some(parts[2]),
-            _ => None,
-        };
+        let script_name = extract_npm_script_name(cmd_trimmed);
 
         if let Some(script) = script_name {
             if !has_package_json {
@@ -1023,7 +1507,7 @@ fn check_npm_command(
                 });
             }
 
-            if !npm_scripts.contains(script) {
+            if !npm_scripts.contains(&script) {
                 return Some(PipelineWarning {
                     stage_name: stage_name.to_string(),
                     command: cmd.to_string(),
@@ -1436,5 +1920,196 @@ jobs:
         std::fs::write(temp.path().join("exists.sh"), "").unwrap();
         let warning = check_shell_script("bash exists.sh", temp.path(), "test");
         assert!(warning.is_none());
+    }
+
+    #[test]
+    fn test_detect_project_folders_empty() {
+        let temp = TempDir::new().unwrap();
+        let folders = detect_project_folders(temp.path());
+        assert!(folders.is_empty());
+    }
+
+    #[test]
+    fn test_detect_project_folders_single_frontend() {
+        let temp = TempDir::new().unwrap();
+
+        // Create frontend directory with package.json
+        let frontend = temp.path().join("frontend");
+        std::fs::create_dir(&frontend).unwrap();
+        std::fs::write(
+            frontend.join("package.json"),
+            r#"{"name": "frontend", "scripts": {"build": "vite build", "test": "vitest"}}"#,
+        ).unwrap();
+
+        let folders = detect_project_folders(temp.path());
+        assert_eq!(folders.len(), 1);
+        assert_eq!(folders[0].name, "frontend");
+        assert!(folders[0].has_node);
+        assert!(!folders[0].has_python);
+        assert!(folders[0].npm_scripts.contains("build"));
+        assert!(folders[0].npm_scripts.contains("test"));
+    }
+
+    #[test]
+    fn test_detect_project_folders_fullstack() {
+        let temp = TempDir::new().unwrap();
+
+        // Create frontend directory
+        let frontend = temp.path().join("frontend");
+        std::fs::create_dir(&frontend).unwrap();
+        std::fs::write(
+            frontend.join("package.json"),
+            r#"{"name": "frontend", "scripts": {"build": "vite build"}}"#,
+        ).unwrap();
+
+        // Create backend directory with Python
+        let backend = temp.path().join("backend");
+        std::fs::create_dir(&backend).unwrap();
+        std::fs::write(backend.join("requirements.txt"), "flask\npytest").unwrap();
+        std::fs::create_dir(backend.join("tests")).unwrap();
+
+        let folders = detect_project_folders(temp.path());
+        assert_eq!(folders.len(), 2);
+
+        // Check frontend
+        let fe = folders.iter().find(|f| f.name == "frontend").unwrap();
+        assert!(fe.has_node);
+        assert!(!fe.has_python);
+
+        // Check backend
+        let be = folders.iter().find(|f| f.name == "backend").unwrap();
+        assert!(!be.has_node);
+        assert!(be.has_python);
+        assert!(be.has_tests);
+    }
+
+    #[test]
+    fn test_detect_project_folders_with_admin() {
+        let temp = TempDir::new().unwrap();
+
+        // Create frontend, backend, and admin directories
+        for name in &["frontend", "backend", "admin"] {
+            let dir = temp.path().join(name);
+            std::fs::create_dir(&dir).unwrap();
+            std::fs::write(
+                dir.join("package.json"),
+                format!(r#"{{"name": "{}", "scripts": {{"test": "vitest"}}}}"#, name),
+            ).unwrap();
+        }
+
+        let folders = detect_project_folders(temp.path());
+        assert_eq!(folders.len(), 3);
+        assert!(folders.iter().any(|f| f.name == "frontend"));
+        assert!(folders.iter().any(|f| f.name == "backend"));
+        assert!(folders.iter().any(|f| f.name == "admin"));
+    }
+
+    #[test]
+    fn test_is_fullstack_docker_project() {
+        let temp = TempDir::new().unwrap();
+
+        // Not fullstack without docker-compose
+        let frontend = temp.path().join("frontend");
+        std::fs::create_dir(&frontend).unwrap();
+        std::fs::write(frontend.join("package.json"), r#"{"name": "frontend"}"#).unwrap();
+
+        let backend = temp.path().join("backend");
+        std::fs::create_dir(&backend).unwrap();
+        std::fs::write(backend.join("requirements.txt"), "flask").unwrap();
+
+        assert!(!is_fullstack_docker_project(temp.path()));
+
+        // Add docker-compose
+        std::fs::write(temp.path().join("docker-compose.yml"), "version: '3'").unwrap();
+        assert!(is_fullstack_docker_project(temp.path()));
+    }
+
+    #[test]
+    fn test_generate_pipeline_fullstack_all_folders() {
+        let temp = TempDir::new().unwrap();
+
+        // Create frontend, backend, admin directories with package.json
+        for name in &["frontend", "backend", "admin"] {
+            let dir = temp.path().join(name);
+            std::fs::create_dir(&dir).unwrap();
+            std::fs::write(
+                dir.join("package.json"),
+                format!(r#"{{"name": "{}", "scripts": {{"lint": "eslint", "test": "vitest"}}}}"#, name),
+            ).unwrap();
+        }
+
+        // Create docker-compose.yml
+        std::fs::write(temp.path().join("docker-compose.yml"), "version: '3'").unwrap();
+
+        let scripts = detect_scripts(temp.path());
+        let pipeline = generate_draft_pipeline("bituntu", &scripts, temp.path());
+
+        // Should have stages for ALL folders (frontend, backend, admin)
+        let stage_names: Vec<_> = pipeline.stages.iter().map(|s| s.name.as_str()).collect();
+
+        assert!(stage_names.contains(&"frontend-install"), "Missing frontend-install: {:?}", stage_names);
+        assert!(stage_names.contains(&"frontend-lint"), "Missing frontend-lint: {:?}", stage_names);
+        assert!(stage_names.contains(&"frontend-test"), "Missing frontend-test: {:?}", stage_names);
+
+        assert!(stage_names.contains(&"backend-install"), "Missing backend-install: {:?}", stage_names);
+        assert!(stage_names.contains(&"backend-lint"), "Missing backend-lint: {:?}", stage_names);
+        assert!(stage_names.contains(&"backend-test"), "Missing backend-test: {:?}", stage_names);
+
+        assert!(stage_names.contains(&"admin-install"), "Missing admin-install: {:?}", stage_names);
+        assert!(stage_names.contains(&"admin-lint"), "Missing admin-lint: {:?}", stage_names);
+        assert!(stage_names.contains(&"admin-test"), "Missing admin-test: {:?}", stage_names);
+
+        // Docker-deploy should NOT be in CI pipeline (it goes in deploy.toml)
+        assert!(!stage_names.contains(&"docker-deploy"), "docker-deploy should not be in CI pipeline for fullstack");
+    }
+
+    #[test]
+    fn test_generate_deploy_pipeline() {
+        let temp = TempDir::new().unwrap();
+        std::fs::write(temp.path().join("docker-compose.yml"), "version: '3'").unwrap();
+
+        let scripts = detect_scripts(temp.path());
+        let deploy = generate_deploy_pipeline("test", &scripts, temp.path());
+
+        assert!(deploy.is_some());
+        let pipeline = deploy.unwrap();
+        assert_eq!(pipeline.name, "test Deploy");
+
+        let stage_names: Vec<_> = pipeline.stages.iter().map(|s| s.name.as_str()).collect();
+        assert!(stage_names.contains(&"docker-build"));
+        assert!(stage_names.contains(&"docker-deploy"));
+    }
+
+    #[test]
+    fn test_fullstack_pipeline_commands_have_cd_prefix() {
+        let temp = TempDir::new().unwrap();
+
+        // Create frontend directory
+        let frontend = temp.path().join("frontend");
+        std::fs::create_dir(&frontend).unwrap();
+        std::fs::write(
+            frontend.join("package.json"),
+            r#"{"name": "frontend", "scripts": {"lint": "eslint", "test": "vitest"}}"#,
+        ).unwrap();
+
+        // Create backend with Python
+        let backend = temp.path().join("backend");
+        std::fs::create_dir(&backend).unwrap();
+        std::fs::write(backend.join("requirements.txt"), "flask").unwrap();
+        std::fs::create_dir(backend.join("tests")).unwrap();
+
+        let scripts = detect_scripts(temp.path());
+        let pipeline = generate_draft_pipeline("myapp", &scripts, temp.path());
+
+        // Check that commands have proper cd prefix
+        for stage in &pipeline.stages {
+            for cmd in &stage.commands {
+                if stage.name.starts_with("frontend-") {
+                    assert!(cmd.starts_with("cd frontend && "), "Command missing 'cd frontend &&' prefix: {}", cmd);
+                } else if stage.name.starts_with("backend-") {
+                    assert!(cmd.starts_with("cd backend && "), "Command missing 'cd backend &&' prefix: {}", cmd);
+                }
+            }
+        }
     }
 }

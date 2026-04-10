@@ -1,0 +1,65 @@
+[meta]
+name = "Fullstack Docker"
+description = "CI/CD pipeline for fullstack projects (React + Python) running on Docker"
+author = "chibby"
+version = "1.0.0"
+category = "fullstack"
+tags = ["fullstack", "react", "python", "docker", "docker-compose"]
+project_types = ["fullstack-docker", "fullstack", "docker"]
+required_tools = ["docker", "docker-compose"]
+template_type = "pipeline"
+
+[pipeline]
+name = "{{project_name}} Pipeline"
+
+[[pipeline.stages]]
+name = "lint-frontend"
+commands = [
+  "cd frontend && npm ci",
+  "cd frontend && npm run lint"
+]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "lint-backend"
+commands = [
+  "cd backend && pip install ruff",
+  "cd backend && ruff check ."
+]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "test-frontend"
+commands = [
+  "cd frontend && npm run test -- --run"
+]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "test-backend"
+commands = [
+  "cd backend && pip install pytest pytest-cov",
+  "cd backend && pytest"
+]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "docker-build"
+commands = [
+  "docker compose build"
+]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "docker-deploy"
+commands = [
+  "docker compose build",
+  "docker compose up -d"
+]
+backend = "ssh"
+fail_fast = true
