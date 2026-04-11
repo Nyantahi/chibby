@@ -1,4 +1,4 @@
-use crate::engine::models::{Pipeline, Stage, Backend, PipelineValidation, PipelineWarning, WarningSeverity, FileConflict};
+use crate::engine::models::{Pipeline, Stage, Backend, PipelineValidation, PipelineWarning, WarningSeverity, FileConflict, DeploymentMethod, DeploymentConfig, HealthCheck};
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -1087,6 +1087,596 @@ pub fn generate_deploy_pipeline(
         name: format!("{} Deploy", repo_name),
         stages,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Deployment Detection and Pipeline Generation
+// ---------------------------------------------------------------------------
+
+/// Detected project type for deployment method suggestion.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProjectType {
+    Rust,
+    RustLibrary,
+    Tauri,
+    Node,
+    NodeLibrary,
+    Python,
+    Go,
+    StaticSite,
+    DockerCompose,
+    Unknown,
+}
+
+/// Detect the project type from repository contents.
+pub fn detect_project_type(repo_path: &Path) -> ProjectType {
+    let has_file = |name: &str| repo_path.join(name).exists();
+    let has_dir = |name: &str| repo_path.join(name).is_dir();
+
+    // Tauri detection (has src-tauri/tauri.conf.json)
+    if has_file("src-tauri/tauri.conf.json") {
+        return ProjectType::Tauri;
+    }
+
+    // Rust detection
+    if has_file("Cargo.toml") {
+        if is_rust_library(repo_path) {
+            return ProjectType::RustLibrary;
+        }
+        return ProjectType::Rust;
+    }
+
+    // Node.js detection
+    if has_file("package.json") {
+        if is_npm_publishable(repo_path) {
+            return ProjectType::NodeLibrary;
+        }
+        // Check for static site generators
+        if is_static_site(repo_path) {
+            return ProjectType::StaticSite;
+        }
+        return ProjectType::Node;
+    }
+
+    // Python detection
+    if has_file("pyproject.toml") || has_file("requirements.txt") || has_file("setup.py") {
+        return ProjectType::Python;
+    }
+
+    // Go detection
+    if has_file("go.mod") {
+        return ProjectType::Go;
+    }
+
+    // Docker Compose detection (fullstack)
+    if has_any_docker_compose(repo_path) {
+        return ProjectType::DockerCompose;
+    }
+
+    // Check for static site patterns without package.json
+    if has_dir("public") || has_dir("static") {
+        if has_file("index.html") || has_file("public/index.html") || has_file("static/index.html") {
+            return ProjectType::StaticSite;
+        }
+    }
+
+    ProjectType::Unknown
+}
+
+/// Check if Cargo.toml indicates a library (has [lib] section or no [[bin]]).
+fn is_rust_library(repo_path: &Path) -> bool {
+    let cargo_path = repo_path.join("Cargo.toml");
+    if let Ok(content) = std::fs::read_to_string(&cargo_path) {
+        // Has explicit [lib] section
+        if content.contains("[lib]") {
+            return true;
+        }
+        // Has only library target (no [[bin]] sections and no src/main.rs)
+        if !content.contains("[[bin]]") && !repo_path.join("src/main.rs").exists() {
+            return true;
+        }
+    }
+    false
+}
+
+/// Check if package.json indicates an npm-publishable package (not private).
+fn is_npm_publishable(repo_path: &Path) -> bool {
+    let pkg_path = repo_path.join("package.json");
+    if let Ok(content) = std::fs::read_to_string(&pkg_path) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+            // Check if "private" is not set or is false
+            if let Some(private) = json.get("private") {
+                return !private.as_bool().unwrap_or(false);
+            }
+            // Check if it has npm-related fields that indicate a package
+            let has_main = json.get("main").is_some();
+            let has_exports = json.get("exports").is_some();
+            let has_files = json.get("files").is_some();
+            return has_main || has_exports || has_files;
+        }
+    }
+    false
+}
+
+/// Check if the project is a static site.
+fn is_static_site(repo_path: &Path) -> bool {
+    // Check for common static site generators
+    let pkg_path = repo_path.join("package.json");
+    if let Ok(content) = std::fs::read_to_string(&pkg_path) {
+        let content_lower = content.to_lowercase();
+        // Check for static site generator dependencies
+        if content_lower.contains("\"astro\"")
+            || content_lower.contains("\"vuepress\"")
+            || content_lower.contains("\"docusaurus\"")
+            || content_lower.contains("\"eleventy\"")
+            || content_lower.contains("\"gatsby\"")
+            || content_lower.contains("\"hugo\"")
+            || content_lower.contains("\"jekyll\"")
+        {
+            return true;
+        }
+    }
+    // Check for common static site config files
+    repo_path.join("astro.config.mjs").exists()
+        || repo_path.join("astro.config.ts").exists()
+        || repo_path.join("docusaurus.config.js").exists()
+        || repo_path.join(".eleventy.js").exists()
+        || repo_path.join("gatsby-config.js").exists()
+}
+
+/// Check for GitHub Actions deploy workflows.
+fn has_deploy_workflow(repo_path: &Path) -> bool {
+    let workflows_dir = repo_path.join(".github/workflows");
+    if !workflows_dir.is_dir() {
+        return false;
+    }
+
+    if let Ok(entries) = std::fs::read_dir(&workflows_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_lowercase();
+            if (name.contains("deploy") || name.contains("release") || name.contains("publish"))
+                && (name.ends_with(".yml") || name.ends_with(".yaml"))
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Detect the most likely deployment method based on project files.
+pub fn detect_deployment_method(repo_path: &Path) -> DeploymentMethod {
+    // 1. Check for GitHub Actions deploy workflows
+    if has_deploy_workflow(repo_path) {
+        return DeploymentMethod::AutoDetect;
+    }
+
+    let project_type = detect_project_type(repo_path);
+
+    // 2. Project-type specific detection
+    match project_type {
+        ProjectType::RustLibrary => {
+            return DeploymentMethod::CargoPublish;
+        }
+        ProjectType::Rust => {
+            return DeploymentMethod::GithubRelease;
+        }
+        ProjectType::Tauri => {
+            return DeploymentMethod::GithubRelease;
+        }
+        ProjectType::NodeLibrary => {
+            return DeploymentMethod::NpmPublish;
+        }
+        ProjectType::StaticSite => {
+            // Check for specific platform configs
+            if repo_path.join("netlify.toml").exists() {
+                return DeploymentMethod::Netlify;
+            }
+            if repo_path.join("vercel.json").exists() {
+                return DeploymentMethod::Vercel;
+            }
+            return DeploymentMethod::Netlify; // Default for static sites
+        }
+        _ => {}
+    }
+
+    // 3. Docker-based projects
+    if has_any_docker_compose(repo_path) {
+        return DeploymentMethod::DockerComposeSsh;
+    }
+    if repo_path.join("Dockerfile").exists() {
+        return DeploymentMethod::DockerRegistry;
+    }
+
+    // 4. PaaS config files
+    if repo_path.join("fly.toml").exists() {
+        return DeploymentMethod::Flyio;
+    }
+    if repo_path.join("render.yaml").exists() {
+        return DeploymentMethod::Render;
+    }
+    if repo_path.join("railway.json").exists() || repo_path.join("railway.toml").exists() {
+        return DeploymentMethod::Railway;
+    }
+    if repo_path.join("netlify.toml").exists() {
+        return DeploymentMethod::Netlify;
+    }
+    if repo_path.join("vercel.json").exists() {
+        return DeploymentMethod::Vercel;
+    }
+
+    // 5. Deploy scripts
+    if repo_path.join("deploy.sh").exists() {
+        return DeploymentMethod::SshRsync;
+    }
+
+    DeploymentMethod::Skip
+}
+
+/// Get all applicable deployment methods for a project.
+pub fn get_suggested_deploy_methods(repo_path: &Path) -> Vec<DeploymentMethod> {
+    let project_type = detect_project_type(repo_path);
+
+    match project_type {
+        ProjectType::Rust | ProjectType::RustLibrary => vec![
+            DeploymentMethod::CargoPublish,
+            DeploymentMethod::GithubRelease,
+            DeploymentMethod::DockerComposeSsh,
+            DeploymentMethod::Skip,
+        ],
+        ProjectType::Tauri => vec![
+            DeploymentMethod::GithubRelease,
+            DeploymentMethod::Skip,
+        ],
+        ProjectType::Node => vec![
+            DeploymentMethod::DockerComposeSsh,
+            DeploymentMethod::Vercel,
+            DeploymentMethod::Netlify,
+            DeploymentMethod::Flyio,
+            DeploymentMethod::SshRsync,
+            DeploymentMethod::Skip,
+        ],
+        ProjectType::NodeLibrary => vec![
+            DeploymentMethod::NpmPublish,
+            DeploymentMethod::GithubRelease,
+            DeploymentMethod::Skip,
+        ],
+        ProjectType::Python => vec![
+            DeploymentMethod::DockerComposeSsh,
+            DeploymentMethod::Flyio,
+            DeploymentMethod::Render,
+            DeploymentMethod::Railway,
+            DeploymentMethod::SshRsync,
+            DeploymentMethod::Skip,
+        ],
+        ProjectType::Go => vec![
+            DeploymentMethod::DockerComposeSsh,
+            DeploymentMethod::GithubRelease,
+            DeploymentMethod::SshRsync,
+            DeploymentMethod::Skip,
+        ],
+        ProjectType::StaticSite => vec![
+            DeploymentMethod::Netlify,
+            DeploymentMethod::Vercel,
+            DeploymentMethod::S3Static,
+            DeploymentMethod::SshRsync,
+            DeploymentMethod::Skip,
+        ],
+        ProjectType::DockerCompose => vec![
+            DeploymentMethod::AutoDetect,
+            DeploymentMethod::DockerComposeSsh,
+            DeploymentMethod::DockerRegistry,
+            DeploymentMethod::Skip,
+        ],
+        ProjectType::Unknown => vec![
+            DeploymentMethod::DockerComposeSsh,
+            DeploymentMethod::SshRsync,
+            DeploymentMethod::Skip,
+        ],
+    }
+}
+
+/// Generate a deployment pipeline based on the deployment method.
+pub fn generate_deployment_pipeline(
+    repo_name: &str,
+    deploy_config: &DeploymentConfig,
+    repo_path: &Path,
+) -> Option<Pipeline> {
+    let mut stages = Vec::new();
+
+    match deploy_config.method {
+        DeploymentMethod::DockerComposeSsh => {
+            stages.push(local_stage("docker-build", vec!["docker compose build"]));
+
+            let compose_file = deploy_config.compose_file.as_deref().unwrap_or("docker-compose.yml");
+            let compose_cmd = if compose_file != "docker-compose.yml" && compose_file != "compose.yml" {
+                format!("docker compose -f {} pull && docker compose -f {} up -d --remove-orphans", compose_file, compose_file)
+            } else {
+                "docker compose pull && docker compose up -d --remove-orphans".to_string()
+            };
+
+            stages.push(Stage {
+                name: "deploy".to_string(),
+                commands: vec![compose_cmd],
+                backend: Backend::Ssh,
+                working_dir: None,
+                fail_fast: true,
+                health_check: None,
+            });
+
+            // Add health check if configured
+            if let Some(health_url) = &deploy_config.health_check_url {
+                stages.push(Stage {
+                    name: "health-check".to_string(),
+                    commands: vec![format!("curl -sf http://localhost{} || exit 1", health_url)],
+                    backend: Backend::Ssh,
+                    working_dir: None,
+                    fail_fast: true,
+                    health_check: Some(HealthCheck {
+                        command: format!("curl -sf http://localhost{}", health_url),
+                        retries: 5,
+                        delay_secs: 10,
+                    }),
+                });
+            }
+        }
+
+        DeploymentMethod::DockerRegistry => {
+            let registry = deploy_config.docker_registry.as_deref().unwrap_or("ghcr.io");
+            let image_name = format!("{}/{}", registry, repo_name.to_lowercase());
+
+            stages.push(local_stage("docker-build", vec![
+                &format!("docker build -t {} .", image_name),
+                &format!("docker push {}", image_name),
+            ]));
+
+            stages.push(Stage {
+                name: "deploy".to_string(),
+                commands: vec![
+                    format!("docker pull {}", image_name),
+                    format!("docker stop {} || true", repo_name),
+                    format!("docker rm {} || true", repo_name),
+                    format!("docker run -d --name {} {}", repo_name, image_name),
+                ],
+                backend: Backend::Ssh,
+                working_dir: None,
+                fail_fast: true,
+                health_check: None,
+            });
+        }
+
+        DeploymentMethod::CargoPublish => {
+            let mut commands = Vec::new();
+            if deploy_config.dry_run_first {
+                commands.push("cargo publish --dry-run".to_string());
+            }
+            commands.push("cargo publish".to_string());
+
+            stages.push(Stage {
+                name: "cargo-publish".to_string(),
+                commands,
+                backend: Backend::Local,
+                working_dir: None,
+                fail_fast: true,
+                health_check: None,
+            });
+        }
+
+        DeploymentMethod::NpmPublish => {
+            let mut commands = Vec::new();
+            if deploy_config.dry_run_first {
+                commands.push("npm publish --dry-run".to_string());
+            }
+            commands.push("npm publish".to_string());
+
+            stages.push(Stage {
+                name: "npm-publish".to_string(),
+                commands,
+                backend: Backend::Local,
+                working_dir: None,
+                fail_fast: true,
+                health_check: None,
+            });
+        }
+
+        DeploymentMethod::GithubRelease => {
+            // Try to detect version source
+            let version_cmd = detect_version_command(repo_path);
+
+            stages.push(Stage {
+                name: "github-release".to_string(),
+                commands: vec![
+                    format!("gh release create v$({}) --generate-notes --draft ./dist/*", version_cmd),
+                ],
+                backend: Backend::Local,
+                working_dir: None,
+                fail_fast: true,
+                health_check: None,
+            });
+        }
+
+        DeploymentMethod::SshRsync => {
+            let ssh_host = deploy_config.ssh_host.as_deref().unwrap_or("{{ssh_host}}");
+
+            stages.push(local_stage("deploy", vec![
+                &format!("rsync -avz --delete ./dist/ {}:~/app/", ssh_host),
+            ]));
+
+            stages.push(Stage {
+                name: "restart".to_string(),
+                commands: vec!["systemctl --user restart myapp || pm2 restart all".to_string()],
+                backend: Backend::Ssh,
+                working_dir: None,
+                fail_fast: true,
+                health_check: None,
+            });
+        }
+
+        DeploymentMethod::Flyio => {
+            stages.push(local_stage("deploy", vec!["fly deploy"]));
+
+            if let Some(health_url) = &deploy_config.health_check_url {
+                let app_name = deploy_config.platform_project.as_deref().unwrap_or(repo_name);
+                stages.push(local_stage("health-check", vec![
+                    &format!("curl -sf https://{}.fly.dev{} || exit 1", app_name, health_url),
+                ]));
+            }
+        }
+
+        DeploymentMethod::Render => {
+            // Render typically auto-deploys on push, but we can trigger via API
+            stages.push(local_stage("deploy", vec![
+                "echo 'Render deploys automatically on push. Manual trigger:'",
+                "# curl -X POST https://api.render.com/deploy/srv-xxx?key=xxx",
+            ]));
+        }
+
+        DeploymentMethod::Railway => {
+            stages.push(local_stage("deploy", vec!["railway up"]));
+        }
+
+        DeploymentMethod::Netlify => {
+            // Detect build output directory
+            let dist_dir = detect_dist_directory(repo_path);
+            stages.push(local_stage("deploy", vec![
+                &format!("netlify deploy --prod --dir={}", dist_dir),
+            ]));
+        }
+
+        DeploymentMethod::Vercel => {
+            stages.push(local_stage("deploy", vec!["vercel --prod"]));
+        }
+
+        DeploymentMethod::S3Static => {
+            let dist_dir = detect_dist_directory(repo_path);
+            let bucket = deploy_config.platform_project.as_deref().unwrap_or("{{s3_bucket}}");
+
+            stages.push(local_stage("deploy", vec![
+                &format!("aws s3 sync ./{} s3://{} --delete", dist_dir, bucket),
+            ]));
+
+            // Optional CloudFront invalidation
+            stages.push(local_stage("invalidate-cache", vec![
+                "# aws cloudfront create-invalidation --distribution-id {{distribution_id}} --paths '/*'",
+            ]));
+        }
+
+        DeploymentMethod::AutoDetect => {
+            // Parse GitHub Actions deploy workflows and convert to stages
+            let workflows = parse_github_workflows(repo_path);
+            let deploy_workflows: Vec<_> = workflows
+                .iter()
+                .filter(|w| {
+                    let name_lower = w.name.to_lowercase();
+                    let file_lower = w.file_path.to_lowercase();
+                    name_lower.contains("deploy")
+                        || name_lower.contains("release")
+                        || name_lower.contains("publish")
+                        || file_lower.contains("deploy")
+                        || file_lower.contains("release")
+                        || file_lower.contains("publish")
+                })
+                .cloned()
+                .collect();
+
+            if !deploy_workflows.is_empty() {
+                let workflow_stages = workflows_to_stages(&deploy_workflows);
+                for stage in workflow_stages {
+                    let is_ssh_stage = stage.commands.iter().any(|cmd| {
+                        cmd.contains("ssh ") || cmd.contains("rsync") || cmd.contains("scp ")
+                    });
+
+                    stages.push(Stage {
+                        name: stage.name,
+                        commands: stage.commands,
+                        backend: if is_ssh_stage { Backend::Ssh } else { Backend::Local },
+                        working_dir: stage.working_dir,
+                        fail_fast: stage.fail_fast,
+                        health_check: stage.health_check,
+                    });
+                }
+            }
+
+            // If no stages from workflows, fall back to Docker if available
+            if stages.is_empty() && has_any_docker_compose(repo_path) {
+                stages.push(local_stage("docker-build", vec!["docker compose build"]));
+                stages.push(Stage {
+                    name: "deploy".to_string(),
+                    commands: vec![
+                        "docker compose pull".to_string(),
+                        "docker compose up -d --remove-orphans".to_string(),
+                    ],
+                    backend: Backend::Ssh,
+                    working_dir: None,
+                    fail_fast: true,
+                    health_check: None,
+                });
+            }
+        }
+
+        DeploymentMethod::Skip => {
+            return None;
+        }
+    }
+
+    if stages.is_empty() {
+        return None;
+    }
+
+    Some(Pipeline {
+        name: format!("{} Deploy", repo_name),
+        stages,
+    })
+}
+
+/// Detect the command to get version from project files.
+fn detect_version_command(repo_path: &Path) -> String {
+    // Check for VERSION file
+    if repo_path.join("VERSION").exists() {
+        return "cat VERSION".to_string();
+    }
+
+    // Check for Cargo.toml
+    if repo_path.join("Cargo.toml").exists() {
+        return "cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].version'".to_string();
+    }
+
+    // Check for package.json
+    if repo_path.join("package.json").exists() {
+        return "node -p \"require('./package.json').version\"".to_string();
+    }
+
+    // Check for pyproject.toml
+    if repo_path.join("pyproject.toml").exists() {
+        return "grep -m1 'version' pyproject.toml | cut -d'\"' -f2".to_string();
+    }
+
+    // Fallback
+    "cat VERSION".to_string()
+}
+
+/// Detect the build output directory for static sites.
+fn detect_dist_directory(repo_path: &Path) -> String {
+    // Common output directories
+    for dir in &["dist", "build", "out", "public", "_site", ".next/out"] {
+        if repo_path.join(dir).is_dir() {
+            return dir.to_string();
+        }
+    }
+
+    // Check netlify.toml for publish directory
+    if let Ok(content) = std::fs::read_to_string(repo_path.join("netlify.toml")) {
+        for line in content.lines() {
+            if line.trim().starts_with("publish") {
+                if let Some(value) = line.split('=').nth(1) {
+                    return value.trim().trim_matches('"').to_string();
+                }
+            }
+        }
+    }
+
+    // Default
+    "dist".to_string()
 }
 
 // ---------------------------------------------------------------------------

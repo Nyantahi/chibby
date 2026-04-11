@@ -235,6 +235,68 @@ export interface WorkflowInfo {
 }
 
 // ---------------------------------------------------------------------------
+// Deployment Configuration
+// ---------------------------------------------------------------------------
+
+/** Deployment method for CD stages. */
+export type DeploymentMethod =
+  | 'auto_detect' // Parse from GitHub Actions deploy workflows
+  | 'docker_compose_ssh' // Docker Compose over SSH
+  | 'docker_registry' // Build/push to registry, then pull on server
+  | 'cargo_publish' // Publish to crates.io
+  | 'npm_publish' // Publish to npm registry
+  | 'github_release' // Create GitHub release with binaries
+  | 'ssh_rsync' // rsync/scp files to server
+  | 'flyio' // Deploy to Fly.io
+  | 'render' // Deploy to Render
+  | 'railway' // Deploy to Railway
+  | 'netlify' // Deploy to Netlify
+  | 'vercel' // Deploy to Vercel
+  | 's3_static' // Deploy to S3 bucket
+  | 'skip'; // No deployment (CI only)
+
+/** Configuration for deployment during project creation. */
+export interface DeploymentConfig {
+  method: DeploymentMethod;
+  /** Target environment name (e.g., "production", "staging"). */
+  environment_name?: string;
+  /** SSH host for SSH-based deploys (user@hostname). */
+  ssh_host?: string;
+  /** Docker registry URL (e.g., "ghcr.io/username"). */
+  docker_registry?: string;
+  /** Health check URL path (e.g., "/health"). */
+  health_check_url?: string;
+  /** Docker Compose file to use (e.g., "docker-compose.prod.yml"). */
+  compose_file?: string;
+  /** Platform project name for PaaS (fly app name, etc.). */
+  platform_project?: string;
+  /** Whether to run dry-run first for package publishing. */
+  dry_run_first?: boolean;
+}
+
+/** Detected project type from repository analysis. */
+export type ProjectType =
+  | 'Rust'
+  | 'RustLibrary'
+  | 'Tauri'
+  | 'Node'
+  | 'NodeLibrary'
+  | 'Python'
+  | 'Go'
+  | 'StaticSite'
+  | 'DockerCompose'
+  | 'Unknown';
+
+/** Display info for a deployment method option. */
+export interface DeploymentMethodInfo {
+  method: DeploymentMethod;
+  label: string;
+  description: string;
+  icon: string;
+  requiresConfig: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Phase 5: Versioning, Signing, Artifacts, Notifications, Cleanup
 // ---------------------------------------------------------------------------
 

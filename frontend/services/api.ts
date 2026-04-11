@@ -40,6 +40,9 @@ import type {
   CommitLintResult,
   PipelineTemplate,
   TemplateVariable,
+  DeploymentMethod,
+  DeploymentConfig,
+  ProjectType,
 } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -157,6 +160,38 @@ export async function workflowsToPipelineStages(repoPath: string): Promise<Stage
 /** Get CI/CD file recommendations for a repository. */
 export async function getRecommendations(repoPath: string): Promise<ProjectRecommendations> {
   return invoke<ProjectRecommendations>('get_recommendations', { repoPath });
+}
+
+// ---------------------------------------------------------------------------
+// Deployment detection commands
+// ---------------------------------------------------------------------------
+
+/** Detect the most likely deployment method for a repository. */
+export async function detectDeploymentMethod(repoPath: string): Promise<DeploymentMethod> {
+  return invoke<DeploymentMethod>('detect_deployment_method', { repoPath });
+}
+
+/** Get suggested deployment methods for a repository based on project type. */
+export async function getSuggestedDeployMethods(repoPath: string): Promise<DeploymentMethod[]> {
+  return invoke<DeploymentMethod[]>('get_suggested_deploy_methods', { repoPath });
+}
+
+/** Detect the project type for a repository. */
+export async function detectProjectType(repoPath: string): Promise<ProjectType> {
+  return invoke<ProjectType>('detect_project_type', { repoPath });
+}
+
+/** Generate a CI pipeline and optionally a CD pipeline based on deployment config. */
+export async function generatePipelineWithDeploy(
+  repoPath: string,
+  repoName: string,
+  deployConfig?: DeploymentConfig
+): Promise<Pipeline> {
+  return invoke<Pipeline>('generate_pipeline_with_deploy', {
+    repoPath,
+    repoName,
+    deployConfig: deployConfig ?? null,
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -100,6 +100,10 @@ pub fn run() {
             pipeline_commands::get_github_workflows,
             pipeline_commands::workflows_to_pipeline_stages,
             pipeline_commands::get_recommendations,
+            pipeline_commands::detect_deployment_method,
+            pipeline_commands::get_suggested_deploy_methods,
+            pipeline_commands::detect_project_type,
+            pipeline_commands::generate_pipeline_with_deploy,
             // Run commands
             run_commands::run_pipeline,
             run_commands::cancel_pipeline,
