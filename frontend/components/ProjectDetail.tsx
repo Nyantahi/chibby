@@ -557,40 +557,41 @@ function ProjectDetail() {
             )}
           </div>
           <div className="header-actions">
-            {/* Pipeline selector */}
-            {pipelineNames.length > 1 && (
-              <select
-                className="input input-sm env-select"
-                value={selectedPipeline}
-                onChange={(e) => handleSwitchPipeline(e.target.value)}
-                disabled={running}
-              >
-                {pipelineNames.map((name) => (
+            {/* Pipeline selector - always visible for consistent UI */}
+            <select
+              className="input input-sm env-select"
+              value={selectedPipeline}
+              onChange={(e) => handleSwitchPipeline(e.target.value)}
+              disabled={running || pipelineNames.length <= 1}
+            >
+              {pipelineNames.length === 0 ? (
+                <option value="pipeline">Pipeline</option>
+              ) : (
+                pipelineNames.map((name) => (
                   <option key={name} value={name}>
                     {name === 'pipeline' ? 'CI' : name.charAt(0).toUpperCase() + name.slice(1)}
                   </option>
-                ))}
-              </select>
-            )}
+                ))
+              )}
+            </select>
 
-            {/* Deploy target selector */}
-            {envsConfig?.environments?.length > 0 && (
-              <select
-                className="input input-sm env-select"
-                value={selectedEnv}
-                onChange={(e) => {
-                  setSelectedEnv(e.target.value);
-                  setPreflightResult(null);
-                }}
-              >
-                <option value="">No target</option>
-                {envsConfig?.environments?.map((env) => (
-                  <option key={env.name} value={env.name}>
-                    {env.name}
-                  </option>
-                ))}
-              </select>
-            )}
+            {/* Deploy target selector - always visible for consistent UI */}
+            <select
+              className="input input-sm env-select"
+              value={selectedEnv}
+              onChange={(e) => {
+                setSelectedEnv(e.target.value);
+                setPreflightResult(null);
+              }}
+              disabled={running || !envsConfig?.environments?.length}
+            >
+              <option value="">No target</option>
+              {envsConfig?.environments?.map((env) => (
+                <option key={env.name} value={env.name}>
+                  {env.name}
+                </option>
+              ))}
+            </select>
 
             {/* Preflight button */}
             {selectedEnv && (
