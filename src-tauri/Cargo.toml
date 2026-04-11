@@ -38,7 +38,7 @@ uuid = { version = "1.18.1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "6"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
-sha2 = "0.10"
+sha2 = "0.11"
 glob = "0.3"
 reqwest = { version = "0.13", features = ["json"] }
 regex = "1"
