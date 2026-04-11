@@ -302,13 +302,48 @@ pub fn detect_project_folders(repo_path: &Path) -> Vec<ProjectFolder> {
 /// Check if project is a fullstack Docker project (multiple folders + docker-compose).
 pub fn is_fullstack_docker_project(repo_path: &Path) -> bool {
     let folders = detect_project_folders(repo_path);
-    let has_docker_compose = repo_path.join("docker-compose.yml").exists()
+
+    // Check for any docker-compose file (including variants like docker-compose.prod.yml)
+    let has_docker_compose = has_any_docker_compose(repo_path);
+
+    // Check for GitHub Actions deploy workflows
+    let has_deploy_workflow = repo_path.join(".github/workflows").is_dir()
+        && std::fs::read_dir(repo_path.join(".github/workflows"))
+            .map(|entries| {
+                entries.flatten().any(|e| {
+                    let name = e.file_name().to_string_lossy().to_lowercase();
+                    (name.contains("deploy") || name.contains("release"))
+                        && (name.ends_with(".yml") || name.ends_with(".yaml"))
+                })
+            })
+            .unwrap_or(false);
+
+    // Consider fullstack if we have 2+ project folders and (docker-compose or deploy workflow)
+    folders.len() >= 2 && (has_docker_compose || has_deploy_workflow)
+}
+
+/// Check if any docker-compose file exists (including variants).
+fn has_any_docker_compose(repo_path: &Path) -> bool {
+    // Check standard files first
+    if repo_path.join("docker-compose.yml").exists()
         || repo_path.join("docker-compose.yaml").exists()
         || repo_path.join("compose.yml").exists()
-        || repo_path.join("compose.yaml").exists();
+        || repo_path.join("compose.yaml").exists()
+    {
+        return true;
+    }
 
-    // Consider fullstack if we have 2+ project folders and docker-compose
-    folders.len() >= 2 && has_docker_compose
+    // Check for variants like docker-compose.prod.yml
+    if let Ok(entries) = std::fs::read_dir(repo_path) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_lowercase();
+            if is_docker_compose_file(&name) {
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 /// Patterns to check in fullstack subdirectories.
@@ -973,23 +1008,65 @@ pub fn generate_draft_pipeline(
 
 /// Generate a deploy pipeline for fullstack Docker projects.
 ///
-/// This creates a separate pipeline focused on deployment stages
-/// (docker compose build, docker compose up) for SSH deployment.
+/// This creates a separate pipeline focused on deployment stages.
+/// If GitHub Actions deploy workflows exist, it incorporates their steps.
+/// Otherwise falls back to generic docker compose stages.
 pub fn generate_deploy_pipeline(
     repo_name: &str,
     scripts: &[DetectedScript],
-    _repo_path: &Path,
+    repo_path: &Path,
 ) -> Option<Pipeline> {
     let has = |st: ScriptType| scripts.iter().any(|s| s.script_type == st);
 
-    // Only generate deploy pipeline if Docker Compose is present
-    if !has(ScriptType::DockerCompose) {
+    // Only generate deploy pipeline if Docker Compose or GitHub Actions is present
+    let has_docker_compose = has(ScriptType::DockerCompose);
+    let has_github_actions = has(ScriptType::GithubActions);
+
+    if !has_docker_compose && !has_github_actions {
         return None;
     }
 
-    let stages = vec![
-        local_stage("docker-build", vec!["docker compose build"]),
-        Stage {
+    let mut stages = Vec::new();
+
+    // Parse GitHub Actions workflows and look for deploy-related ones
+    let workflows = parse_github_workflows(repo_path);
+    let deploy_workflows: Vec<_> = workflows
+        .iter()
+        .filter(|w| {
+            let name_lower = w.name.to_lowercase();
+            let file_lower = w.file_path.to_lowercase();
+            name_lower.contains("deploy")
+                || name_lower.contains("release")
+                || file_lower.contains("deploy")
+                || file_lower.contains("release")
+        })
+        .cloned()
+        .collect();
+
+    if !deploy_workflows.is_empty() {
+        // Use stages from deploy workflows
+        let workflow_stages = workflows_to_stages(&deploy_workflows);
+        for stage in workflow_stages {
+            // Determine if this is an SSH stage based on commands
+            let is_ssh_stage = stage.commands.iter().any(|cmd| {
+                cmd.contains("ssh ") || cmd.contains("rsync") || cmd.contains("scp ")
+            });
+
+            stages.push(Stage {
+                name: stage.name,
+                commands: stage.commands,
+                backend: if is_ssh_stage { Backend::Ssh } else { Backend::Local },
+                working_dir: stage.working_dir,
+                fail_fast: stage.fail_fast,
+                health_check: stage.health_check,
+            });
+        }
+    }
+
+    // If no deploy workflow stages were added, fall back to docker compose
+    if stages.is_empty() && has_docker_compose {
+        stages.push(local_stage("docker-build", vec!["docker compose build"]));
+        stages.push(Stage {
             name: "docker-deploy".to_string(),
             commands: vec![
                 "docker compose build".to_string(),
@@ -999,8 +1076,12 @@ pub fn generate_deploy_pipeline(
             working_dir: None,
             fail_fast: true,
             health_check: None,
-        },
-    ];
+        });
+    }
+
+    if stages.is_empty() {
+        return None;
+    }
 
     Some(Pipeline {
         name: format!("{} Deploy", repo_name),
