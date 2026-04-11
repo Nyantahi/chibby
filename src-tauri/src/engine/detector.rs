@@ -602,8 +602,11 @@ pub fn generate_draft_pipeline(
     let has_file = |name: &str| scripts.iter().any(|s| s.file_name == name);
     let is_tauri = has(ScriptType::TauriConfig);
 
-    // Read package.json scripts for smarter generation.
-    let pkg_scripts = if has(ScriptType::PackageJson) {
+    // Check for ROOT package.json specifically (not in subdirectories)
+    let has_root_package_json = has_file("package.json");
+
+    // Read package.json scripts for smarter generation (only if root exists).
+    let pkg_scripts = if has_root_package_json {
         read_package_scripts(repo_path)
     } else {
         std::collections::HashMap::new()
@@ -611,21 +614,22 @@ pub fn generate_draft_pipeline(
     let has_script = |name: &str| pkg_scripts.contains_key(name);
 
     // ── Install dependencies ─────────────────────────────────────
-    if has(ScriptType::PackageJson) {
+    // Only add root-level npm stages if root package.json exists
+    if has_root_package_json {
         stages.push(local_stage("install", vec!["npm install"]));
     }
 
     // ── Type checking ────────────────────────────────────────────
     if has_script("type-check") {
         stages.push(local_stage("type-check", vec!["npm run type-check"]));
-    } else if has(ScriptType::TsConfig) && has(ScriptType::PackageJson) {
+    } else if has(ScriptType::TsConfig) && has_root_package_json {
         stages.push(local_stage("type-check", vec!["npx tsc --noEmit"]));
     }
 
     // ── Linting ──────────────────────────────────────────────────
     if has_script("lint") {
         stages.push(local_stage("lint", vec!["npm run lint"]));
-    } else if has(ScriptType::Eslint) && has(ScriptType::PackageJson) {
+    } else if has(ScriptType::Eslint) && has_root_package_json {
         stages.push(local_stage("lint", vec!["npx eslint ."]));
     } else if has(ScriptType::Biome) {
         stages.push(local_stage("lint", vec!["npx biome check ."]));
@@ -745,8 +749,8 @@ pub fn generate_draft_pipeline(
     // Get all project folders with their capabilities
     let project_folders = detect_project_folders(repo_path);
     let is_fullstack = project_folders.len() >= 2;
-    let has_root_pkg = has(ScriptType::PackageJson);
-    let has_root_python = has(ScriptType::PythonProject) || has(ScriptType::PythonRequirements);
+    let has_root_pkg = has_root_package_json; // Use the root check, not subdirectory detection
+    let has_root_python = has_file("requirements.txt") || has_file("pyproject.toml");
 
     // Process each detected project folder
     for folder in &project_folders {
