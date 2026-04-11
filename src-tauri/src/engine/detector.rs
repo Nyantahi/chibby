@@ -708,11 +708,16 @@ pub fn generate_draft_pipeline(
     }
 
     // ── Python ────────────────────────────────────────────────────
-    if has(ScriptType::PythonProject) || has(ScriptType::PythonRequirements) {
+    // Check for ROOT Python files specifically (not in subdirectories)
+    let has_root_requirements = has_file("requirements.txt");
+    let has_root_pyproject = has_file("pyproject.toml");
+    let has_root_python = has_root_requirements || has_root_pyproject || has_file("setup.py");
+
+    if has_root_python {
         if has(ScriptType::Tox) {
             stages.push(local_stage("tox", vec!["tox"]));
         } else {
-            let install_cmd = if has(ScriptType::PythonRequirements) {
+            let install_cmd = if has_root_requirements {
                 "pip install -r requirements.txt"
             } else {
                 "pip install -e ."
@@ -727,8 +732,7 @@ pub fn generate_draft_pipeline(
     }
 
     // ── Python linting (if Python project without Docker-only setup) ─────
-    if (has(ScriptType::PythonProject) || has(ScriptType::PythonRequirements))
-        && !has(ScriptType::PackageJson) {
+    if has_root_python && !has_root_package_json {
         // Check for common Python linter configs
         let has_ruff = repo_path.join("ruff.toml").exists() || repo_path.join("pyproject.toml").exists();
         let has_flake8 = repo_path.join(".flake8").exists() || repo_path.join("setup.cfg").exists();
