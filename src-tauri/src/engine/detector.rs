@@ -122,6 +122,8 @@ const CI_DIR_PATTERNS: &[(&str, &str, ScriptType)] = &[
     // Python test directories
     ("tests", "tests/", ScriptType::PythonTestDir),
     ("test", "test/", ScriptType::PythonTestDir),
+    // Shell scripts directory
+    ("scripts", "scripts/", ScriptType::ShellScript),
 ];
 
 /// Information about a detected script or task source.
@@ -360,6 +362,26 @@ pub fn detect_scripts(repo_path: &Path) -> Vec<DetectedScript> {
         }
     }
 
+    // Scan .github/workflows/ for individual workflow files
+    let workflows_dir = repo_path.join(".github/workflows");
+    if workflows_dir.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(&workflows_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.ends_with(".yml") || name.ends_with(".yaml") {
+                    let display_name = format!(".github/workflows/{}", name);
+                    if !found.iter().any(|s| s.file_name == display_name) {
+                        found.push(DetectedScript {
+                            file_name: display_name,
+                            file_path: entry.path().to_string_lossy().to_string(),
+                            script_type: ScriptType::GithubActions,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     // Check fullstack subdirectories (frontend/, backend/, api/, etc.)
     for subdir in FULLSTACK_SUBDIRS {
         let subdir_path = repo_path.join(subdir);
@@ -395,7 +417,7 @@ pub fn detect_scripts(repo_path: &Path) -> Vec<DetectedScript> {
         }
     }
 
-    // Scan repo root for *.sh, .env*, and .sln/*.csproj files.
+    // Scan repo root for *.sh, .env*, .sln/*.csproj, and docker-compose variants.
     if let Ok(entries) = std::fs::read_dir(repo_path) {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
@@ -417,6 +439,33 @@ pub fn detect_scripts(repo_path: &Path) -> Vec<DetectedScript> {
                     file_path: entry.path().to_string_lossy().to_string(),
                     script_type: ScriptType::DotNet,
                 });
+            } else if is_docker_compose_file(&name) && !found.iter().any(|s| s.file_name == name) {
+                // Detect docker-compose variants (docker-compose.prod.yml, etc.)
+                found.push(DetectedScript {
+                    file_name: name,
+                    file_path: entry.path().to_string_lossy().to_string(),
+                    script_type: ScriptType::DockerCompose,
+                });
+            }
+        }
+    }
+
+    // Scan scripts/ directory for shell scripts
+    let scripts_dir = repo_path.join("scripts");
+    if scripts_dir.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(&scripts_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.ends_with(".sh") {
+                    let display_name = format!("scripts/{}", name);
+                    if !found.iter().any(|s| s.file_name == display_name) {
+                        found.push(DetectedScript {
+                            file_name: display_name,
+                            file_path: entry.path().to_string_lossy().to_string(),
+                            script_type: ScriptType::ShellScript,
+                        });
+                    }
+                }
             }
         }
     }
@@ -546,6 +595,15 @@ fn is_python_test_file(name: &str) -> bool {
     }
     let base = &name[..name.len() - 3]; // Remove .py
     base.starts_with("test_") || base.ends_with("_test")
+}
+
+/// Check if a file is a docker-compose variant (docker-compose.*.yml, compose.*.yml).
+fn is_docker_compose_file(name: &str) -> bool {
+    // Already handled in SCRIPT_PATTERNS: docker-compose.yml, docker-compose.yaml, compose.yml, compose.yaml
+    // This catches variants like docker-compose.prod.yml, docker-compose.dev.yml, etc.
+    let name_lower = name.to_lowercase();
+    (name_lower.starts_with("docker-compose.") || name_lower.starts_with("compose."))
+        && (name_lower.ends_with(".yml") || name_lower.ends_with(".yaml"))
 }
 
 /// Helper to create a local stage.
