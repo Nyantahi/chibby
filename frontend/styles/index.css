@@ -2132,6 +2132,12 @@ select.input {
   cursor: pointer;
 }
 
+.env-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--color-surface);
+}
+
 /* Secrets Manager */
 .secret-list {
   display: flex;
