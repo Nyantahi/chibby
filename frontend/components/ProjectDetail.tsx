@@ -1279,7 +1279,7 @@ function ProjectDetail() {
           ) : (
             <ul className="detected-files-list">
               {detectedFiles.map((script, i) => (
-                <li key={i} className="detected-file-item">
+                <li key={i} className="detected-file-item" title={script.file_path}>
                   <span className="detected-file-icon">
                     <FileTypeIcon scriptType={script.script_type} />
                   </span>

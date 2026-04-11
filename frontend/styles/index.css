@@ -191,13 +191,13 @@ a:hover {
    ============================================================ */
 
 .page {
-  max-width: 960px;
+  max-width: 1600px;
 }
 
 .page-with-sidebar {
   display: flex;
   gap: var(--space-xl);
-  max-width: 1200px;
+  max-width: 1600px;
   overflow: hidden;
 }
 
@@ -259,6 +259,10 @@ a:hover {
   margin-top: var(--space-sm);
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
+  flex-wrap: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .git-info svg {
@@ -268,6 +272,10 @@ a:hover {
 .git-branch {
   font-weight: 600;
   color: var(--color-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .git-commit {

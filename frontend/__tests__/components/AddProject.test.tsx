@@ -36,6 +36,10 @@ describe('AddProject', () => {
     vi.resetAllMocks();
     // Default mock for getGithubWorkflows (used in handleScan)
     vi.mocked(api.getGithubWorkflows).mockResolvedValue([]);
+    // Default mocks for deployment detection (used in handleScan)
+    vi.mocked(api.detectProjectType).mockResolvedValue('Node');
+    vi.mocked(api.detectDeploymentMethod).mockResolvedValue('skip');
+    vi.mocked(api.getSuggestedDeployMethods).mockResolvedValue(['docker_compose_ssh', 'skip']);
   });
 
   describe('Initial select step', () => {
@@ -131,7 +135,7 @@ describe('AddProject', () => {
     it('calls detectScripts and generatePipeline', async () => {
       const user = userEvent.setup();
       vi.mocked(api.detectScripts).mockResolvedValue(mockScripts);
-      vi.mocked(api.generatePipeline).mockResolvedValue(mockPipeline);
+      vi.mocked(api.generatePipelineWithDeploy).mockResolvedValue(mockPipeline);
 
       renderAddProject();
 
@@ -141,13 +145,13 @@ describe('AddProject', () => {
       await waitFor(() => {
         expect(api.detectScripts).toHaveBeenCalledWith('/Users/dev/my-app');
       });
-      expect(api.generatePipeline).toHaveBeenCalled();
+      expect(api.generatePipelineWithDeploy).toHaveBeenCalled();
     });
 
     it('shows detected scripts', async () => {
       const user = userEvent.setup();
       vi.mocked(api.detectScripts).mockResolvedValue(mockScripts);
-      vi.mocked(api.generatePipeline).mockResolvedValue(mockPipeline);
+      vi.mocked(api.generatePipelineWithDeploy).mockResolvedValue(mockPipeline);
 
       renderAddProject();
 
@@ -165,7 +169,7 @@ describe('AddProject', () => {
     it('shows generated pipeline stages', async () => {
       const user = userEvent.setup();
       vi.mocked(api.detectScripts).mockResolvedValue(mockScripts);
-      vi.mocked(api.generatePipeline).mockResolvedValue(mockPipeline);
+      vi.mocked(api.generatePipelineWithDeploy).mockResolvedValue(mockPipeline);
 
       renderAddProject();
 
@@ -187,7 +191,7 @@ describe('AddProject', () => {
     it('shows no scripts message when none found', async () => {
       const user = userEvent.setup();
       vi.mocked(api.detectScripts).mockResolvedValue([]);
-      vi.mocked(api.generatePipeline).mockResolvedValue({ name: 'empty', stages: [] });
+      vi.mocked(api.generatePipelineWithDeploy).mockResolvedValue({ name: 'empty', stages: [] });
 
       renderAddProject();
 
@@ -205,7 +209,7 @@ describe('AddProject', () => {
     it('saves pipeline and adds project', async () => {
       const user = userEvent.setup();
       vi.mocked(api.detectScripts).mockResolvedValue(mockScripts);
-      vi.mocked(api.generatePipeline).mockResolvedValue(mockPipeline);
+      vi.mocked(api.generatePipelineWithDeploy).mockResolvedValue(mockPipeline);
       vi.mocked(api.savePipeline).mockResolvedValue(undefined);
       vi.mocked(api.addProject).mockResolvedValue({
         id: '123',
@@ -231,7 +235,13 @@ describe('AddProject', () => {
       });
       await user.click(screen.getByRole('button', { name: /continue/i }));
 
-      // Step 4: Review - create project
+      // Step 4: Deploy - skip/continue
+      await waitFor(() => {
+        expect(screen.getByText('Skip')).toBeInTheDocument();
+      });
+      await user.click(screen.getByRole('button', { name: /continue/i }));
+
+      // Step 5: Review - create project
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /create project/i })).toBeInTheDocument();
       });
@@ -246,7 +256,7 @@ describe('AddProject', () => {
     it('allows skipping pipeline', async () => {
       const user = userEvent.setup();
       vi.mocked(api.detectScripts).mockResolvedValue(mockScripts);
-      vi.mocked(api.generatePipeline).mockResolvedValue(mockPipeline);
+      vi.mocked(api.generatePipelineWithDeploy).mockResolvedValue(mockPipeline);
       vi.mocked(api.addProject).mockResolvedValue({
         id: '123',
         name: 'my-app',
