@@ -1,5 +1,5 @@
-use crate::engine::models::{Pipeline, Stage, Backend, PipelineValidation, PipelineWarning, WarningSeverity, FileConflict, DeploymentMethod, DeploymentConfig, HealthCheck};
-use std::collections::HashSet;
+use crate::engine::models::{Pipeline, Stage, Backend, PipelineValidation, PipelineWarning, WarningSeverity, FileConflict, DeploymentMethod, DeploymentConfig, HealthCheck, Environment, EnvironmentsConfig};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 /// Detect common scripts, build files, and CI/CD configs in a repository
@@ -1629,6 +1629,61 @@ pub fn generate_deployment_pipeline(
     })
 }
 
+/// Generate default environments based on deployment method.
+///
+/// SSH-based deployments get production + staging environments.
+/// PaaS deployments get production only.
+/// Package publishing (Cargo, npm) and GitHub releases don't need environments.
+pub fn generate_default_environments(deploy_config: &DeploymentConfig) -> Option<EnvironmentsConfig> {
+    let envs = match deploy_config.method {
+        // SSH-based deployments: production + staging
+        DeploymentMethod::DockerComposeSsh
+        | DeploymentMethod::DockerRegistry
+        | DeploymentMethod::SshRsync => {
+            vec![
+                Environment {
+                    name: "production".to_string(),
+                    ssh_host: deploy_config.ssh_host.clone(),
+                    ssh_port: None,
+                    variables: HashMap::new(),
+                },
+                Environment {
+                    name: "staging".to_string(),
+                    ssh_host: None, // User fills in later
+                    ssh_port: None,
+                    variables: HashMap::new(),
+                },
+            ]
+        }
+
+        // PaaS deployments: production only
+        DeploymentMethod::Flyio
+        | DeploymentMethod::Render
+        | DeploymentMethod::Railway
+        | DeploymentMethod::Vercel
+        | DeploymentMethod::Netlify
+        | DeploymentMethod::S3Static => {
+            vec![Environment {
+                name: "production".to_string(),
+                ssh_host: None,
+                ssh_port: None,
+                variables: HashMap::new(),
+            }]
+        }
+
+        // No environments needed for these
+        DeploymentMethod::CargoPublish
+        | DeploymentMethod::NpmPublish
+        | DeploymentMethod::GithubRelease
+        | DeploymentMethod::AutoDetect
+        | DeploymentMethod::Skip => {
+            return None;
+        }
+    };
+
+    Some(EnvironmentsConfig { environments: envs })
+}
+
 /// Detect the command to get version from project files.
 fn detect_version_command(repo_path: &Path) -> String {
     // Check for VERSION file
@@ -2845,9 +2900,76 @@ jobs:
                 if stage.name.starts_with("frontend-") {
                     assert!(cmd.starts_with("cd frontend && "), "Command missing 'cd frontend &&' prefix: {}", cmd);
                 } else if stage.name.starts_with("backend-") {
-                    assert!(cmd.starts_with("cd backend && "), "Command missing 'cd backend &&' prefix: {}", cmd);
+                    assert!(cmd.starts_with("cd backend &&" ), "Command missing 'cd backend &&' prefix: {}", cmd);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn test_generate_default_environments_ssh_deploys() {
+        // SSH-based deployments should create production + staging
+        for method in [
+            DeploymentMethod::DockerComposeSsh,
+            DeploymentMethod::DockerRegistry,
+            DeploymentMethod::SshRsync,
+        ] {
+            let config = DeploymentConfig {
+                method,
+                ssh_host: Some("user@example.com".to_string()),
+                ..Default::default()
+            };
+            let result = generate_default_environments(&config);
+            assert!(result.is_some(), "Expected environments for {:?}", config.method);
+            let envs = result.unwrap();
+            assert_eq!(envs.environments.len(), 2);
+            assert_eq!(envs.environments[0].name, "production");
+            assert_eq!(envs.environments[0].ssh_host, Some("user@example.com".to_string()));
+            assert_eq!(envs.environments[1].name, "staging");
+            assert!(envs.environments[1].ssh_host.is_none());
+        }
+    }
+
+    #[test]
+    fn test_generate_default_environments_paas() {
+        // PaaS deployments should create production only
+        for method in [
+            DeploymentMethod::Flyio,
+            DeploymentMethod::Render,
+            DeploymentMethod::Railway,
+            DeploymentMethod::Vercel,
+            DeploymentMethod::Netlify,
+            DeploymentMethod::S3Static,
+        ] {
+            let config = DeploymentConfig {
+                method,
+                ..Default::default()
+            };
+            let result = generate_default_environments(&config);
+            assert!(result.is_some(), "Expected environments for {:?}", config.method);
+            let envs = result.unwrap();
+            assert_eq!(envs.environments.len(), 1);
+            assert_eq!(envs.environments[0].name, "production");
+            assert!(envs.environments[0].ssh_host.is_none());
+        }
+    }
+
+    #[test]
+    fn test_generate_default_environments_no_envs() {
+        // These methods should not create any environments
+        for method in [
+            DeploymentMethod::CargoPublish,
+            DeploymentMethod::NpmPublish,
+            DeploymentMethod::GithubRelease,
+            DeploymentMethod::AutoDetect,
+            DeploymentMethod::Skip,
+        ] {
+            let config = DeploymentConfig {
+                method,
+                ..Default::default()
+            };
+            let result = generate_default_environments(&config);
+            assert!(result.is_none(), "Expected no environments for {:?}", config.method);
         }
     }
 }
