@@ -464,6 +464,9 @@ export function FileTypeIcon({ scriptType }: { scriptType: string }) {
     case 'PythonRequirements':
     case 'Tox':
       return <PythonIcon />;
+    case 'Pytest':
+    case 'PythonTestDir':
+      return <LabelIcon color="#009FE3" label="test" />;
     // Ruby
     case 'Gemfile':
     case 'Rakefile':

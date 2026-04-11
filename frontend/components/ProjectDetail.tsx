@@ -1322,6 +1322,10 @@ function formatScriptType(scriptType: string): string {
       return 'pip';
     case 'Tox':
       return 'tox';
+    case 'Pytest':
+      return 'pytest';
+    case 'PythonTestDir':
+      return 'tests';
     // Ruby
     case 'Gemfile':
       return 'ruby';
