@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.29] - 2026-04-11
+
+### Added
+
+- **Deployment configuration step** in project creation wizard for selecting deployment method
+- **Auto-create environments.toml** with sensible defaults when deploy pipeline is generated
+  - SSH-based deploys (Docker Compose SSH, Docker Registry, rsync) create production + staging
+  - PaaS deploys (Fly.io, Render, Railway, Vercel, Netlify, S3) create production only
+- **Fullstack project detection** for monorepos with frontend/backend/admin folders
+- **Multi-folder pipeline generation** with per-folder stages (install, test, build)
+- GitHub Actions deploy workflow parsing integrated into pipeline generation
+- Scripts directory detection (`scripts/`) for shell script discovery
+- Docker Compose variant detection (`docker-compose.prod.yml`, `docker-compose.staging.yml`, etc.)
+- Python test icons (pytest, test directories) in detected files list
+- Tooltip on detected files showing full file path
+
+### Fixed
+
+- Grey out disabled pipeline/target dropdowns instead of hiding them
+- Always show pipeline and target dropdowns for consistent UI layout
+- Only generate root npm stages when root `package.json` exists (fixes duplicate stages)
+- Only generate root Python stages when root `requirements.txt` exists
+- Use `npm install` instead of `npm ci` for broader compatibility
+- Git branch text overflow with ellipsis for long branch names
+
+### Changed
+
+- Widen page max-width from 960px to 1600px for better screen utilization
+
 ## [0.1.28] - 2026-04-04
 
 ### Security
