@@ -232,6 +232,10 @@ pub struct ProjectFolder {
     pub has_node: bool,
     /// Has requirements.txt or pyproject.toml (Python project).
     pub has_python: bool,
+    /// Has Cargo.toml (Rust project).
+    pub has_rust: bool,
+    /// Has tauri.conf.json (Tauri project in this subdirectory).
+    pub has_tauri: bool,
     /// Has tests/ directory or test files.
     pub has_tests: bool,
     /// Available npm scripts (if Node.js project).
@@ -259,9 +263,11 @@ pub fn detect_project_folders(repo_path: &Path) -> Vec<ProjectFolder> {
         let has_requirements = subdir_path.join("requirements.txt").exists();
         let has_pyproject = subdir_path.join("pyproject.toml").exists();
         let has_python = has_requirements || has_pyproject;
+        let has_rust = subdir_path.join("Cargo.toml").exists();
+        let has_tauri = subdir_path.join("tauri.conf.json").exists();
 
         // Skip if not a recognizable project
-        if !has_package_json && !has_python {
+        if !has_package_json && !has_python && !has_rust {
             continue;
         }
 
@@ -289,6 +295,8 @@ pub fn detect_project_folders(repo_path: &Path) -> Vec<ProjectFolder> {
             name: subdir.to_string(),
             has_node: has_package_json,
             has_python,
+            has_rust,
+            has_tauri,
             has_tests,
             npm_scripts,
             is_frontend,
@@ -693,7 +701,9 @@ pub fn generate_draft_pipeline(
 
     let has = |st: ScriptType| scripts.iter().any(|s| s.script_type == st);
     let has_file = |name: &str| scripts.iter().any(|s| s.file_name == name);
-    let is_tauri = has(ScriptType::TauriConfig);
+    // Use exact file name match so that backend/tauri.conf.json does NOT trigger the
+    // standard src-tauri Tauri layout detection.
+    let is_tauri = has_file("src-tauri/tauri.conf.json");
 
     // Check for ROOT package.json specifically (not in subdirectories)
     let has_root_package_json = has_file("package.json");
@@ -733,10 +743,14 @@ pub fn generate_draft_pipeline(
         stages.push(local_stage("format-check", vec!["npm run format:check"]));
     }
 
-    // ── Rust / Cargo (root or nested) ────────────────────────────
-    if has(ScriptType::CargoToml) {
+    // ── Rust / Cargo (root or standard src-tauri layout only) ───────────────────
+    // Use has_file to match only root-level Cargo.toml or src-tauri/Cargo.toml.
+    // Subdirectory Cargo.toml files (e.g. backend/Cargo.toml) are handled later
+    // in the project_folders loop with the correct --manifest-path flag.
+    let has_root_cargo = has_file("Cargo.toml") || has_file("src-tauri/Cargo.toml");
+    if has_root_cargo {
         if is_tauri {
-            // Tauri project — Cargo.toml is in src-tauri/
+            // Standard Tauri project — Cargo.toml is in src-tauri/
             stages.push(local_stage("cargo-test", vec!["cd src-tauri && cargo test"]));
         } else {
             stages.push(local_stage("cargo-build", vec!["cargo build --release"]));
@@ -912,6 +926,34 @@ pub fn generate_draft_pipeline(
                     stages.push(local_stage(&format!("{}-test", subdir),
                         vec![&format!("cd {} && pytest", subdir)]));
                 }
+            }
+        }
+
+        // Generate Rust stages for this folder (e.g. backend/Cargo.toml).
+        // Always generate these regardless of is_fullstack since a subdir Cargo.toml
+        // is always distinct from a root-level one and requires --manifest-path.
+        if folder.has_rust {
+            let manifest = format!("{}/Cargo.toml", subdir);
+            if folder.has_tauri {
+                // Tauri project with non-standard layout (e.g. backend/tauri.conf.json).
+                // Emit cargo-build, cargo-test, and tauri-build with the correct config path.
+                let tauri_conf = format!("{}/tauri.conf.json", subdir);
+                stages.push(local_stage("cargo-build",
+                    vec![&format!("cargo build --release --manifest-path {}", manifest)]));
+                stages.push(local_stage("cargo-test",
+                    vec![&format!("cargo test --manifest-path {}", manifest)]));
+                if has_script("tauri:build") {
+                    stages.push(local_stage("tauri-build", vec!["npm run tauri:build"]));
+                } else {
+                    stages.push(local_stage("tauri-build",
+                        vec![&format!("npx tauri build -c {}", tauri_conf)]));
+                }
+            } else {
+                // Plain Rust in a subdirectory — prefix stage names with folder name.
+                stages.push(local_stage(&format!("{}-cargo-build", subdir),
+                    vec![&format!("cargo build --release --manifest-path {}", manifest)]));
+                stages.push(local_stage(&format!("{}-cargo-test", subdir),
+                    vec![&format!("cargo test --manifest-path {}", manifest)]));
             }
         }
     }
