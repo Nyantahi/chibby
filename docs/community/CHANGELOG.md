@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.32] - 2026-05-01
+
+### Fixed
+
+- **Pipeline generation ignores custom Tauri/Rust subdirectory layout** — projects whose `Cargo.toml` and `tauri.conf.json` live in a non-standard folder (e.g. `backend/`) no longer lose their cargo-build, cargo-test, and tauri-build stages when creating a project or hitting Regenerate in the pipeline editor.
+- Root-level Cargo/Tauri detection now uses exact filename matching (`has_file`) so a `backend/Cargo.toml` cannot trigger the standard `src-tauri/` stage logic.
+
+### Added
+
+- `ProjectFolder` struct gains `has_rust` and `has_tauri` fields; `detect_project_folders` now recognises Rust (`Cargo.toml`) subdirectories alongside Node.js and Python ones.
+- Subdir Rust stage generation in the project-folders loop: emits `cargo build --release --manifest-path <subdir>/Cargo.toml`, `cargo test --manifest-path <subdir>/Cargo.toml`, and `npx tauri build -c <subdir>/tauri.conf.json` when a subdirectory contains a custom Tauri config.
+
 ## [0.1.29] - 2026-04-11
 
 ### Added
