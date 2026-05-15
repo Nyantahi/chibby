@@ -5,13 +5,26 @@ use crate::engine::secrets;
 use crate::engine::audit;
 use std::path::Path;
 
-/// Load environments config from a project's .chibby/environments.toml.
+/// Load environments config from a project's .chibby/environments.toml (committed file only).
 #[tauri::command]
 pub fn load_environments(repo_path: String) -> Result<EnvironmentsConfig, String> {
     pipeline::load_environments(Path::new(&repo_path)).map_err(|e| e.to_string())
 }
 
-/// Save environments config to a project's .chibby/environments.toml.
+/// Load environments with `environments.local.toml` overrides applied.
+/// Use this for read-only/run-time views; use `load_environments` for editing the committed file.
+#[tauri::command]
+pub fn load_environments_layered(repo_path: String) -> Result<EnvironmentsConfig, String> {
+    pipeline::load_environments_layered(Path::new(&repo_path)).map_err(|e| e.to_string())
+}
+
+/// Load per-developer overrides from `.chibby/environments.local.toml`.
+#[tauri::command]
+pub fn load_environments_local(repo_path: String) -> Result<EnvironmentsConfig, String> {
+    pipeline::load_environments_local(Path::new(&repo_path)).map_err(|e| e.to_string())
+}
+
+/// Save the committed environments config.
 #[tauri::command]
 pub fn save_environments(
     repo_path: String,
@@ -23,6 +36,20 @@ pub fn save_environments(
         &format!("project={} envs={:?}", repo_path, env_names),
     );
     pipeline::save_environments(Path::new(&repo_path), &config).map_err(|e| e.to_string())
+}
+
+/// Save per-developer overrides (auto-adds `.gitignore` entries).
+#[tauri::command]
+pub fn save_environments_local(
+    repo_path: String,
+    config: EnvironmentsConfig,
+) -> Result<(), String> {
+    let env_names: Vec<&str> = config.environments.iter().map(|e| e.name.as_str()).collect();
+    audit::log_event(
+        "save_environments_local",
+        &format!("project={} envs={:?}", repo_path, env_names),
+    );
+    pipeline::save_environments_local(Path::new(&repo_path), &config).map_err(|e| e.to_string())
 }
 
 /// Load secrets config from a project's .chibby/secrets.toml.

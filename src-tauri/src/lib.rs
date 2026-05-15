@@ -120,7 +120,10 @@ pub fn run() {
             run_commands::clear_run_history,
             // Environment & secrets commands
             env_commands::load_environments,
+            env_commands::load_environments_layered,
+            env_commands::load_environments_local,
             env_commands::save_environments,
+            env_commands::save_environments_local,
             env_commands::load_secrets_config,
             env_commands::save_secrets_config,
             env_commands::set_secret,

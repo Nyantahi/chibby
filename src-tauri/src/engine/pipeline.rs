@@ -1,5 +1,6 @@
-use crate::engine::models::{EnvironmentsConfig, Pipeline, SecretsConfig};
-use anyhow::{Context, Result};
+use crate::engine::models::{Environment, EnvironmentsConfig, Pipeline, SecretRef, SecretsConfig};
+use anyhow::{anyhow, Context, Result};
+use std::collections::HashMap;
 use std::path::Path;
 
 /// Serialize a Pipeline to TOML and write it to .chibby/pipeline.toml.
@@ -155,6 +156,165 @@ pub fn has_environments(repo_path: &Path) -> bool {
     repo_path.join(".chibby").join("environments.toml").exists()
 }
 
+/// Load the per-developer override file `.chibby/environments.local.toml`.
+/// Returns an empty config when absent.
+pub fn load_environments_local(repo_path: &Path) -> Result<EnvironmentsConfig> {
+    let file_path = repo_path.join(".chibby").join("environments.local.toml");
+    if !file_path.exists() {
+        return Ok(EnvironmentsConfig {
+            environments: Vec::new(),
+        });
+    }
+    let content = std::fs::read_to_string(&file_path)
+        .with_context(|| format!("Failed to read {}", file_path.display()))?;
+    toml::from_str(&content)
+        .with_context(|| format!("Failed to parse {}", file_path.display()))
+}
+
+/// Save the per-developer override file `.chibby/environments.local.toml`.
+/// Ensures `.gitignore` is updated to keep this file out of git.
+pub fn save_environments_local(repo_path: &Path, config: &EnvironmentsConfig) -> Result<()> {
+    let chibby_dir = repo_path.join(".chibby");
+    std::fs::create_dir_all(&chibby_dir)
+        .with_context(|| format!("Failed to create .chibby directory in {}", repo_path.display()))?;
+    let toml_str = toml::to_string_pretty(config)
+        .context("Failed to serialize environments.local to TOML")?;
+    let file_path = chibby_dir.join("environments.local.toml");
+    std::fs::write(&file_path, &toml_str)
+        .with_context(|| format!("Failed to write {}", file_path.display()))?;
+    ensure_gitignore_entries(repo_path)?;
+    log::info!("Saved environments.local to {}", file_path.display());
+    Ok(())
+}
+
+/// Check whether `.chibby/environments.local.toml` exists.
+pub fn has_environments_local(repo_path: &Path) -> bool {
+    repo_path
+        .join(".chibby")
+        .join("environments.local.toml")
+        .exists()
+}
+
+/// Load environments with per-developer overrides applied.
+///
+/// `environments.toml` (committed) is the base; `environments.local.toml`
+/// (gitignored) is layered on top using `merge_environments`.
+pub fn load_environments_layered(repo_path: &Path) -> Result<EnvironmentsConfig> {
+    let base = load_environments(repo_path)?;
+    let local = load_environments_local(repo_path)?;
+    Ok(merge_environments(base, local))
+}
+
+/// Pure merge function — local overrides base by environment name.
+/// For matched envs: ssh_host/ssh_port use local-if-Some-else-base; variables
+/// are key-merged (local wins on collision). Envs only in local are appended.
+pub fn merge_environments(
+    mut base: EnvironmentsConfig,
+    local: EnvironmentsConfig,
+) -> EnvironmentsConfig {
+    for local_env in local.environments {
+        if let Some(existing) = base
+            .environments
+            .iter_mut()
+            .find(|e| e.name == local_env.name)
+        {
+            if local_env.ssh_host.is_some() {
+                existing.ssh_host = local_env.ssh_host;
+            }
+            if local_env.ssh_port.is_some() {
+                existing.ssh_port = local_env.ssh_port;
+            }
+            for (k, v) in local_env.variables {
+                existing.variables.insert(k, v);
+            }
+        } else {
+            base.environments.push(local_env);
+        }
+    }
+    base
+}
+
+// ---------------------------------------------------------------------------
+// Granular environment helpers (preserve other entries — surgical edits)
+// ---------------------------------------------------------------------------
+
+/// Append a new environment to `.chibby/environments.toml`.
+/// Errors if an environment with the same name already exists.
+pub fn add_environment(repo_path: &Path, env: Environment) -> Result<()> {
+    let mut config = load_environments(repo_path)?;
+    if config.environments.iter().any(|e| e.name == env.name) {
+        return Err(anyhow!(
+            "Environment '{}' already exists in environments.toml",
+            env.name
+        ));
+    }
+    config.environments.push(env);
+    save_environments(repo_path, &config)
+}
+
+/// Remove an environment by name from `.chibby/environments.toml`.
+/// Errors if the environment does not exist.
+pub fn remove_environment(repo_path: &Path, name: &str) -> Result<()> {
+    let mut config = load_environments(repo_path)?;
+    let before = config.environments.len();
+    config.environments.retain(|e| e.name != name);
+    if config.environments.len() == before {
+        return Err(anyhow!("Environment '{}' not found", name));
+    }
+    save_environments(repo_path, &config)
+}
+
+/// Set a variable on an environment, creating the env if missing.
+pub fn set_env_variable(
+    repo_path: &Path,
+    env_name: &str,
+    key: &str,
+    value: &str,
+) -> Result<()> {
+    if !is_valid_env_var_name(key) {
+        return Err(anyhow!(
+            "Invalid variable name '{}': must match [A-Za-z_][A-Za-z0-9_]*",
+            key
+        ));
+    }
+    let mut config = load_environments(repo_path)?;
+    if let Some(env) = config.environments.iter_mut().find(|e| e.name == env_name) {
+        env.variables.insert(key.to_string(), value.to_string());
+    } else {
+        let mut variables = HashMap::new();
+        variables.insert(key.to_string(), value.to_string());
+        config.environments.push(Environment {
+            name: env_name.to_string(),
+            ssh_host: None,
+            ssh_port: None,
+            variables,
+        });
+    }
+    save_environments(repo_path, &config)
+}
+
+/// Remove a variable from an environment. No-op (Ok) if env or key missing.
+pub fn remove_env_variable(repo_path: &Path, env_name: &str, key: &str) -> Result<()> {
+    let mut config = load_environments(repo_path)?;
+    if let Some(env) = config.environments.iter_mut().find(|e| e.name == env_name) {
+        env.variables.remove(key);
+    }
+    save_environments(repo_path, &config)
+}
+
+/// Validate that an environment variable name is safe for shell use.
+/// Mirrors the rule enforced by the executor.
+fn is_valid_env_var_name(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let first = name.as_bytes()[0];
+    if !(first.is_ascii_alphabetic() || first == b'_') {
+        return false;
+    }
+    name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
 // ---------------------------------------------------------------------------
 // Secrets config persistence (.chibby/secrets.toml — values never stored)
 // ---------------------------------------------------------------------------
@@ -196,6 +356,80 @@ pub fn load_secrets_config(repo_path: &Path) -> Result<SecretsConfig> {
 /// Check whether a .chibby/secrets.toml exists.
 pub fn has_secrets_config(repo_path: &Path) -> bool {
     repo_path.join(".chibby").join("secrets.toml").exists()
+}
+
+// ---------------------------------------------------------------------------
+// Granular secrets-config helpers
+// ---------------------------------------------------------------------------
+
+/// Append a new secret reference. Errors if one with the same name exists.
+pub fn add_secret_ref(repo_path: &Path, secret: SecretRef) -> Result<()> {
+    let mut config = load_secrets_config(repo_path)?;
+    if config.secrets.iter().any(|s| s.name == secret.name) {
+        return Err(anyhow!(
+            "Secret reference '{}' already exists in secrets.toml",
+            secret.name
+        ));
+    }
+    config.secrets.push(secret);
+    save_secrets_config(repo_path, &config)
+}
+
+/// Remove a secret reference by name.
+pub fn remove_secret_ref(repo_path: &Path, name: &str) -> Result<()> {
+    let mut config = load_secrets_config(repo_path)?;
+    let before = config.secrets.len();
+    config.secrets.retain(|s| s.name != name);
+    if config.secrets.len() == before {
+        return Err(anyhow!("Secret reference '{}' not found", name));
+    }
+    save_secrets_config(repo_path, &config)
+}
+
+// ---------------------------------------------------------------------------
+// .gitignore management
+// ---------------------------------------------------------------------------
+
+const GITIGNORE_MARKER: &str = "# Chibby — local overrides (never commit)";
+const GITIGNORE_LINES: &[&str] = &[
+    ".chibby/environments.local.toml",
+    ".chibby/secrets.local.toml",
+];
+
+/// Ensure the repo's `.gitignore` contains entries for Chibby-managed local
+/// override files. Idempotent — only appends if entries are missing.
+///
+/// Called automatically by `save_environments_local` and `save_secrets_config`.
+pub fn ensure_gitignore_entries(repo_path: &Path) -> Result<()> {
+    let gitignore_path = repo_path.join(".gitignore");
+    let existing = std::fs::read_to_string(&gitignore_path).unwrap_or_default();
+
+    let missing: Vec<&&str> = GITIGNORE_LINES
+        .iter()
+        .filter(|line| !existing.lines().any(|l| l.trim() == **line))
+        .collect();
+
+    if missing.is_empty() {
+        return Ok(());
+    }
+
+    let mut new_content = existing.clone();
+    if !new_content.is_empty() && !new_content.ends_with('\n') {
+        new_content.push('\n');
+    }
+    if !new_content.contains(GITIGNORE_MARKER) {
+        new_content.push('\n');
+        new_content.push_str(GITIGNORE_MARKER);
+        new_content.push('\n');
+    }
+    for line in missing {
+        new_content.push_str(line);
+        new_content.push('\n');
+    }
+    std::fs::write(&gitignore_path, new_content)
+        .with_context(|| format!("Failed to update {}", gitignore_path.display()))?;
+    log::info!("Updated {} with Chibby entries", gitignore_path.display());
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -386,5 +620,187 @@ mod tests {
         assert_eq!(loaded.stages[0].working_dir, Some("./services".to_string()));
         assert!(!loaded.stages[0].fail_fast);
         assert_eq!(loaded.stages[0].commands.len(), 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // Layered environments + granular helpers + gitignore (Iteration 1)
+    // -----------------------------------------------------------------------
+
+    fn env_with_vars(name: &str, vars: &[(&str, &str)]) -> Environment {
+        Environment {
+            name: name.to_string(),
+            ssh_host: None,
+            ssh_port: None,
+            variables: vars
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn test_merge_environments_overrides_ssh_and_vars() {
+        let base = EnvironmentsConfig {
+            environments: vec![Environment {
+                name: "production".to_string(),
+                ssh_host: Some("base@host".to_string()),
+                ssh_port: Some(22),
+                variables: [("A".to_string(), "base".to_string())]
+                    .into_iter()
+                    .collect(),
+            }],
+        };
+        let local = EnvironmentsConfig {
+            environments: vec![Environment {
+                name: "production".to_string(),
+                ssh_host: Some("local@host".to_string()),
+                ssh_port: None, // None means "don't override"
+                variables: [
+                    ("A".to_string(), "local".to_string()),
+                    ("B".to_string(), "new".to_string()),
+                ]
+                .into_iter()
+                .collect(),
+            }],
+        };
+        let merged = merge_environments(base, local);
+        assert_eq!(merged.environments.len(), 1);
+        let env = &merged.environments[0];
+        assert_eq!(env.ssh_host.as_deref(), Some("local@host"));
+        assert_eq!(env.ssh_port, Some(22)); // base preserved
+        assert_eq!(env.variables.get("A").map(String::as_str), Some("local"));
+        assert_eq!(env.variables.get("B").map(String::as_str), Some("new"));
+    }
+
+    #[test]
+    fn test_merge_environments_appends_local_only_env() {
+        let base = EnvironmentsConfig {
+            environments: vec![env_with_vars("production", &[("A", "1")])],
+        };
+        let local = EnvironmentsConfig {
+            environments: vec![env_with_vars("dev", &[("B", "2")])],
+        };
+        let merged = merge_environments(base, local);
+        assert_eq!(merged.environments.len(), 2);
+        assert!(merged.environments.iter().any(|e| e.name == "dev"));
+    }
+
+    #[test]
+    fn test_load_environments_layered() {
+        let temp = TempDir::new().unwrap();
+        save_environments(
+            temp.path(),
+            &EnvironmentsConfig {
+                environments: vec![env_with_vars("production", &[("HOST", "base")])],
+            },
+        )
+        .unwrap();
+        save_environments_local(
+            temp.path(),
+            &EnvironmentsConfig {
+                environments: vec![env_with_vars("production", &[("HOST", "local")])],
+            },
+        )
+        .unwrap();
+        let layered = load_environments_layered(temp.path()).unwrap();
+        assert_eq!(
+            layered.environments[0].variables.get("HOST").unwrap(),
+            "local"
+        );
+    }
+
+    #[test]
+    fn test_add_environment_rejects_duplicates() {
+        let temp = TempDir::new().unwrap();
+        add_environment(temp.path(), env_with_vars("production", &[])).unwrap();
+        let err = add_environment(temp.path(), env_with_vars("production", &[])).unwrap_err();
+        assert!(err.to_string().contains("already exists"));
+    }
+
+    #[test]
+    fn test_remove_environment_errors_when_missing() {
+        let temp = TempDir::new().unwrap();
+        let err = remove_environment(temp.path(), "ghost").unwrap_err();
+        assert!(err.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_set_env_variable_creates_env_if_missing() {
+        let temp = TempDir::new().unwrap();
+        set_env_variable(temp.path(), "staging", "API_URL", "https://x").unwrap();
+        let cfg = load_environments(temp.path()).unwrap();
+        let env = cfg.environments.iter().find(|e| e.name == "staging").unwrap();
+        assert_eq!(env.variables.get("API_URL").unwrap(), "https://x");
+    }
+
+    #[test]
+    fn test_set_env_variable_rejects_invalid_name() {
+        let temp = TempDir::new().unwrap();
+        let err = set_env_variable(temp.path(), "prod", "1bad", "x").unwrap_err();
+        assert!(err.to_string().contains("Invalid variable name"));
+    }
+
+    #[test]
+    fn test_add_secret_ref_rejects_duplicates() {
+        let temp = TempDir::new().unwrap();
+        add_secret_ref(
+            temp.path(),
+            SecretRef {
+                name: "API_KEY".to_string(),
+                environments: vec![],
+            },
+        )
+        .unwrap();
+        let err = add_secret_ref(
+            temp.path(),
+            SecretRef {
+                name: "API_KEY".to_string(),
+                environments: vec![],
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("already exists"));
+    }
+
+    #[test]
+    fn test_ensure_gitignore_creates_when_missing() {
+        let temp = TempDir::new().unwrap();
+        ensure_gitignore_entries(temp.path()).unwrap();
+        let content = std::fs::read_to_string(temp.path().join(".gitignore")).unwrap();
+        assert!(content.contains(".chibby/environments.local.toml"));
+        assert!(content.contains(".chibby/secrets.local.toml"));
+    }
+
+    #[test]
+    fn test_ensure_gitignore_appends_only_missing() {
+        let temp = TempDir::new().unwrap();
+        std::fs::write(
+            temp.path().join(".gitignore"),
+            "node_modules/\n.chibby/environments.local.toml\n",
+        )
+        .unwrap();
+        ensure_gitignore_entries(temp.path()).unwrap();
+        let content = std::fs::read_to_string(temp.path().join(".gitignore")).unwrap();
+        // Should only add the missing one, not duplicate the existing entry
+        let env_count = content
+            .matches(".chibby/environments.local.toml")
+            .count();
+        assert_eq!(env_count, 1);
+        assert!(content.contains(".chibby/secrets.local.toml"));
+        assert!(content.starts_with("node_modules/\n"));
+    }
+
+    #[test]
+    fn test_save_environments_local_writes_gitignore() {
+        let temp = TempDir::new().unwrap();
+        save_environments_local(
+            temp.path(),
+            &EnvironmentsConfig {
+                environments: vec![env_with_vars("dev", &[("X", "y")])],
+            },
+        )
+        .unwrap();
+        let gi = std::fs::read_to_string(temp.path().join(".gitignore")).unwrap();
+        assert!(gi.contains(".chibby/environments.local.toml"));
     }
 }

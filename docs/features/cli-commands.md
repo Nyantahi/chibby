@@ -111,18 +111,93 @@ chibby pipeline validate
 chibby pipeline show
 ```
 
-### Secrets
+### Environments
 
 ```bash
-# Check secrets status
-chibby secrets status
+# List environments (merged with environments.local.toml overrides)
+chibby env list
 
-# Set a secret
-chibby secrets set DEPLOY_KEY
+# Show one environment, including resolved variables
+chibby env show production
 
-# Delete a secret
-chibby secrets delete DEPLOY_KEY
+# Add a new environment
+chibby env add production --ssh-host deploy@prod.example.com --ssh-port 22
+
+# Duplicate an environment
+chibby env copy production staging
+
+# Open environments.toml in $EDITOR (validates on save)
+chibby env edit
+
+# Test SSH connectivity for an environment
+chibby env test production
+
+# Remove an environment
+chibby env remove staging
 ```
+
+### Environment Variables
+
+Non-secret config values per environment. Pair with `secrets` for sensitive values.
+
+```bash
+# Set a variable (writes to environments.toml — committed)
+chibby env vars set production API_URL https://api.example.com
+
+# Set a per-developer override (writes to environments.local.toml — gitignored)
+chibby env vars set production API_URL https://localhost:8000 --local
+
+# List variables for an environment (shows the merged view)
+chibby env vars list production
+
+# Read a single value (suitable for shell substitution)
+chibby env vars get production API_URL
+
+# Delete a variable
+chibby env vars delete production API_URL
+```
+
+### Secrets
+
+Secrets live in two places: declared references in `.chibby/secrets.toml` (committed, names only) and values in the OS keychain (never written to disk).
+
+```bash
+# List declared secret references
+chibby secrets list
+
+# Add a new reference (optionally scope to specific environments)
+chibby secrets add DEPLOY_KEY --env production --env staging
+
+# Set a value (prompts securely if --value omitted)
+chibby secrets set DEPLOY_KEY --env production
+
+# Set non-interactively (e.g. in a setup script)
+chibby secrets set DEPLOY_KEY --env production --value "$DEPLOY_KEY_FROM_PARENT_SHELL"
+
+# Rotate (alias for set with prompt — emphasises intent)
+chibby secrets rotate DEPLOY_KEY --env production
+
+# Check which secrets are set per environment
+chibby secrets status                    # all declared envs
+chibby secrets status --env production   # one environment
+
+# Delete a value from the keychain (does not remove the reference)
+chibby secrets delete DEPLOY_KEY --env production
+
+# Remove a reference from secrets.toml (keychain values are NOT auto-deleted)
+chibby secrets remove DEPLOY_KEY
+```
+
+### Doctor
+
+End-to-end diagnostic — config files present, SSH reachable, all declared secrets resolved in the keychain.
+
+```bash
+chibby doctor                 # current directory
+chibby doctor -p /path/to/project
+```
+
+Exits non-zero if any check fails — suitable for CI gating before a deploy.
 
 ### Security Scans
 

@@ -48,6 +48,7 @@ clap = { version = "4", features = ["derive", "env"], optional = true }
 owo-colors = { version = "4", features = ["supports-colors"], optional = true }
 console = { version = "0.16", optional = true }
 indicatif = { version = "0.18", optional = true }
+rpassword = { version = "7", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
@@ -55,4 +56,4 @@ tempfile = "3"
 [features]
 default = ["gui"]
 gui = ["tauri", "tauri-plugin-log", "tauri-plugin-dialog", "tauri-plugin-shell"]
-cli = ["clap", "owo-colors", "console", "indicatif"]
+cli = ["clap", "owo-colors", "console", "indicatif", "rpassword"]

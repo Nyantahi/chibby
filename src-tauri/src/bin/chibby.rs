@@ -5,9 +5,10 @@
 
 use chibby_lib::engine::executor;
 use chibby_lib::engine::models::{
-    PipelineRun, RunKind, RunStatus as EngineRunStatus, StageStatus as EngineStageStatus,
+    Environment, PipelineRun, RunKind, RunStatus as EngineRunStatus, SecretRef,
+    StageStatus as EngineStageStatus,
 };
-use chibby_lib::engine::{persistence, run_support};
+use chibby_lib::engine::{persistence, pipeline, preflight, run_support, secrets as secrets_engine};
 use clap::{Parser, Subcommand};
 use owo_colors::OwoColorize;
 use std::path::{Path, PathBuf};
@@ -165,6 +166,13 @@ enum Commands {
         project: Option<PathBuf>,
     },
 
+    /// Diagnose env/secret/SSH/CLI-tool health for a project
+    Doctor {
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+
     /// Tauri updater commands
     #[command(subcommand)]
     Updater(UpdaterCmd),
@@ -250,26 +258,72 @@ enum PipelineCmd {
 
 #[derive(Subcommand)]
 enum SecretsCmd {
-    /// Set a secret value
+    /// List declared secret references (from .chibby/secrets.toml)
+    List {
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Add a new secret reference to .chibby/secrets.toml
+    Add {
+        /// Secret name
+        name: String,
+        /// Environment(s) this secret applies to (repeatable; omit = all)
+        #[arg(short, long)]
+        env: Vec<String>,
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Remove a secret reference from .chibby/secrets.toml
+    Remove {
+        /// Secret name
+        name: String,
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Set a secret value in the OS keychain (prompts if --value omitted)
     Set {
-        /// Secret key
-        key: String,
+        /// Secret name
+        name: String,
+        /// Environment name (required — secrets are scoped per-env)
+        #[arg(short, long)]
+        env: String,
         /// Secret value (omit to prompt securely)
+        #[arg(long)]
         value: Option<String>,
         /// Project path
         #[arg(short, long)]
         project: Option<PathBuf>,
     },
-    /// Delete a secret
-    Delete {
-        /// Secret key
-        key: String,
+    /// Overwrite an existing secret value (alias for `set`)
+    Rotate {
+        /// Secret name
+        name: String,
+        /// Environment name
+        #[arg(short, long)]
+        env: String,
         /// Project path
         #[arg(short, long)]
         project: Option<PathBuf>,
     },
-    /// Check secrets status
+    /// Delete a secret value from the OS keychain
+    Delete {
+        /// Secret name
+        name: String,
+        /// Environment name (required)
+        #[arg(short, long)]
+        env: String,
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Show which declared secrets are set in the keychain
     Status {
+        /// Environment to check (omit = all declared envs)
+        #[arg(short, long)]
+        env: Option<String>,
         /// Project path
         #[arg(short, long)]
         project: Option<PathBuf>,
@@ -284,7 +338,7 @@ enum EnvCmd {
         #[arg(short, long)]
         project: Option<PathBuf>,
     },
-    /// Show environment details
+    /// Show environment details (resolved with environments.local.toml overrides)
     Show {
         /// Environment name
         name: String,
@@ -292,10 +346,98 @@ enum EnvCmd {
         #[arg(short, long)]
         project: Option<PathBuf>,
     },
-    /// Test SSH connection
+    /// Add a new environment to .chibby/environments.toml
+    Add {
+        /// Environment name
+        name: String,
+        /// SSH host (user@host) for ssh-backed stages
+        #[arg(long)]
+        ssh_host: Option<String>,
+        /// SSH port (default 22)
+        #[arg(long)]
+        ssh_port: Option<u16>,
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Remove an environment from .chibby/environments.toml
+    Remove {
+        /// Environment name
+        name: String,
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Open .chibby/environments.toml in $EDITOR
+    Edit {
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Duplicate an environment under a new name
+    Copy {
+        /// Source environment
+        from: String,
+        /// Destination environment
+        to: String,
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Test SSH connectivity for an environment
     Test {
         /// Environment name
         name: String,
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Manage environment variables (non-secret config) per environment
+    #[command(subcommand)]
+    Vars(EnvVarsCmd),
+}
+
+#[derive(Subcommand)]
+enum EnvVarsCmd {
+    /// List variables for an environment (merged with environments.local.toml)
+    List {
+        /// Environment name
+        env: String,
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Set a variable on an environment
+    Set {
+        /// Environment name
+        env: String,
+        /// Variable name (must match [A-Za-z_][A-Za-z0-9_]*)
+        key: String,
+        /// Variable value
+        value: String,
+        /// Write to environments.local.toml (per-dev override) instead of environments.toml
+        #[arg(long)]
+        local: bool,
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Get a single variable value
+    Get {
+        /// Environment name
+        env: String,
+        /// Variable name
+        key: String,
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Delete a variable from an environment
+    Delete {
+        /// Environment name
+        env: String,
+        /// Variable name
+        key: String,
         /// Project path
         #[arg(short, long)]
         project: Option<PathBuf>,
@@ -491,6 +633,8 @@ async fn main() {
         Some(Commands::Preflight { env, project }) => {
             run_preflight(&printer, env.as_deref(), project.as_ref()).await
         }
+
+        Some(Commands::Doctor { project }) => doctor(&printer, project.as_ref()).await,
 
         Some(Commands::Updater(cmd)) => handle_updater(&printer, cmd).await,
 
@@ -962,6 +1106,7 @@ async fn retry_run(
         Some(cli_log_callback()),
         Some(&stages_to_run),
         None,
+        None,
     )
     .await?;
 
@@ -1004,6 +1149,7 @@ async fn rollback_run(printer: &Printer, run_id: &str) -> anyhow::Result<()> {
         Some(cli_log_callback()),
         None,
         None,
+        None,
     )
     .await?;
 
@@ -1017,32 +1163,150 @@ async fn rollback_run(printer: &Printer, run_id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Resolve project path: explicit `--project` or current directory.
+fn project_path(project: Option<&PathBuf>) -> PathBuf {
+    project
+        .cloned()
+        .unwrap_or_else(|| std::env::current_dir().expect("current_dir failed"))
+}
+
 async fn handle_secrets(printer: &Printer, cmd: &SecretsCmd) -> anyhow::Result<()> {
     match cmd {
-        SecretsCmd::Status { project: _ } => {
-            printer.header(&format!("{} Secrets Status", icons::LOCK));
-
-            printer.secret("DEPLOY_KEY", true);
-            printer.secret("AWS_ACCESS_KEY", true);
-            printer.secret("AWS_SECRET_KEY", true);
-            printer.secret("SLACK_WEBHOOK", false);
+        SecretsCmd::List { project } => {
+            let path = project_path(project.as_ref());
+            let config = pipeline::load_secrets_config(&path)?;
+            printer.header(&format!("{} Declared Secrets", icons::LOCK));
+            if config.secrets.is_empty() {
+                printer.info("No secrets declared. Run `chibby secrets add <NAME>` to add one.");
+                return Ok(());
+            }
+            for s in &config.secrets {
+                let scope = if s.environments.is_empty() {
+                    "all environments".to_string()
+                } else {
+                    s.environments.join(", ")
+                };
+                printer.kv(&s.name, &scope);
+            }
         }
+
+        SecretsCmd::Add { name, env, project } => {
+            let path = project_path(project.as_ref());
+            pipeline::add_secret_ref(
+                &path,
+                SecretRef {
+                    name: name.clone(),
+                    environments: env.clone(),
+                },
+            )?;
+            let scope = if env.is_empty() {
+                "all environments".to_string()
+            } else {
+                env.join(", ")
+            };
+            printer.success(&format!("Added secret reference '{}' ({})", name, scope));
+            printer.info(&format!(
+                "Set the value with: chibby secrets set {} --env <env>",
+                name
+            ));
+        }
+
+        SecretsCmd::Remove { name, project } => {
+            let path = project_path(project.as_ref());
+            pipeline::remove_secret_ref(&path, name)?;
+            printer.success(&format!("Removed secret reference '{}'", name));
+            printer.warn(
+                "Stored keychain values for this secret were NOT deleted. \
+                 Use `chibby secrets delete` per environment to remove them.",
+            );
+        }
+
         SecretsCmd::Set {
-            key,
-            value: _,
-            project: _,
+            name,
+            env,
+            value,
+            project,
         } => {
-            // In real impl, would prompt for value if not provided
-            let spin = cli::spinner(&format!("Setting {}...", key));
-            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-            spin.finish_and_clear();
-
-            printer.success(&format!("Secret {} saved to keychain", key));
+            let path = project_path(project.as_ref());
+            let path_str = path.to_string_lossy().to_string();
+            let value = match value {
+                Some(v) => v.clone(),
+                None => rpassword::prompt_password(format!("Value for {} ({}): ", name, env))?,
+            };
+            if value.is_empty() {
+                anyhow::bail!("Secret value cannot be empty");
+            }
+            secrets_engine::set_secret(&path_str, env, name, &value)?;
+            printer.success(&format!(
+                "Saved '{}' to OS keychain for env '{}'",
+                name, env
+            ));
         }
-        SecretsCmd::Delete { key, project: _ } => {
-            printer.warn(&format!("Deleting {}...", key));
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            printer.success("Secret deleted");
+
+        SecretsCmd::Rotate { name, env, project } => {
+            let path = project_path(project.as_ref());
+            let path_str = path.to_string_lossy().to_string();
+            let value =
+                rpassword::prompt_password(format!("New value for {} ({}): ", name, env))?;
+            if value.is_empty() {
+                anyhow::bail!("Secret value cannot be empty");
+            }
+            secrets_engine::set_secret(&path_str, env, name, &value)?;
+            printer.success(&format!("Rotated '{}' for env '{}'", name, env));
+        }
+
+        SecretsCmd::Delete { name, env, project } => {
+            let path = project_path(project.as_ref());
+            let path_str = path.to_string_lossy().to_string();
+            secrets_engine::delete_secret(&path_str, env, name)?;
+            printer.success(&format!(
+                "Deleted '{}' from keychain for env '{}'",
+                name, env
+            ));
+        }
+
+        SecretsCmd::Status { env, project } => {
+            let path = project_path(project.as_ref());
+            let path_str = path.to_string_lossy().to_string();
+            let secrets_config = pipeline::load_secrets_config(&path)?;
+            let envs_config = pipeline::load_environments_layered(&path)?;
+            printer.header(&format!("{} Secret Status", icons::LOCK));
+
+            if secrets_config.secrets.is_empty() {
+                printer.info("No secrets declared.");
+                return Ok(());
+            }
+
+            let envs_to_check: Vec<String> = match env {
+                Some(e) => vec![e.clone()],
+                None => {
+                    let mut names: Vec<String> = secrets_config
+                        .secrets
+                        .iter()
+                        .flat_map(|s| s.environments.iter().cloned())
+                        .chain(envs_config.environments.iter().map(|e| e.name.clone()))
+                        .collect();
+                    names.sort();
+                    names.dedup();
+                    if names.is_empty() {
+                        names.push("default".to_string());
+                    }
+                    names
+                }
+            };
+
+            for env_name in envs_to_check {
+                printer.subheader(&format!("Environment: {}", env_name));
+                let statuses = secrets_engine::check_secrets_status(
+                    &path_str,
+                    &env_name,
+                    &secrets_config,
+                );
+                for s in statuses {
+                    printer.secret(&s.name, s.is_set);
+                }
+                printer.newline();
+            }
         }
     }
     Ok(())
@@ -1050,37 +1314,286 @@ async fn handle_secrets(printer: &Printer, cmd: &SecretsCmd) -> anyhow::Result<(
 
 async fn handle_env(printer: &Printer, cmd: &EnvCmd) -> anyhow::Result<()> {
     match cmd {
-        EnvCmd::List { project: _ } => {
+        EnvCmd::List { project } => {
+            let path = project_path(project.as_ref());
+            let config = pipeline::load_environments_layered(&path)?;
             printer.header(&format!("{} Environments", icons::GEAR));
-
-            println!("  {} {}", icons::SUCCESS.green(), "staging".white().bold());
-            printer.kv("Host", "staging.example.com");
-            printer.kv("User", "deploy");
-            printer.newline();
-
-            println!(
-                "  {} {}",
-                icons::SUCCESS.green(),
-                "production".white().bold()
-            );
-            printer.kv("Host", "prod.example.com");
-            printer.kv("User", "deploy");
+            if config.environments.is_empty() {
+                printer.info("No environments defined. Run `chibby env add <NAME>` to add one.");
+                return Ok(());
+            }
+            for env in &config.environments {
+                println!("  {} {}", icons::SUCCESS.green(), env.name.white().bold());
+                if let Some(host) = &env.ssh_host {
+                    printer.kv("Host", host);
+                }
+                if let Some(port) = env.ssh_port {
+                    printer.kv("Port", &port.to_string());
+                }
+                printer.kv("Variables", &env.variables.len().to_string());
+                printer.newline();
+            }
         }
-        EnvCmd::Show { name, project: _ } => {
+
+        EnvCmd::Show { name, project } => {
+            let path = project_path(project.as_ref());
+            let config = pipeline::load_environments_layered(&path)?;
+            let env = config
+                .environments
+                .iter()
+                .find(|e| e.name == *name)
+                .ok_or_else(|| anyhow::anyhow!("Environment '{}' not found", name))?;
             printer.header(&format!("{} Environment: {}", icons::GEAR, name));
-            printer.kv("Host", "example.com");
-            printer.kv("User", "deploy");
-            printer.kv("Port", "22");
-            printer.kv("Working Dir", "/var/www/app");
+            printer.kv(
+                "Host",
+                env.ssh_host.as_deref().unwrap_or("(none — local only)"),
+            );
+            printer.kv(
+                "Port",
+                &env.ssh_port.map(|p| p.to_string()).unwrap_or_default(),
+            );
+            if !env.variables.is_empty() {
+                printer.subheader("Variables");
+                let mut keys: Vec<&String> = env.variables.keys().collect();
+                keys.sort();
+                for k in keys {
+                    printer.kv(k, &env.variables[k]);
+                }
+            }
         }
-        EnvCmd::Test { name, project: _ } => {
-            let spin = cli::spinner(&format!("Testing connection to {}...", name));
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            spin.finish_and_clear();
 
-            printer.success(&format!("Connected to {}", name));
+        EnvCmd::Add {
+            name,
+            ssh_host,
+            ssh_port,
+            project,
+        } => {
+            let path = project_path(project.as_ref());
+            pipeline::add_environment(
+                &path,
+                Environment {
+                    name: name.clone(),
+                    ssh_host: ssh_host.clone(),
+                    ssh_port: *ssh_port,
+                    variables: Default::default(),
+                },
+            )?;
+            printer.success(&format!("Added environment '{}'", name));
+        }
+
+        EnvCmd::Remove { name, project } => {
+            let path = project_path(project.as_ref());
+            pipeline::remove_environment(&path, name)?;
+            printer.success(&format!("Removed environment '{}'", name));
+        }
+
+        EnvCmd::Edit { project } => {
+            let path = project_path(project.as_ref());
+            let file = path.join(".chibby").join("environments.toml");
+            if !file.exists() {
+                std::fs::create_dir_all(path.join(".chibby"))?;
+                std::fs::write(&file, "")?;
+            }
+            let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+            let status = std::process::Command::new(&editor).arg(&file).status()?;
+            if !status.success() {
+                anyhow::bail!("Editor '{}' exited non-zero", editor);
+            }
+            // Validate after edit
+            pipeline::load_environments(&path)
+                .map_err(|e| anyhow::anyhow!("environments.toml is invalid after edit: {e}"))?;
+            printer.success(&format!("Saved {}", file.display()));
+        }
+
+        EnvCmd::Copy { from, to, project } => {
+            let path = project_path(project.as_ref());
+            let mut config = pipeline::load_environments(&path)?;
+            let src = config
+                .environments
+                .iter()
+                .find(|e| e.name == *from)
+                .ok_or_else(|| anyhow::anyhow!("Source environment '{}' not found", from))?
+                .clone();
+            if config.environments.iter().any(|e| e.name == *to) {
+                anyhow::bail!("Destination environment '{}' already exists", to);
+            }
+            config.environments.push(Environment {
+                name: to.clone(),
+                ..src
+            });
+            pipeline::save_environments(&path, &config)?;
+            printer.success(&format!("Copied '{}' -> '{}'", from, to));
+        }
+
+        EnvCmd::Test { name, project } => {
+            let path = project_path(project.as_ref());
+            let config = pipeline::load_environments_layered(&path)?;
+            let env = config
+                .environments
+                .iter()
+                .find(|e| e.name == *name)
+                .ok_or_else(|| anyhow::anyhow!("Environment '{}' not found", name))?;
+            let host = env
+                .ssh_host
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Environment '{}' has no ssh_host", name))?;
+            let spin = cli::spinner(&format!("Testing SSH to {}...", host));
+            let result = preflight::test_ssh_connectivity(host, env.ssh_port).await;
+            spin.finish_and_clear();
+            match result {
+                Ok(msg) => printer.success(&msg),
+                Err(e) => {
+                    printer.error(&format!("SSH test failed: {e}"));
+                    return Err(e.into());
+                }
+            }
+        }
+
+        EnvCmd::Vars(vars_cmd) => return handle_env_vars(printer, vars_cmd).await,
+    }
+    Ok(())
+}
+
+async fn handle_env_vars(printer: &Printer, cmd: &EnvVarsCmd) -> anyhow::Result<()> {
+    match cmd {
+        EnvVarsCmd::List { env, project } => {
+            let path = project_path(project.as_ref());
+            let config = pipeline::load_environments_layered(&path)?;
+            let env_obj = config
+                .environments
+                .iter()
+                .find(|e| e.name == *env)
+                .ok_or_else(|| anyhow::anyhow!("Environment '{}' not found", env))?;
+            printer.header(&format!("{} Variables for '{}'", icons::GEAR, env));
+            if env_obj.variables.is_empty() {
+                printer.info("No variables set.");
+                return Ok(());
+            }
+            let mut keys: Vec<&String> = env_obj.variables.keys().collect();
+            keys.sort();
+            for k in keys {
+                printer.kv(k, &env_obj.variables[k]);
+            }
+        }
+
+        EnvVarsCmd::Set {
+            env,
+            key,
+            value,
+            local,
+            project,
+        } => {
+            let path = project_path(project.as_ref());
+            if *local {
+                let mut config = pipeline::load_environments_local(&path)?;
+                if let Some(e) = config.environments.iter_mut().find(|e| e.name == *env) {
+                    e.variables.insert(key.clone(), value.clone());
+                } else {
+                    let mut vars = std::collections::HashMap::new();
+                    vars.insert(key.clone(), value.clone());
+                    config.environments.push(Environment {
+                        name: env.clone(),
+                        ssh_host: None,
+                        ssh_port: None,
+                        variables: vars,
+                    });
+                }
+                pipeline::save_environments_local(&path, &config)?;
+                printer.success(&format!(
+                    "Set {}={} on env '{}' (local override)",
+                    key, value, env
+                ));
+            } else {
+                pipeline::set_env_variable(&path, env, key, value)?;
+                printer.success(&format!("Set {}={} on env '{}'", key, value, env));
+            }
+        }
+
+        EnvVarsCmd::Get { env, key, project } => {
+            let path = project_path(project.as_ref());
+            let config = pipeline::load_environments_layered(&path)?;
+            let env_obj = config
+                .environments
+                .iter()
+                .find(|e| e.name == *env)
+                .ok_or_else(|| anyhow::anyhow!("Environment '{}' not found", env))?;
+            match env_obj.variables.get(key) {
+                Some(v) => println!("{}", v),
+                None => anyhow::bail!("Variable '{}' not set on env '{}'", key, env),
+            }
+        }
+
+        EnvVarsCmd::Delete { env, key, project } => {
+            let path = project_path(project.as_ref());
+            pipeline::remove_env_variable(&path, env, key)?;
+            printer.success(&format!("Removed '{}' from env '{}'", key, env));
         }
     }
+    Ok(())
+}
+
+async fn doctor(printer: &Printer, project: Option<&PathBuf>) -> anyhow::Result<()> {
+    let path = project_path(project);
+    printer.header(&format!("{} Doctor", icons::GEAR));
+    printer.kv("Project", &path.display().to_string());
+    printer.newline();
+
+    // Config files present?
+    let chibby_dir = path.join(".chibby");
+    printer.preflight_check(
+        "pipeline.toml present",
+        chibby_dir.join("pipeline.toml").exists(),
+        None,
+    );
+    let envs_present = chibby_dir.join("environments.toml").exists();
+    printer.preflight_check("environments.toml present", envs_present, None);
+    let secrets_present = chibby_dir.join("secrets.toml").exists();
+    printer.preflight_check("secrets.toml present", secrets_present, None);
+    printer.newline();
+
+    if !envs_present {
+        printer.info("No environments.toml — skipping environment checks.");
+        return Ok(());
+    }
+
+    let envs = pipeline::load_environments_layered(&path)?;
+    let secrets_config = pipeline::load_secrets_config(&path)?;
+
+    let mut any_failures = false;
+
+    for env in &envs.environments {
+        printer.subheader(&format!("Environment: {}", env.name));
+
+        // SSH reachable?
+        if let Some(host) = &env.ssh_host {
+            match preflight::test_ssh_connectivity(host, env.ssh_port).await {
+                Ok(msg) => printer.preflight_check("SSH reachable", true, Some(&msg)),
+                Err(e) => {
+                    any_failures = true;
+                    printer.preflight_check("SSH reachable", false, Some(&e.to_string()));
+                }
+            }
+        }
+
+        // All declared secrets set in keychain for this env?
+        let statuses = secrets_engine::check_secrets_status(
+            &path.to_string_lossy(),
+            &env.name,
+            &secrets_config,
+        );
+        for s in statuses {
+            if !s.is_set {
+                any_failures = true;
+            }
+            printer.secret(&s.name, s.is_set);
+        }
+        printer.newline();
+    }
+
+    if any_failures {
+        anyhow::bail!("Doctor found unresolved issues. Fix the items marked above.");
+    }
+    printer.success("All checks passed.");
     Ok(())
 }
 
