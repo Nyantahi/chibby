@@ -8,6 +8,7 @@ use chibby_lib::engine::models::{
     Environment, PipelineRun, RunKind, RunStatus as EngineRunStatus, SecretRef,
     StageStatus as EngineStageStatus,
 };
+use chibby_lib::engine::bootstrap::{self, ApplyMode, Classification};
 use chibby_lib::engine::{persistence, pipeline, preflight, run_support, secrets as secrets_engine};
 use clap::{Parser, Subcommand};
 use owo_colors::OwoColorize;
@@ -185,6 +186,25 @@ enum Commands {
         /// Use AI to generate smarter pipeline
         #[arg(long)]
         ai: bool,
+    },
+
+    /// Scan a project for env/secret references and bootstrap configs
+    Bootstrap {
+        /// Project path (defaults to current directory)
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+
+        /// Apply without printing the review table
+        #[arg(long)]
+        silent: bool,
+
+        /// Show what would be written without touching the filesystem
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Merge with existing configs (default refuses if either file exists)
+        #[arg(long)]
+        merge: bool,
     },
 
     /// Stream logs from a run
@@ -629,6 +649,13 @@ async fn main() {
         Some(Commands::Scan(cmd)) => handle_scan(&printer, cmd).await,
 
         Some(Commands::Init { path, ai }) => init_project(&printer, path.as_ref(), *ai).await,
+
+        Some(Commands::Bootstrap {
+            project,
+            silent,
+            dry_run,
+            merge,
+        }) => bootstrap_cmd(&printer, project.as_ref(), *silent, *dry_run, *merge).await,
 
         Some(Commands::Preflight { env, project }) => {
             run_preflight(&printer, env.as_deref(), project.as_ref()).await
@@ -1528,6 +1555,81 @@ async fn handle_env_vars(printer: &Printer, cmd: &EnvVarsCmd) -> anyhow::Result<
             pipeline::remove_env_variable(&path, env, key)?;
             printer.success(&format!("Removed '{}' from env '{}'", key, env));
         }
+    }
+    Ok(())
+}
+
+async fn bootstrap_cmd(
+    printer: &Printer,
+    project: Option<&PathBuf>,
+    silent: bool,
+    dry_run: bool,
+    merge: bool,
+) -> anyhow::Result<()> {
+    let path = project_path(project);
+    printer.header(&format!("{} Bootstrap", icons::GEAR));
+    printer.kv("Project", &path.display().to_string());
+
+    let report = bootstrap::scan_project(&path)?;
+    printer.kv("Scanned files", &report.scanned_files.to_string());
+    printer.kv(
+        "Suggested envs",
+        &report.suggested_environments.join(", "),
+    );
+
+    if report.detected.is_empty() {
+        printer.newline();
+        printer.info("No env or secret references detected. Nothing to do.");
+        return Ok(());
+    }
+
+    if !silent {
+        printer.newline();
+        printer.subheader(&format!("Detected ({})", report.detected.len()));
+        for d in &report.detected {
+            let kind_label = match d.classification {
+                Classification::Secret => "secret",
+                Classification::Variable => "variable",
+            };
+            let sources: Vec<String> = d.sources.iter().map(|s| s.path.clone()).collect();
+            let mut seen = std::collections::BTreeSet::new();
+            let uniq_sources: Vec<String> = sources
+                .into_iter()
+                .filter(|p| seen.insert(p.clone()))
+                .collect();
+            let sources_label = if uniq_sources.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", uniq_sources.join(", "))
+            };
+            printer.kv(&d.name, &format!("{}{}", kind_label, sources_label));
+        }
+        printer.newline();
+    }
+
+    if dry_run {
+        printer.info("--dry-run: nothing written. Re-run without --dry-run to apply.");
+        return Ok(());
+    }
+
+    let mode = if merge { ApplyMode::Merge } else { ApplyMode::Safe };
+    match bootstrap::apply_bootstrap(&path, &report, mode) {
+        Ok(true) => {
+            printer.success(&format!(
+                "Wrote {}/.chibby/environments.toml and secrets.toml",
+                path.display()
+            ));
+            printer.info(
+                "Next: `chibby secrets set <NAME> --env <env>` to populate values, \
+                 or set them in the Chibby Secrets panel.",
+            );
+        }
+        Ok(false) => {
+            printer.warn(
+                "Configs already present. Re-run with --merge to add only the newly-detected names.",
+            );
+        }
+        Err(e) => return Err(e.into()),
     }
     Ok(())
 }

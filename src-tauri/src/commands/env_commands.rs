@@ -1,8 +1,9 @@
+use crate::engine::audit;
+use crate::engine::bootstrap::{self, ApplyMode, BootstrapReport};
 use crate::engine::models::{EnvironmentsConfig, SecretsConfig};
 use crate::engine::pipeline;
 use crate::engine::preflight;
 use crate::engine::secrets;
-use crate::engine::audit;
 use std::path::Path;
 
 /// Load environments config from a project's .chibby/environments.toml (committed file only).
@@ -121,6 +122,96 @@ pub async fn test_ssh_connection(
     preflight::test_ssh_connectivity(&host, port)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Scan a project for env/secret references without writing anything.
+#[tauri::command]
+pub fn scan_bootstrap(repo_path: String) -> Result<BootstrapReport, String> {
+    bootstrap::scan_project(Path::new(&repo_path)).map_err(|e| e.to_string())
+}
+
+/// Apply a previously-generated `BootstrapReport` to the project.
+/// `merge=true` appends missing names to existing configs; `merge=false` is the
+/// "Safe" mode that refuses if either config already exists.
+#[tauri::command]
+pub fn apply_bootstrap(
+    repo_path: String,
+    report: BootstrapReport,
+    merge: bool,
+) -> Result<bool, String> {
+    let mode = if merge { ApplyMode::Merge } else { ApplyMode::Safe };
+    audit::log_event(
+        "apply_bootstrap",
+        &format!(
+            "project={} mode={:?} detected={}",
+            repo_path,
+            mode,
+            report.detected.len()
+        ),
+    );
+    bootstrap::apply_bootstrap(Path::new(&repo_path), &report, mode).map_err(|e| e.to_string())
+}
+
+/// Result of `auto_bootstrap_for_project`.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct AutoBootstrapOutcome {
+    /// Which behaviour was applied this run.
+    pub mode: String,
+    /// The scan result. `None` when mode is `off`.
+    pub report: Option<BootstrapReport>,
+    /// `true` if files were written this call. `false` when in confirm mode
+    /// (UI should show review), when mode is off, or when nothing was detected.
+    pub applied: bool,
+}
+
+/// Honor `AppSettings.bootstrap_mode` and either scan-only (Confirm),
+/// scan-and-apply (Silent), or do nothing (Off). Called by the Add Project
+/// wizard after `add_project` resolves.
+#[tauri::command]
+pub fn auto_bootstrap_for_project(repo_path: String) -> Result<AutoBootstrapOutcome, String> {
+    use crate::engine::app_settings::{load_app_settings, BootstrapMode};
+    let settings = load_app_settings().map_err(|e| e.to_string())?;
+    let mode_label = match settings.bootstrap_mode {
+        BootstrapMode::Confirm => "confirm",
+        BootstrapMode::Silent => "silent",
+        BootstrapMode::Off => "off",
+    };
+    if settings.bootstrap_mode == BootstrapMode::Off {
+        return Ok(AutoBootstrapOutcome {
+            mode: mode_label.to_string(),
+            report: None,
+            applied: false,
+        });
+    }
+    let report = bootstrap::scan_project(Path::new(&repo_path)).map_err(|e| e.to_string())?;
+    if report.detected.is_empty() {
+        return Ok(AutoBootstrapOutcome {
+            mode: mode_label.to_string(),
+            report: Some(report),
+            applied: false,
+        });
+    }
+    let applied = if settings.bootstrap_mode == BootstrapMode::Silent {
+        bootstrap::apply_bootstrap(Path::new(&repo_path), &report, ApplyMode::Merge)
+            .map_err(|e| e.to_string())?
+    } else {
+        false
+    };
+    audit::log_event(
+        "auto_bootstrap",
+        &format!(
+            "project={} mode={} detected={} applied={}",
+            repo_path,
+            mode_label,
+            report.detected.len(),
+            applied
+        ),
+    );
+    Ok(AutoBootstrapOutcome {
+        mode: mode_label.to_string(),
+        report: Some(report),
+        applied,
+    })
 }
 
 /// Run preflight validation for a pipeline against an environment.

@@ -130,6 +130,9 @@ pub fn run() {
             env_commands::delete_secret,
             env_commands::check_secrets_status,
             env_commands::test_ssh_connection,
+            env_commands::scan_bootstrap,
+            env_commands::apply_bootstrap,
+            env_commands::auto_bootstrap_for_project,
             env_commands::run_preflight,
             // Version commands
             version_commands::detect_versions,

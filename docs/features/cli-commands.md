@@ -199,6 +199,28 @@ chibby doctor -p /path/to/project
 
 Exits non-zero if any check fails — suitable for CI gating before a deploy.
 
+### Bootstrap
+
+Scan a project for env/secret references and populate `.chibby/environments.toml` + `.chibby/secrets.toml` with the detected names. Values stay empty — set them with `chibby secrets set` / `chibby env vars set` afterwards.
+
+```bash
+# Show what would be detected without writing anything
+chibby bootstrap --dry-run
+
+# Apply (refuses if either config already exists)
+chibby bootstrap
+
+# Merge with existing configs — only adds newly-detected names
+chibby bootstrap --merge
+
+# Quieter output (skip the per-name table, just write)
+chibby bootstrap --silent
+```
+
+Sources scanned: `.env*` files, `docker-compose*.yml`, `.github/workflows/*.yml`, and source code patterns (`process.env.X` in JS/TS, `os.getenv("X")` in Python, `env::var("X")` in Rust). Heuristic classifier sorts each detected name into a secret or variable based on word segments — `TOKEN`/`SECRET`/`KEY`/`PASSWORD`/`PAT`/`CREDENTIAL`/`PRIVATE`/`WEBHOOK` indicate secrets; `URL`/`HOST`/`PORT`/`PATH`/`DIR`/`NAME`/`REGION` indicate variables. Variable indicators win on collision (e.g. `PASSWORD_PATH` is a variable).
+
+The GUI's Add Project wizard runs the same scan automatically, controlled by the `bootstrap_mode` app setting (`confirm` / `silent` / `off`, default `confirm`).
+
 ### Security Scans
 
 ```bash

@@ -5,6 +5,7 @@
 pub mod app_settings;
 pub mod artifacts;
 pub mod audit;
+pub mod bootstrap;
 pub mod cleanup;
 pub mod detector;
 pub mod executor;
