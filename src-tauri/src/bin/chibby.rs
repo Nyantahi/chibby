@@ -13,6 +13,7 @@ use chibby_lib::engine::importers::{
     self, dotenv::DotEnvImporter, flyio::FlyImporter, railway::RailwayImporter,
     vercel::VercelImporter, ApplyOptions, ImportContext, ImportReport, Importer,
 };
+use chibby_lib::engine::secret_audit::{self as secret_audit_engine, Provenance};
 use chibby_lib::engine::{persistence, pipeline, preflight, run_support, secrets as secrets_engine};
 use clap::{Parser, Subcommand};
 use owo_colors::OwoColorize;
@@ -178,6 +179,10 @@ enum Commands {
         project: Option<PathBuf>,
     },
 
+    /// Inspect per-secret audit history (last set/delete + provenance)
+    #[command(subcommand)]
+    Audit(AuditCmd),
+
     /// Tauri updater commands
     #[command(subcommand)]
     Updater(UpdaterCmd),
@@ -283,6 +288,25 @@ enum PipelineCmd {
     /// Edit pipeline in $EDITOR
     Edit {
         /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum AuditCmd {
+    /// List every secret with its set/delete history
+    List {
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Show the audit snapshot for a single secret
+    Show {
+        /// Secret name
+        name: String,
+        /// Environment
+        #[arg(short, long)]
+        env: String,
         #[arg(short, long)]
         project: Option<PathBuf>,
     },
@@ -489,6 +513,22 @@ enum EnvCmd {
     /// Manage environment variables (non-secret config) per environment
     #[command(subcommand)]
     Vars(EnvVarsCmd),
+    /// Compare two environments side by side
+    Diff {
+        /// Source environment
+        from: String,
+        /// Destination environment
+        to: String,
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Scan environments.toml for variable values that look like real credentials
+    ScanLeaks {
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -740,6 +780,8 @@ async fn main() {
         }
 
         Some(Commands::Doctor { project }) => doctor(&printer, project.as_ref()).await,
+
+        Some(Commands::Audit(cmd)) => handle_audit(&printer, cmd).await,
 
         Some(Commands::Updater(cmd)) => handle_updater(&printer, cmd).await,
 
@@ -1342,6 +1384,7 @@ async fn handle_secrets(printer: &Printer, cmd: &SecretsCmd) -> anyhow::Result<(
                 anyhow::bail!("Secret value cannot be empty");
             }
             secrets_engine::set_secret(&path_str, env, name, &value)?;
+            secret_audit_engine::record_set_quietly(&path_str, env, name, Provenance::Cli);
             printer.success(&format!(
                 "Saved '{}' to OS keychain for env '{}'",
                 name, env
@@ -1357,6 +1400,7 @@ async fn handle_secrets(printer: &Printer, cmd: &SecretsCmd) -> anyhow::Result<(
                 anyhow::bail!("Secret value cannot be empty");
             }
             secrets_engine::set_secret(&path_str, env, name, &value)?;
+            secret_audit_engine::record_set_quietly(&path_str, env, name, Provenance::Cli);
             printer.success(&format!("Rotated '{}' for env '{}'", name, env));
         }
 
@@ -1364,6 +1408,7 @@ async fn handle_secrets(printer: &Printer, cmd: &SecretsCmd) -> anyhow::Result<(
             let path = project_path(project.as_ref());
             let path_str = path.to_string_lossy().to_string();
             secrets_engine::delete_secret(&path_str, env, name)?;
+            secret_audit_engine::record_delete_quietly(&path_str, env, name, Provenance::Cli);
             printer.success(&format!(
                 "Deleted '{}' from keychain for env '{}'",
                 name, env
@@ -1555,6 +1600,102 @@ async fn handle_env(printer: &Printer, cmd: &EnvCmd) -> anyhow::Result<()> {
         }
 
         EnvCmd::Vars(vars_cmd) => return handle_env_vars(printer, vars_cmd).await,
+
+        EnvCmd::Diff { from, to, project } => {
+            let path = project_path(project.as_ref());
+            let config = pipeline::load_environments_layered(&path)?;
+            let a = config
+                .environments
+                .iter()
+                .find(|e| e.name == *from)
+                .ok_or_else(|| anyhow::anyhow!("Environment '{}' not found", from))?;
+            let b = config
+                .environments
+                .iter()
+                .find(|e| e.name == *to)
+                .ok_or_else(|| anyhow::anyhow!("Environment '{}' not found", to))?;
+
+            printer.header(&format!("{} Env diff: {} vs {}", icons::GEAR, from, to));
+            printer.newline();
+            printer.subheader("Variables");
+
+            let mut keys: std::collections::BTreeSet<&String> =
+                a.variables.keys().chain(b.variables.keys()).collect();
+            let mut any_var_diff = false;
+            for k in keys.iter() {
+                let av = a.variables.get(*k);
+                let bv = b.variables.get(*k);
+                match (av, bv) {
+                    (Some(_), None) => {
+                        any_var_diff = true;
+                        printer.kv(&format!("- {}", k), &format!("only in {}", from));
+                    }
+                    (None, Some(_)) => {
+                        any_var_diff = true;
+                        printer.kv(&format!("+ {}", k), &format!("only in {}", to));
+                    }
+                    (Some(va), Some(vb)) if va != vb => {
+                        any_var_diff = true;
+                        printer.kv(&format!("~ {}", k), &format!("{} | {}", va, vb));
+                    }
+                    _ => {}
+                }
+            }
+            if !any_var_diff {
+                printer.info("Variables identical.");
+            }
+            keys.clear();
+
+            printer.newline();
+            printer.subheader("Secrets");
+            let secrets_config = pipeline::load_secrets_config(&path)?;
+            let in_a: std::collections::BTreeSet<&str> = secrets_config
+                .secrets
+                .iter()
+                .filter(|s| s.environments.is_empty() || s.environments.iter().any(|e| e == from))
+                .map(|s| s.name.as_str())
+                .collect();
+            let in_b: std::collections::BTreeSet<&str> = secrets_config
+                .secrets
+                .iter()
+                .filter(|s| s.environments.is_empty() || s.environments.iter().any(|e| e == to))
+                .map(|s| s.name.as_str())
+                .collect();
+            let mut any_secret_diff = false;
+            for name in in_a.difference(&in_b) {
+                any_secret_diff = true;
+                printer.kv(&format!("- {}", name), &format!("only in {}", from));
+            }
+            for name in in_b.difference(&in_a) {
+                any_secret_diff = true;
+                printer.kv(&format!("+ {}", name), &format!("only in {}", to));
+            }
+            if !any_secret_diff {
+                printer.info("Secret references identical.");
+            }
+        }
+
+        EnvCmd::ScanLeaks { project } => {
+            let path = project_path(project.as_ref());
+            let hits = pipeline::scan_environments_for_leaks(&path)?;
+            printer.header(&format!("{} Leak scan", icons::LOCK));
+            if hits.is_empty() {
+                printer.success("No suspicious values found in environments.toml");
+                return Ok(());
+            }
+            printer.warn(&format!(
+                "{} value(s) in environments.toml look like real credentials. \
+                 Consider moving them to secrets.toml + the keychain.",
+                hits.len()
+            ));
+            for hit in &hits {
+                printer.kv(
+                    &format!("{}/{}", hit.env, hit.variable),
+                    &format!("{} ({})", hit.match_.rule, hit.match_.preview),
+                );
+            }
+            anyhow::bail!("Leak scan found {} suspicious value(s)", hits.len());
+        }
     }
     Ok(())
 }
@@ -1708,6 +1849,70 @@ async fn bootstrap_cmd(
             );
         }
         Err(e) => return Err(e.into()),
+    }
+    Ok(())
+}
+
+async fn handle_audit(printer: &Printer, cmd: &AuditCmd) -> anyhow::Result<()> {
+    match cmd {
+        AuditCmd::List { project } => {
+            let path = project_path(project.as_ref());
+            let path_str = path.to_string_lossy().to_string();
+            let audit = secret_audit_engine::load_for_project(&path_str)?;
+            printer.header(&format!("{} Secret Audit", icons::LOCK));
+            if audit.entries.is_empty() {
+                printer.info(
+                    "No audit history yet. Audit records are created on set/delete operations.",
+                );
+                return Ok(());
+            }
+            for (key, snap) in &audit.entries {
+                let last_set = snap
+                    .last_set
+                    .map(|t| t.to_rfc3339())
+                    .unwrap_or_else(|| "never".to_string());
+                let provenance = snap.last_provenance.as_deref().unwrap_or("?");
+                printer.kv(
+                    key,
+                    &format!(
+                        "set#{}={} via {} (deletes={})",
+                        snap.set_count, last_set, provenance, snap.delete_count
+                    ),
+                );
+            }
+        }
+        AuditCmd::Show { name, env, project } => {
+            let path = project_path(project.as_ref());
+            let path_str = path.to_string_lossy().to_string();
+            match secret_audit_engine::get(&path_str, env, name)? {
+                None => {
+                    printer.warn(&format!("No audit record for {}/{}", env, name));
+                }
+                Some(snap) => {
+                    printer.header(&format!("{} {}/{}", icons::LOCK, env, name));
+                    printer.kv("Set count", &snap.set_count.to_string());
+                    printer.kv("Delete count", &snap.delete_count.to_string());
+                    printer.kv(
+                        "Last set",
+                        &snap
+                            .last_set
+                            .map(|t| t.to_rfc3339())
+                            .unwrap_or_else(|| "never".to_string()),
+                    );
+                    printer.kv(
+                        "Last deleted",
+                        &snap
+                            .last_deleted
+                            .map(|t| t.to_rfc3339())
+                            .unwrap_or_else(|| "never".to_string()),
+                    );
+                    printer.kv(
+                        "Last provenance",
+                        snap.last_provenance.as_deref().unwrap_or("?"),
+                    );
+                }
+            }
+        }
     }
     Ok(())
 }

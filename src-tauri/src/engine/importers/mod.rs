@@ -11,6 +11,7 @@
 
 use crate::engine::bootstrap::{classify, Classification};
 use crate::engine::models::SecretRef;
+use crate::engine::secret_audit::{self, Provenance};
 use crate::engine::{pipeline, secrets as secrets_engine};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -180,12 +181,21 @@ pub fn apply_report(
                 if options.persist_secret_values {
                     if let Some(value) = &entry.value {
                         if !value.is_empty() {
+                            let project_path_str = repo_path.to_string_lossy().to_string();
                             secrets_engine::set_secret(
-                                &repo_path.to_string_lossy(),
+                                &project_path_str,
                                 &report.env_name,
                                 &entry.name,
                                 value,
                             )?;
+                            secret_audit::record_set_quietly(
+                                &project_path_str,
+                                &report.env_name,
+                                &entry.name,
+                                Provenance::Import {
+                                    adapter: report.source.clone(),
+                                },
+                            );
                             out.secrets_value_saved += 1;
                         }
                     }
