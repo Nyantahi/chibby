@@ -3,6 +3,11 @@ import { Server, Plus, Trash2, Wifi, X } from 'lucide-react';
 import { saveEnvironments, testSshConnection } from '../services/api';
 import type { EnvironmentsConfig, Environment } from '../types';
 
+/** Validate that a string is a legal shell environment variable name. */
+function isValidEnvVarName(name: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name);
+}
+
 interface Props {
   repoPath: string;
   config: EnvironmentsConfig;
@@ -23,6 +28,18 @@ function EnvironmentEditor({ repoPath, config, onSaved }: Props) {
   }
 
   async function handleSave() {
+    // Validate all variable names before saving
+    for (const env of envs) {
+      for (const key of Object.keys(env.variables)) {
+        if (!isValidEnvVarName(key)) {
+          setError(
+            `Invalid variable name "${key}" in environment "${env.name}". ` +
+              'Names must start with a letter or underscore, followed by letters, digits, or underscores.'
+          );
+          return;
+        }
+      }
+    }
     try {
       setSaving(true);
       setError(null);
@@ -246,12 +263,18 @@ function EnvironmentEditor({ repoPath, config, onSaved }: Props) {
                     {Object.entries(env.variables).map(([key, val]) => (
                       <div key={key} className="env-var-row">
                         <input
-                          className="input input-sm"
+                          className={`input input-sm${!isValidEnvVarName(key) ? ' input-error' : ''}`}
                           value={key}
+                          title={
+                            !isValidEnvVarName(key)
+                              ? 'Must match [A-Za-z_][A-Za-z0-9_]* (e.g. MY_VAR)'
+                              : undefined
+                          }
                           onChange={(e) => {
+                            const newName = e.target.value;
                             const vars = { ...env.variables };
                             delete vars[key];
-                            vars[e.target.value] = val;
+                            vars[newName] = val;
                             handleUpdate(idx, { variables: vars });
                           }}
                         />

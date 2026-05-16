@@ -1,7 +1,10 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import Layout from '../../components/Layout';
+import * as api from '../../services/api';
+
+vi.mock('../../services/api');
 
 function renderLayout(initialPath = '/') {
   return render(
@@ -17,16 +20,22 @@ function renderLayout(initialPath = '/') {
 }
 
 describe('Layout', () => {
+  beforeEach(() => {
+    vi.mocked(api.getAppVersion).mockResolvedValue('0.1.28');
+  });
+
   it('renders app title', () => {
     renderLayout();
 
     expect(screen.getByRole('heading', { name: 'Chibby' })).toBeInTheDocument();
   });
 
-  it('renders version label', () => {
+  it('renders version label from backend', async () => {
     renderLayout();
 
-    expect(screen.getByText('v0.1.0')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('v0.1.28')).toBeInTheDocument();
+    });
   });
 
   it('renders Projects nav link as home', () => {

@@ -1,8 +1,8 @@
-name = "chibby CI"
+name = "chibby Pipeline"
 
 [[stages]]
 name = "install"
-commands = ["npm ci"]
+commands = ["npm install"]
 backend = "local"
 fail_fast = true
 
@@ -39,5 +39,11 @@ fail_fast = true
 [[stages]]
 name = "test-all"
 commands = ["npm run test:all"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "tauri-build"
+commands = ["npm run tauri:build"]
 backend = "local"
 fail_fast = true

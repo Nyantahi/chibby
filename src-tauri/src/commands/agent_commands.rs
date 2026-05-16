@@ -9,7 +9,12 @@ use crate::agent::{
 use crate::ai::identity_loader::{AgentIdentityRegistry, resolve_identity_path};
 use crate::ai::memory::{self, MemoryEntry, MemoryStore};
 use crate::ai::provider;
-use crate::engine::{persistence, pipeline};
+use crate::engine::{audit, persistence, pipeline};
+
+/// Maximum allowed length for a chat message (in bytes).
+const MAX_CHAT_MESSAGE_LEN: usize = 8192;
+/// Maximum allowed length for project info sent with pipeline generation.
+const MAX_PROJECT_INFO_LEN: usize = 16384;
 
 // ---------------------------------------------------------------------------
 // Agent state — managed by Tauri
@@ -141,6 +146,19 @@ pub async fn agent_chat(
     run_id: Option<String>,
     state: State<'_, SharedAgentState>,
 ) -> Result<AgentResponse, String> {
+    // Validate input length to prevent resource exhaustion and excessive API costs
+    if message.trim().is_empty() {
+        return Err("Message cannot be empty".to_string());
+    }
+    if message.len() > MAX_CHAT_MESSAGE_LEN {
+        return Err(format!(
+            "Message exceeds maximum length of {} characters",
+            MAX_CHAT_MESSAGE_LEN
+        ));
+    }
+
+    audit::log_event("agent_chat", &format!("project={:?} run={:?}", project_id, run_id));
+
     let mut agent_state = state.write().await;
     let is_first_run = agent_state.first_run;
 
@@ -198,6 +216,18 @@ pub async fn generate_pipeline_config(
     project_info: String,
     state: State<'_, SharedAgentState>,
 ) -> Result<GeneratedPipeline, String> {
+    if project_info.len() > MAX_PROJECT_INFO_LEN {
+        return Err(format!(
+            "Project info exceeds maximum length of {} characters",
+            MAX_PROJECT_INFO_LEN
+        ));
+    }
+
+    audit::log_event(
+        "generate_pipeline_config",
+        &format!("project={}", project_path),
+    );
+
     let agent_state = state.read().await;
     let agent = agent_state
         .agent
@@ -211,19 +241,43 @@ pub async fn generate_pipeline_config(
 }
 
 /// Save a generated pipeline to disk.
+///
+/// Validates that `file_path` stays within the project directory to prevent
+/// agent-generated content from writing to arbitrary locations.
 #[tauri::command]
 pub fn save_generated_pipeline(
     project_path: String,
     file_path: String,
     content: String,
 ) -> Result<(), String> {
+    // Validate file_path: no absolute paths or traversal
+    if file_path.contains("..") || file_path.starts_with('/') || file_path.starts_with('\\') {
+        return Err("Invalid file path: must be a relative path within the project".to_string());
+    }
+
     let full_path = std::path::Path::new(&project_path).join(&file_path);
 
-    // Ensure parent directory exists
+    // Ensure the resolved path is still within the project directory
+    let canonical_project = std::fs::canonicalize(&project_path)
+        .map_err(|e| format!("Invalid project path: {}", e))?;
+    // Create parent dirs first so canonicalize works on the target
     if let Some(parent) = full_path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create directory: {}", e))?;
     }
+    // For new files, check that the parent is within the project
+    let canonical_parent = std::fs::canonicalize(
+        full_path.parent().unwrap_or(std::path::Path::new(&project_path)),
+    )
+    .map_err(|e| format!("Failed to resolve path: {}", e))?;
+    if !canonical_parent.starts_with(&canonical_project) {
+        return Err("File path resolves outside the project directory".to_string());
+    }
+
+    audit::log_event(
+        "save_generated_pipeline",
+        &format!("project={} file={}", project_path, file_path),
+    );
 
     std::fs::write(&full_path, &content)
         .map_err(|e| format!("Failed to write pipeline file: {}", e))?;
