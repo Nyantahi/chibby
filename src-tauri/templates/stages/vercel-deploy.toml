@@ -1,0 +1,24 @@
+[meta]
+name = "Vercel Deploy"
+description = "Deploy a frontend or serverless project to Vercel using the Vercel CLI"
+author = "chibby"
+version = "1.0.0"
+category = "deployment"
+tags = ["vercel", "cloud", "frontend", "serverless", "deploy", "cli"]
+required_tools = ["vercel"]
+template_type = "stage"
+
+[[stages]]
+name = "vercel-deploy"
+commands = [
+  "cd {{project_dir}} && vercel pull --yes --environment=production --token {{vercel_token}}",
+  "cd {{project_dir}} && vercel build --prod --token {{vercel_token}}",
+  "cd {{project_dir}} && vercel deploy --prebuilt --prod --token {{vercel_token}}"
+]
+backend = "local"
+fail_fast = true
+
+[stages.health_check]
+command = "curl -sf {{health_url}}"
+retries = 5
+delay_secs = 10
