@@ -232,6 +232,10 @@ pub struct ProjectFolder {
     pub has_node: bool,
     /// Has requirements.txt or pyproject.toml (Python project).
     pub has_python: bool,
+    /// Has Cargo.toml (Rust project).
+    pub has_rust: bool,
+    /// Has tauri.conf.json (Tauri project in this subdirectory).
+    pub has_tauri: bool,
     /// Has tests/ directory or test files.
     pub has_tests: bool,
     /// Available npm scripts (if Node.js project).
@@ -259,9 +263,11 @@ pub fn detect_project_folders(repo_path: &Path) -> Vec<ProjectFolder> {
         let has_requirements = subdir_path.join("requirements.txt").exists();
         let has_pyproject = subdir_path.join("pyproject.toml").exists();
         let has_python = has_requirements || has_pyproject;
+        let has_rust = subdir_path.join("Cargo.toml").exists();
+        let has_tauri = subdir_path.join("tauri.conf.json").exists();
 
         // Skip if not a recognizable project
-        if !has_package_json && !has_python {
+        if !has_package_json && !has_python && !has_rust {
             continue;
         }
 
@@ -289,6 +295,8 @@ pub fn detect_project_folders(repo_path: &Path) -> Vec<ProjectFolder> {
             name: subdir.to_string(),
             has_node: has_package_json,
             has_python,
+            has_rust,
+            has_tauri,
             has_tests,
             npm_scripts,
             is_frontend,
@@ -372,10 +380,15 @@ const SUBDIR_PATTERNS: &[&str] = &[
 pub fn detect_scripts(repo_path: &Path) -> Vec<DetectedScript> {
     let mut found = Vec::new();
 
+    // Read directory entries once. Path::exists() is case-insensitive on APFS/NTFS,
+    // so probing each pattern name separately would double-count (e.g. Makefile + makefile
+    // resolve to the same inode). Match against actual on-disk names instead.
+    let root_entries = list_dir_filenames(repo_path);
+
     // Check fixed-name patterns at repo root.
     for pattern in SCRIPT_PATTERNS {
-        let full = repo_path.join(pattern);
-        if full.exists() {
+        if root_entries.contains(*pattern) {
+            let full = repo_path.join(pattern);
             let script_type = classify_file(pattern);
             found.push(DetectedScript {
                 file_name: pattern.to_string(),
@@ -421,9 +434,10 @@ pub fn detect_scripts(repo_path: &Path) -> Vec<DetectedScript> {
     for subdir in FULLSTACK_SUBDIRS {
         let subdir_path = repo_path.join(subdir);
         if subdir_path.is_dir() {
+            let subdir_entries = list_dir_filenames(&subdir_path);
             for pattern in SUBDIR_PATTERNS {
-                let full = subdir_path.join(pattern);
-                if full.exists() {
+                if subdir_entries.contains(*pattern) {
+                    let full = subdir_path.join(pattern);
                     let display_name = format!("{}/{}", subdir, pattern);
                     let script_type = classify_file(pattern);
                     // Avoid duplicates
@@ -693,7 +707,9 @@ pub fn generate_draft_pipeline(
 
     let has = |st: ScriptType| scripts.iter().any(|s| s.script_type == st);
     let has_file = |name: &str| scripts.iter().any(|s| s.file_name == name);
-    let is_tauri = has(ScriptType::TauriConfig);
+    // Use exact file name match so that backend/tauri.conf.json does NOT trigger the
+    // standard src-tauri Tauri layout detection.
+    let is_tauri = has_file("src-tauri/tauri.conf.json");
 
     // Check for ROOT package.json specifically (not in subdirectories)
     let has_root_package_json = has_file("package.json");
@@ -733,10 +749,14 @@ pub fn generate_draft_pipeline(
         stages.push(local_stage("format-check", vec!["npm run format:check"]));
     }
 
-    // ── Rust / Cargo (root or nested) ────────────────────────────
-    if has(ScriptType::CargoToml) {
+    // ── Rust / Cargo (root or standard src-tauri layout only) ───────────────────
+    // Use has_file to match only root-level Cargo.toml or src-tauri/Cargo.toml.
+    // Subdirectory Cargo.toml files (e.g. backend/Cargo.toml) are handled later
+    // in the project_folders loop with the correct --manifest-path flag.
+    let has_root_cargo = has_file("Cargo.toml") || has_file("src-tauri/Cargo.toml");
+    if has_root_cargo {
         if is_tauri {
-            // Tauri project — Cargo.toml is in src-tauri/
+            // Standard Tauri project — Cargo.toml is in src-tauri/
             stages.push(local_stage("cargo-test", vec!["cd src-tauri && cargo test"]));
         } else {
             stages.push(local_stage("cargo-build", vec!["cargo build --release"]));
@@ -912,6 +932,34 @@ pub fn generate_draft_pipeline(
                     stages.push(local_stage(&format!("{}-test", subdir),
                         vec![&format!("cd {} && pytest", subdir)]));
                 }
+            }
+        }
+
+        // Generate Rust stages for this folder (e.g. backend/Cargo.toml).
+        // Always generate these regardless of is_fullstack since a subdir Cargo.toml
+        // is always distinct from a root-level one and requires --manifest-path.
+        if folder.has_rust {
+            let manifest = format!("{}/Cargo.toml", subdir);
+            if folder.has_tauri {
+                // Tauri project with non-standard layout (e.g. backend/tauri.conf.json).
+                // Emit cargo-build, cargo-test, and tauri-build with the correct config path.
+                let tauri_conf = format!("{}/tauri.conf.json", subdir);
+                stages.push(local_stage("cargo-build",
+                    vec![&format!("cargo build --release --manifest-path {}", manifest)]));
+                stages.push(local_stage("cargo-test",
+                    vec![&format!("cargo test --manifest-path {}", manifest)]));
+                if has_script("tauri:build") {
+                    stages.push(local_stage("tauri-build", vec!["npm run tauri:build"]));
+                } else {
+                    stages.push(local_stage("tauri-build",
+                        vec![&format!("npx tauri build -c {}", tauri_conf)]));
+                }
+            } else {
+                // Plain Rust in a subdirectory — prefix stage names with folder name.
+                stages.push(local_stage(&format!("{}-cargo-build", subdir),
+                    vec![&format!("cargo build --release --manifest-path {}", manifest)]));
+                stages.push(local_stage(&format!("{}-cargo-test", subdir),
+                    vec![&format!("cargo test --manifest-path {}", manifest)]));
             }
         }
     }
@@ -2040,6 +2088,10 @@ pub fn validate_pipeline(pipeline: &Pipeline, repo_path: &Path) -> PipelineValid
 fn detect_file_conflicts(repo_path: &Path) -> Vec<FileConflict> {
     let mut conflicts = Vec::new();
 
+    // Match against actual on-disk filenames; Path::exists() is case-insensitive on APFS/NTFS
+    // and would falsely report Makefile + makefile as separate files when only one exists.
+    let entries = list_dir_filenames(repo_path);
+
     // Define groups of files that conflict with each other
     let conflict_groups: &[(&str, &[&str], Option<&str>)] = &[
         // Makefiles - on case-sensitive systems, both can exist but cause confusion
@@ -2061,7 +2113,7 @@ fn detect_file_conflicts(repo_path: &Path) -> Vec<FileConflict> {
     for (category, file_names, note) in conflict_groups {
         let existing: Vec<String> = file_names
             .iter()
-            .filter(|name| repo_path.join(name).exists())
+            .filter(|name| entries.contains(**name))
             .map(|s| s.to_string())
             .collect();
 
@@ -2124,6 +2176,17 @@ fn determine_active_file(category: &str, files: &[String]) -> Option<String> {
         }
         _ => files.first().cloned(),
     }
+}
+
+/// Read the immediate filenames in a directory (case-preserving, no recursion).
+fn list_dir_filenames(dir: &Path) -> HashSet<String> {
+    let mut names = HashSet::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            names.insert(entry.file_name().to_string_lossy().to_string());
+        }
+    }
+    names
 }
 
 /// Detect environment files in the repository.
@@ -2479,6 +2542,38 @@ mod tests {
         let scripts = detect_scripts(temp.path());
         assert!(!scripts.is_empty());
         assert!(scripts.iter().any(|s| s.script_type == ScriptType::Makefile));
+    }
+
+    #[test]
+    fn test_detect_scripts_no_case_duplicate_on_apfs() {
+        // Regression: on case-insensitive filesystems (default macOS APFS),
+        // Path::exists() returned true for both "Makefile" and "makefile"
+        // when only one file existed, producing phantom duplicates.
+        let temp = TempDir::new().unwrap();
+        std::fs::write(temp.path().join("Makefile"), "build:\n\techo building").unwrap();
+
+        let scripts = detect_scripts(temp.path());
+        let makefile_hits: Vec<_> = scripts
+            .iter()
+            .filter(|s| s.script_type == ScriptType::Makefile)
+            .collect();
+        assert_eq!(makefile_hits.len(), 1, "expected one Makefile entry, got {:?}", makefile_hits);
+        assert_eq!(makefile_hits[0].file_name, "Makefile");
+    }
+
+    #[test]
+    fn test_detect_file_conflicts_no_case_duplicate_on_apfs() {
+        // Regression: a single Makefile must not be reported as a conflict
+        // just because the filesystem is case-insensitive.
+        let temp = TempDir::new().unwrap();
+        std::fs::write(temp.path().join("Makefile"), "build:\n\techo building").unwrap();
+
+        let conflicts = detect_file_conflicts(temp.path());
+        assert!(
+            !conflicts.iter().any(|c| c.category == "Makefile"),
+            "expected no Makefile conflict for a single file, got {:?}",
+            conflicts
+        );
     }
 
     #[test]
