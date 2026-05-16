@@ -23,7 +23,7 @@ pub fn resolve_execution_context(
         return Ok((None, HashMap::new()));
     };
 
-    let envs_config = pipeline::load_environments(repo_path)?;
+    let envs_config = pipeline::load_environments_layered(repo_path)?;
     let env = envs_config
         .environments
         .iter()
