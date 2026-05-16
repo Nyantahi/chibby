@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.34] - 2026-05-08
+
+### Fixed
+
+- **Phantom duplicate config files on macOS/Windows** — `Makefile` (or any case-only variant) is no longer reported as a conflict against itself, and the "Detected Files" sidebar lists it once. `Path::exists()` is case-insensitive on APFS/NTFS, so probing each candidate name separately double-counted a single on-disk file; detection now intersects pattern names against actual directory entries.
+- Same fix applied to subdirectory script detection (`frontend/`, `backend/`, …) so a single `Makefile` in a subdir is not duplicated.
+
 ## [0.1.32] - 2026-05-01
 
 ### Fixed

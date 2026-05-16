@@ -380,10 +380,15 @@ const SUBDIR_PATTERNS: &[&str] = &[
 pub fn detect_scripts(repo_path: &Path) -> Vec<DetectedScript> {
     let mut found = Vec::new();
 
+    // Read directory entries once. Path::exists() is case-insensitive on APFS/NTFS,
+    // so probing each pattern name separately would double-count (e.g. Makefile + makefile
+    // resolve to the same inode). Match against actual on-disk names instead.
+    let root_entries = list_dir_filenames(repo_path);
+
     // Check fixed-name patterns at repo root.
     for pattern in SCRIPT_PATTERNS {
-        let full = repo_path.join(pattern);
-        if full.exists() {
+        if root_entries.contains(*pattern) {
+            let full = repo_path.join(pattern);
             let script_type = classify_file(pattern);
             found.push(DetectedScript {
                 file_name: pattern.to_string(),
@@ -429,9 +434,10 @@ pub fn detect_scripts(repo_path: &Path) -> Vec<DetectedScript> {
     for subdir in FULLSTACK_SUBDIRS {
         let subdir_path = repo_path.join(subdir);
         if subdir_path.is_dir() {
+            let subdir_entries = list_dir_filenames(&subdir_path);
             for pattern in SUBDIR_PATTERNS {
-                let full = subdir_path.join(pattern);
-                if full.exists() {
+                if subdir_entries.contains(*pattern) {
+                    let full = subdir_path.join(pattern);
                     let display_name = format!("{}/{}", subdir, pattern);
                     let script_type = classify_file(pattern);
                     // Avoid duplicates
@@ -2082,6 +2088,10 @@ pub fn validate_pipeline(pipeline: &Pipeline, repo_path: &Path) -> PipelineValid
 fn detect_file_conflicts(repo_path: &Path) -> Vec<FileConflict> {
     let mut conflicts = Vec::new();
 
+    // Match against actual on-disk filenames; Path::exists() is case-insensitive on APFS/NTFS
+    // and would falsely report Makefile + makefile as separate files when only one exists.
+    let entries = list_dir_filenames(repo_path);
+
     // Define groups of files that conflict with each other
     let conflict_groups: &[(&str, &[&str], Option<&str>)] = &[
         // Makefiles - on case-sensitive systems, both can exist but cause confusion
@@ -2103,7 +2113,7 @@ fn detect_file_conflicts(repo_path: &Path) -> Vec<FileConflict> {
     for (category, file_names, note) in conflict_groups {
         let existing: Vec<String> = file_names
             .iter()
-            .filter(|name| repo_path.join(name).exists())
+            .filter(|name| entries.contains(**name))
             .map(|s| s.to_string())
             .collect();
 
@@ -2166,6 +2176,17 @@ fn determine_active_file(category: &str, files: &[String]) -> Option<String> {
         }
         _ => files.first().cloned(),
     }
+}
+
+/// Read the immediate filenames in a directory (case-preserving, no recursion).
+fn list_dir_filenames(dir: &Path) -> HashSet<String> {
+    let mut names = HashSet::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            names.insert(entry.file_name().to_string_lossy().to_string());
+        }
+    }
+    names
 }
 
 /// Detect environment files in the repository.
@@ -2521,6 +2542,38 @@ mod tests {
         let scripts = detect_scripts(temp.path());
         assert!(!scripts.is_empty());
         assert!(scripts.iter().any(|s| s.script_type == ScriptType::Makefile));
+    }
+
+    #[test]
+    fn test_detect_scripts_no_case_duplicate_on_apfs() {
+        // Regression: on case-insensitive filesystems (default macOS APFS),
+        // Path::exists() returned true for both "Makefile" and "makefile"
+        // when only one file existed, producing phantom duplicates.
+        let temp = TempDir::new().unwrap();
+        std::fs::write(temp.path().join("Makefile"), "build:\n\techo building").unwrap();
+
+        let scripts = detect_scripts(temp.path());
+        let makefile_hits: Vec<_> = scripts
+            .iter()
+            .filter(|s| s.script_type == ScriptType::Makefile)
+            .collect();
+        assert_eq!(makefile_hits.len(), 1, "expected one Makefile entry, got {:?}", makefile_hits);
+        assert_eq!(makefile_hits[0].file_name, "Makefile");
+    }
+
+    #[test]
+    fn test_detect_file_conflicts_no_case_duplicate_on_apfs() {
+        // Regression: a single Makefile must not be reported as a conflict
+        // just because the filesystem is case-insensitive.
+        let temp = TempDir::new().unwrap();
+        std::fs::write(temp.path().join("Makefile"), "build:\n\techo building").unwrap();
+
+        let conflicts = detect_file_conflicts(temp.path());
+        assert!(
+            !conflicts.iter().any(|c| c.category == "Makefile"),
+            "expected no Makefile conflict for a single file, got {:?}",
+            conflicts
+        );
     }
 
     #[test]
