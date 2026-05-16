@@ -134,7 +134,17 @@ chibby env test production
 
 # Remove an environment
 chibby env remove staging
+
+# Diff two environments (variables + secret references)
+chibby env diff production staging
+
+# Scan environments.toml for variable values that look like real credentials
+chibby env scan-leaks
 ```
+
+`env diff` legend: `+` only in destination, `-` only in source, `~` value differs. Pure differences only — identical entries are summarised as "identical."
+
+`env scan-leaks` is opportunistic — it flags values matching common token shapes (GitHub PATs, OpenAI/Anthropic/Stripe/Slack/AWS keys, db URLs with embedded credentials, private-key blocks). Output is redacted to never echo the suspect value verbatim. Non-zero exit when matches are found, suitable for a pre-commit hook.
 
 ### Environment Variables
 
@@ -187,6 +197,20 @@ chibby secrets delete DEPLOY_KEY --env production
 # Remove a reference from secrets.toml (keychain values are NOT auto-deleted)
 chibby secrets remove DEPLOY_KEY
 ```
+
+### Audit
+
+Per-secret lifecycle metadata: how many times each secret has been set/deleted, last action, and where (CLI / GUI / which importer). Stored under `<chibby_data_dir>/secret_audit/<repo_hash>.json` — follows the user's Chibby install, not the repo.
+
+```bash
+# Project-wide summary, one line per secret
+chibby audit list
+
+# Detailed snapshot for one secret
+chibby audit show STRIPE_KEY --env production
+```
+
+Audit records are written best-effort — failures are logged but never block the underlying secret operation.
 
 ### Doctor
 

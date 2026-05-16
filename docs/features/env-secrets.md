@@ -212,6 +212,31 @@ chibby import vercel --env production --with-values
 chibby export dotenv --env production --out .env.production.local
 ```
 
+## Safety features
+
+### Audit metadata
+
+Every set/delete on a secret value is recorded under `<chibby_data_dir>/secret_audit/<repo_hash>.json` with:
+
+- `last_set` / `last_deleted` timestamps (UTC)
+- `set_count` / `delete_count`
+- `last_provenance` — `cli`, `gui`, `import:vercel`, `import:dotenv`, etc.
+
+Inspect via `chibby audit list` or `chibby audit show NAME --env ENV`. Useful for "when did I last rotate this?" and "is this secret still in use anywhere?" questions during incident response.
+
+The audit file lives in the user's Chibby data dir, not the repo — so it never gets accidentally committed and follows the user across project clones.
+
+### Leak scanning
+
+`environments.toml` is *only* for non-secret config. If a token-shaped value lands in a variable by accident, Chibby flags it:
+
+- On every `save_environments` call, a warning is logged.
+- `chibby env scan-leaks` runs an explicit scan and exits non-zero when anything matches.
+- Patterns covered: GitHub PATs, GitHub fine-grained PATs, GitLab PATs, OpenAI / Anthropic API keys, Slack tokens, Stripe keys, SendGrid keys, AWS access key IDs, Twilio keys, private-key blocks, database URLs with embedded credentials.
+- Previews are redacted (`ghp_…(40 chars)`) — the suspect value is never echoed verbatim in logs or output.
+
+A separate full-repo gitleaks-backed scan is available via `chibby scan secrets` (configured in `.chibby/gates.toml`) and includes `.chibby/*.toml` files by default.
+
 ## How keychain storage works
 
 | OS | Backend |

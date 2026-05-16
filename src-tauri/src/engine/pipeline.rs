@@ -1,3 +1,4 @@
+use crate::engine::leak_scanner::{self, LeakMatch};
 use crate::engine::models::{Environment, EnvironmentsConfig, Pipeline, SecretRef, SecretsConfig};
 use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
@@ -126,12 +127,57 @@ pub fn save_environments(repo_path: &Path, config: &EnvironmentsConfig) -> Resul
     let toml_str = toml::to_string_pretty(config)
         .context("Failed to serialize environments to TOML")?;
 
+    // Pre-save warning: detect variable *values* that look like real
+    // credentials. We never block the save — the leak might be intentional
+    // and the user can act on the warning. Gating belongs in gates.rs.
+    let hits = scan_environments_for_leaks_in_config(config);
+    if !hits.is_empty() {
+        log::warn!(
+            "environments.toml contains {} value(s) that look like real credentials. \
+             Consider declaring them in secrets.toml instead. Run `chibby env scan-leaks` for details.",
+            hits.len()
+        );
+    }
+
     let file_path = chibby_dir.join("environments.toml");
     std::fs::write(&file_path, &toml_str)
         .with_context(|| format!("Failed to write {}", file_path.display()))?;
 
     log::info!("Saved environments to {}", file_path.display());
     Ok(())
+}
+
+/// Scan all variable values in an environments config for token-shaped strings.
+/// Returns per-variable hits.
+pub fn scan_environments_for_leaks_in_config(config: &EnvironmentsConfig) -> Vec<EnvLeakHit> {
+    let mut hits = Vec::new();
+    for env in &config.environments {
+        for (key, value) in &env.variables {
+            for m in leak_scanner::scan(value) {
+                hits.push(EnvLeakHit {
+                    env: env.name.clone(),
+                    variable: key.clone(),
+                    match_: m,
+                });
+            }
+        }
+    }
+    hits
+}
+
+/// Load environments.toml (committed file only) and scan for leaked credentials.
+pub fn scan_environments_for_leaks(repo_path: &Path) -> Result<Vec<EnvLeakHit>> {
+    let config = load_environments(repo_path)?;
+    Ok(scan_environments_for_leaks_in_config(&config))
+}
+
+/// A single token-shaped value found inside an environments.toml variable.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EnvLeakHit {
+    pub env: String,
+    pub variable: String,
+    #[serde(flatten)]
+    pub match_: LeakMatch,
 }
 
 /// Load environments config from .chibby/environments.toml.

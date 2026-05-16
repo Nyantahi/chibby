@@ -7,6 +7,7 @@ use crate::engine::importers::{
 use crate::engine::models::{EnvironmentsConfig, SecretsConfig};
 use crate::engine::pipeline;
 use crate::engine::preflight;
+use crate::engine::secret_audit::{self, Provenance, SecretAudit};
 use crate::engine::secrets;
 use std::path::{Path, PathBuf};
 
@@ -85,7 +86,9 @@ pub fn set_secret(
         &format!("project={} env={} secret={}", project_path, env_name, secret_name),
     );
     secrets::set_secret(&project_path, &env_name, &secret_name, &value)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    secret_audit::record_set_quietly(&project_path, &env_name, &secret_name, Provenance::Gui);
+    Ok(())
 }
 
 /// Delete a secret from the OS keychain.
@@ -99,7 +102,27 @@ pub fn delete_secret(
         "delete_secret",
         &format!("project={} env={} secret={}", project_path, env_name, secret_name),
     );
-    secrets::delete_secret(&project_path, &env_name, &secret_name).map_err(|e| e.to_string())
+    secrets::delete_secret(&project_path, &env_name, &secret_name).map_err(|e| e.to_string())?;
+    secret_audit::record_delete_quietly(&project_path, &env_name, &secret_name, Provenance::Gui);
+    Ok(())
+}
+
+/// Fetch the per-secret audit snapshot for the GUI's Secrets panel.
+#[tauri::command]
+pub fn get_secret_audit(
+    project_path: String,
+    env_name: String,
+    secret_name: String,
+) -> Result<Option<SecretAudit>, String> {
+    secret_audit::get(&project_path, &env_name, &secret_name).map_err(|e| e.to_string())
+}
+
+/// Scan environments.toml for variable values that look like real credentials.
+#[tauri::command]
+pub fn scan_environments_for_leaks(
+    repo_path: String,
+) -> Result<Vec<pipeline::EnvLeakHit>, String> {
+    pipeline::scan_environments_for_leaks(Path::new(&repo_path)).map_err(|e| e.to_string())
 }
 
 /// Check which secrets are set in the keychain for a given environment.
