@@ -8,6 +8,12 @@ use chibby_lib::engine::models::{
     Environment, PipelineRun, RunKind, RunStatus as EngineRunStatus, SecretRef,
     StageStatus as EngineStageStatus,
 };
+use chibby_lib::engine::bootstrap::{self, ApplyMode, Classification};
+use chibby_lib::engine::importers::{
+    self, dotenv::DotEnvImporter, flyio::FlyImporter, railway::RailwayImporter,
+    vercel::VercelImporter, ApplyOptions, ImportContext, ImportReport, Importer,
+};
+use chibby_lib::engine::secret_audit::{self as secret_audit_engine, Provenance};
 use chibby_lib::engine::{persistence, pipeline, preflight, run_support, secrets as secrets_engine};
 use clap::{Parser, Subcommand};
 use owo_colors::OwoColorize;
@@ -173,6 +179,10 @@ enum Commands {
         project: Option<PathBuf>,
     },
 
+    /// Inspect per-secret audit history (last set/delete + provenance)
+    #[command(subcommand)]
+    Audit(AuditCmd),
+
     /// Tauri updater commands
     #[command(subcommand)]
     Updater(UpdaterCmd),
@@ -186,6 +196,33 @@ enum Commands {
         #[arg(long)]
         ai: bool,
     },
+
+    /// Scan a project for env/secret references and bootstrap configs
+    Bootstrap {
+        /// Project path (defaults to current directory)
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+
+        /// Apply without printing the review table
+        #[arg(long)]
+        silent: bool,
+
+        /// Show what would be written without touching the filesystem
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Merge with existing configs (default refuses if either file exists)
+        #[arg(long)]
+        merge: bool,
+    },
+
+    /// Import env/secrets from .env, Vercel, Railway, or Fly.io
+    #[command(subcommand)]
+    Import(ImportCmd),
+
+    /// Export environment + secret values to a .env file
+    #[command(subcommand)]
+    Export(ExportCmd),
 
     /// Stream logs from a run
     Logs {
@@ -250,6 +287,87 @@ enum PipelineCmd {
     },
     /// Edit pipeline in $EDITOR
     Edit {
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum AuditCmd {
+    /// List every secret with its set/delete history
+    List {
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Show the audit snapshot for a single secret
+    Show {
+        /// Secret name
+        name: String,
+        /// Environment
+        #[arg(short, long)]
+        env: String,
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ImportCmd {
+    /// Import names (and optionally values) from a .env file
+    Dotenv {
+        /// Path to the .env file
+        path: PathBuf,
+        /// Target environment to merge into
+        #[arg(short, long, default_value = "production")]
+        env: String,
+        /// Also pull values (variables -> environments.toml, secrets -> keychain)
+        #[arg(long)]
+        with_values: bool,
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Import env vars from Vercel via `vercel env`
+    Vercel {
+        /// Target environment ("production" maps to Vercel's `production`)
+        #[arg(short, long, default_value = "production")]
+        env: String,
+        /// Pull values via `vercel env pull` (otherwise names only)
+        #[arg(long)]
+        with_values: bool,
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Import env vars from Railway via `railway variables`
+    Railway {
+        #[arg(short, long, default_value = "production")]
+        env: String,
+        #[arg(long)]
+        with_values: bool,
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Import secret names from Fly.io via `flyctl secrets list` (names only — Fly is write-only)
+    Fly {
+        #[arg(short, long, default_value = "production")]
+        env: String,
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ExportCmd {
+    /// Export resolved variables + secret values to a .env file
+    Dotenv {
+        /// Source environment
+        #[arg(short, long, default_value = "production")]
+        env: String,
+        /// Output path (parent dirs created if needed)
+        #[arg(short, long, default_value = ".env.chibby")]
+        out: PathBuf,
         /// Project path
         #[arg(short, long)]
         project: Option<PathBuf>,
@@ -395,6 +513,22 @@ enum EnvCmd {
     /// Manage environment variables (non-secret config) per environment
     #[command(subcommand)]
     Vars(EnvVarsCmd),
+    /// Compare two environments side by side
+    Diff {
+        /// Source environment
+        from: String,
+        /// Destination environment
+        to: String,
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Scan environments.toml for variable values that look like real credentials
+    ScanLeaks {
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -630,11 +764,24 @@ async fn main() {
 
         Some(Commands::Init { path, ai }) => init_project(&printer, path.as_ref(), *ai).await,
 
+        Some(Commands::Bootstrap {
+            project,
+            silent,
+            dry_run,
+            merge,
+        }) => bootstrap_cmd(&printer, project.as_ref(), *silent, *dry_run, *merge).await,
+
+        Some(Commands::Import(cmd)) => handle_import(&printer, cmd).await,
+
+        Some(Commands::Export(cmd)) => handle_export(&printer, cmd).await,
+
         Some(Commands::Preflight { env, project }) => {
             run_preflight(&printer, env.as_deref(), project.as_ref()).await
         }
 
         Some(Commands::Doctor { project }) => doctor(&printer, project.as_ref()).await,
+
+        Some(Commands::Audit(cmd)) => handle_audit(&printer, cmd).await,
 
         Some(Commands::Updater(cmd)) => handle_updater(&printer, cmd).await,
 
@@ -1237,6 +1384,7 @@ async fn handle_secrets(printer: &Printer, cmd: &SecretsCmd) -> anyhow::Result<(
                 anyhow::bail!("Secret value cannot be empty");
             }
             secrets_engine::set_secret(&path_str, env, name, &value)?;
+            secret_audit_engine::record_set_quietly(&path_str, env, name, Provenance::Cli);
             printer.success(&format!(
                 "Saved '{}' to OS keychain for env '{}'",
                 name, env
@@ -1252,6 +1400,7 @@ async fn handle_secrets(printer: &Printer, cmd: &SecretsCmd) -> anyhow::Result<(
                 anyhow::bail!("Secret value cannot be empty");
             }
             secrets_engine::set_secret(&path_str, env, name, &value)?;
+            secret_audit_engine::record_set_quietly(&path_str, env, name, Provenance::Cli);
             printer.success(&format!("Rotated '{}' for env '{}'", name, env));
         }
 
@@ -1259,6 +1408,7 @@ async fn handle_secrets(printer: &Printer, cmd: &SecretsCmd) -> anyhow::Result<(
             let path = project_path(project.as_ref());
             let path_str = path.to_string_lossy().to_string();
             secrets_engine::delete_secret(&path_str, env, name)?;
+            secret_audit_engine::record_delete_quietly(&path_str, env, name, Provenance::Cli);
             printer.success(&format!(
                 "Deleted '{}' from keychain for env '{}'",
                 name, env
@@ -1450,6 +1600,102 @@ async fn handle_env(printer: &Printer, cmd: &EnvCmd) -> anyhow::Result<()> {
         }
 
         EnvCmd::Vars(vars_cmd) => return handle_env_vars(printer, vars_cmd).await,
+
+        EnvCmd::Diff { from, to, project } => {
+            let path = project_path(project.as_ref());
+            let config = pipeline::load_environments_layered(&path)?;
+            let a = config
+                .environments
+                .iter()
+                .find(|e| e.name == *from)
+                .ok_or_else(|| anyhow::anyhow!("Environment '{}' not found", from))?;
+            let b = config
+                .environments
+                .iter()
+                .find(|e| e.name == *to)
+                .ok_or_else(|| anyhow::anyhow!("Environment '{}' not found", to))?;
+
+            printer.header(&format!("{} Env diff: {} vs {}", icons::GEAR, from, to));
+            printer.newline();
+            printer.subheader("Variables");
+
+            let mut keys: std::collections::BTreeSet<&String> =
+                a.variables.keys().chain(b.variables.keys()).collect();
+            let mut any_var_diff = false;
+            for k in keys.iter() {
+                let av = a.variables.get(*k);
+                let bv = b.variables.get(*k);
+                match (av, bv) {
+                    (Some(_), None) => {
+                        any_var_diff = true;
+                        printer.kv(&format!("- {}", k), &format!("only in {}", from));
+                    }
+                    (None, Some(_)) => {
+                        any_var_diff = true;
+                        printer.kv(&format!("+ {}", k), &format!("only in {}", to));
+                    }
+                    (Some(va), Some(vb)) if va != vb => {
+                        any_var_diff = true;
+                        printer.kv(&format!("~ {}", k), &format!("{} | {}", va, vb));
+                    }
+                    _ => {}
+                }
+            }
+            if !any_var_diff {
+                printer.info("Variables identical.");
+            }
+            keys.clear();
+
+            printer.newline();
+            printer.subheader("Secrets");
+            let secrets_config = pipeline::load_secrets_config(&path)?;
+            let in_a: std::collections::BTreeSet<&str> = secrets_config
+                .secrets
+                .iter()
+                .filter(|s| s.environments.is_empty() || s.environments.iter().any(|e| e == from))
+                .map(|s| s.name.as_str())
+                .collect();
+            let in_b: std::collections::BTreeSet<&str> = secrets_config
+                .secrets
+                .iter()
+                .filter(|s| s.environments.is_empty() || s.environments.iter().any(|e| e == to))
+                .map(|s| s.name.as_str())
+                .collect();
+            let mut any_secret_diff = false;
+            for name in in_a.difference(&in_b) {
+                any_secret_diff = true;
+                printer.kv(&format!("- {}", name), &format!("only in {}", from));
+            }
+            for name in in_b.difference(&in_a) {
+                any_secret_diff = true;
+                printer.kv(&format!("+ {}", name), &format!("only in {}", to));
+            }
+            if !any_secret_diff {
+                printer.info("Secret references identical.");
+            }
+        }
+
+        EnvCmd::ScanLeaks { project } => {
+            let path = project_path(project.as_ref());
+            let hits = pipeline::scan_environments_for_leaks(&path)?;
+            printer.header(&format!("{} Leak scan", icons::LOCK));
+            if hits.is_empty() {
+                printer.success("No suspicious values found in environments.toml");
+                return Ok(());
+            }
+            printer.warn(&format!(
+                "{} value(s) in environments.toml look like real credentials. \
+                 Consider moving them to secrets.toml + the keychain.",
+                hits.len()
+            ));
+            for hit in &hits {
+                printer.kv(
+                    &format!("{}/{}", hit.env, hit.variable),
+                    &format!("{} ({})", hit.match_.rule, hit.match_.preview),
+                );
+            }
+            anyhow::bail!("Leak scan found {} suspicious value(s)", hits.len());
+        }
     }
     Ok(())
 }
@@ -1529,6 +1775,277 @@ async fn handle_env_vars(printer: &Printer, cmd: &EnvVarsCmd) -> anyhow::Result<
             printer.success(&format!("Removed '{}' from env '{}'", key, env));
         }
     }
+    Ok(())
+}
+
+async fn bootstrap_cmd(
+    printer: &Printer,
+    project: Option<&PathBuf>,
+    silent: bool,
+    dry_run: bool,
+    merge: bool,
+) -> anyhow::Result<()> {
+    let path = project_path(project);
+    printer.header(&format!("{} Bootstrap", icons::GEAR));
+    printer.kv("Project", &path.display().to_string());
+
+    let report = bootstrap::scan_project(&path)?;
+    printer.kv("Scanned files", &report.scanned_files.to_string());
+    printer.kv(
+        "Suggested envs",
+        &report.suggested_environments.join(", "),
+    );
+
+    if report.detected.is_empty() {
+        printer.newline();
+        printer.info("No env or secret references detected. Nothing to do.");
+        return Ok(());
+    }
+
+    if !silent {
+        printer.newline();
+        printer.subheader(&format!("Detected ({})", report.detected.len()));
+        for d in &report.detected {
+            let kind_label = match d.classification {
+                Classification::Secret => "secret",
+                Classification::Variable => "variable",
+            };
+            let sources: Vec<String> = d.sources.iter().map(|s| s.path.clone()).collect();
+            let mut seen = std::collections::BTreeSet::new();
+            let uniq_sources: Vec<String> = sources
+                .into_iter()
+                .filter(|p| seen.insert(p.clone()))
+                .collect();
+            let sources_label = if uniq_sources.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", uniq_sources.join(", "))
+            };
+            printer.kv(&d.name, &format!("{}{}", kind_label, sources_label));
+        }
+        printer.newline();
+    }
+
+    if dry_run {
+        printer.info("--dry-run: nothing written. Re-run without --dry-run to apply.");
+        return Ok(());
+    }
+
+    let mode = if merge { ApplyMode::Merge } else { ApplyMode::Safe };
+    match bootstrap::apply_bootstrap(&path, &report, mode) {
+        Ok(true) => {
+            printer.success(&format!(
+                "Wrote {}/.chibby/environments.toml and secrets.toml",
+                path.display()
+            ));
+            printer.info(
+                "Next: `chibby secrets set <NAME> --env <env>` to populate values, \
+                 or set them in the Chibby Secrets panel.",
+            );
+        }
+        Ok(false) => {
+            printer.warn(
+                "Configs already present. Re-run with --merge to add only the newly-detected names.",
+            );
+        }
+        Err(e) => return Err(e.into()),
+    }
+    Ok(())
+}
+
+async fn handle_audit(printer: &Printer, cmd: &AuditCmd) -> anyhow::Result<()> {
+    match cmd {
+        AuditCmd::List { project } => {
+            let path = project_path(project.as_ref());
+            let path_str = path.to_string_lossy().to_string();
+            let audit = secret_audit_engine::load_for_project(&path_str)?;
+            printer.header(&format!("{} Secret Audit", icons::LOCK));
+            if audit.entries.is_empty() {
+                printer.info(
+                    "No audit history yet. Audit records are created on set/delete operations.",
+                );
+                return Ok(());
+            }
+            for (key, snap) in &audit.entries {
+                let last_set = snap
+                    .last_set
+                    .map(|t| t.to_rfc3339())
+                    .unwrap_or_else(|| "never".to_string());
+                let provenance = snap.last_provenance.as_deref().unwrap_or("?");
+                printer.kv(
+                    key,
+                    &format!(
+                        "set#{}={} via {} (deletes={})",
+                        snap.set_count, last_set, provenance, snap.delete_count
+                    ),
+                );
+            }
+        }
+        AuditCmd::Show { name, env, project } => {
+            let path = project_path(project.as_ref());
+            let path_str = path.to_string_lossy().to_string();
+            match secret_audit_engine::get(&path_str, env, name)? {
+                None => {
+                    printer.warn(&format!("No audit record for {}/{}", env, name));
+                }
+                Some(snap) => {
+                    printer.header(&format!("{} {}/{}", icons::LOCK, env, name));
+                    printer.kv("Set count", &snap.set_count.to_string());
+                    printer.kv("Delete count", &snap.delete_count.to_string());
+                    printer.kv(
+                        "Last set",
+                        &snap
+                            .last_set
+                            .map(|t| t.to_rfc3339())
+                            .unwrap_or_else(|| "never".to_string()),
+                    );
+                    printer.kv(
+                        "Last deleted",
+                        &snap
+                            .last_deleted
+                            .map(|t| t.to_rfc3339())
+                            .unwrap_or_else(|| "never".to_string()),
+                    );
+                    printer.kv(
+                        "Last provenance",
+                        snap.last_provenance.as_deref().unwrap_or("?"),
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn handle_import(printer: &Printer, cmd: &ImportCmd) -> anyhow::Result<()> {
+    let (report, repo_path) = match cmd {
+        ImportCmd::Dotenv {
+            path,
+            env,
+            with_values,
+            project,
+        } => {
+            let repo = project_path(project.as_ref());
+            let ctx = ImportContext {
+                repo_path: repo.clone(),
+                env_name: env.clone(),
+                source_path: Some(path.clone()),
+                include_values: *with_values,
+            };
+            (DotEnvImporter.run(&ctx)?, repo)
+        }
+        ImportCmd::Vercel {
+            env,
+            with_values,
+            project,
+        } => {
+            let repo = project_path(project.as_ref());
+            let ctx = ImportContext {
+                repo_path: repo.clone(),
+                env_name: env.clone(),
+                source_path: None,
+                include_values: *with_values,
+            };
+            (VercelImporter.run(&ctx)?, repo)
+        }
+        ImportCmd::Railway {
+            env,
+            with_values,
+            project,
+        } => {
+            let repo = project_path(project.as_ref());
+            let ctx = ImportContext {
+                repo_path: repo.clone(),
+                env_name: env.clone(),
+                source_path: None,
+                include_values: *with_values,
+            };
+            (RailwayImporter.run(&ctx)?, repo)
+        }
+        ImportCmd::Fly { env, project } => {
+            let repo = project_path(project.as_ref());
+            let ctx = ImportContext {
+                repo_path: repo.clone(),
+                env_name: env.clone(),
+                source_path: None,
+                include_values: false,
+            };
+            (FlyImporter.run(&ctx)?, repo)
+        }
+    };
+
+    printer.header(&format!("{} Import from {}", icons::GEAR, report.source));
+    printer.kv("Env", &report.env_name);
+    printer.kv("Detected", &report.entries.len().to_string());
+    printer.newline();
+
+    print_import_report(printer, &report);
+
+    let applied = importers::apply_report(&report, &repo_path, ApplyOptions::default())?;
+    printer.newline();
+    printer.success(&format!(
+        "Variables: {} added ({} with values), Secret refs: {} added ({} values stored in keychain)",
+        applied.variables_added,
+        applied.variables_value_set,
+        applied.secrets_ref_added,
+        applied.secrets_value_saved
+    ));
+    if applied.secrets_value_saved == 0
+        && report
+            .entries
+            .iter()
+            .any(|e| e.classification == Classification::Secret)
+    {
+        printer.info(
+            "No secret values were stored. Re-run with `--with-values` (where supported) or set them with `chibby secrets set NAME --env <env>`.",
+        );
+    }
+    Ok(())
+}
+
+fn print_import_report(printer: &Printer, report: &ImportReport) {
+    let mut secrets: Vec<&_> = report
+        .entries
+        .iter()
+        .filter(|e| e.classification == Classification::Secret)
+        .collect();
+    let mut vars: Vec<&_> = report
+        .entries
+        .iter()
+        .filter(|e| e.classification == Classification::Variable)
+        .collect();
+    secrets.sort_by(|a, b| a.name.cmp(&b.name));
+    vars.sort_by(|a, b| a.name.cmp(&b.name));
+
+    if !vars.is_empty() {
+        printer.subheader(&format!("Variables ({})", vars.len()));
+        for v in &vars {
+            let label = if v.value.is_some() { "value" } else { "name only" };
+            printer.kv(&v.name, label);
+        }
+        printer.newline();
+    }
+    if !secrets.is_empty() {
+        printer.subheader(&format!("Secrets ({})", secrets.len()));
+        for s in &secrets {
+            let label = if s.value.is_some() { "value" } else { "name only" };
+            printer.kv(&s.name, label);
+        }
+    }
+}
+
+async fn handle_export(printer: &Printer, cmd: &ExportCmd) -> anyhow::Result<()> {
+    let ExportCmd::Dotenv { env, out, project } = cmd;
+    let repo = project_path(project.as_ref());
+    let lines = importers::export_dotenv(&repo, env, out)?;
+    printer.success(&format!(
+        "Wrote {} lines to {}",
+        lines,
+        out.display()
+    ));
+    printer.info(
+        "This file may contain plaintext secrets — keep it out of git and treat it like a credential.",
+    );
     Ok(())
 }
 

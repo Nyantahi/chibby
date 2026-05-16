@@ -134,7 +134,17 @@ chibby env test production
 
 # Remove an environment
 chibby env remove staging
+
+# Diff two environments (variables + secret references)
+chibby env diff production staging
+
+# Scan environments.toml for variable values that look like real credentials
+chibby env scan-leaks
 ```
+
+`env diff` legend: `+` only in destination, `-` only in source, `~` value differs. Pure differences only — identical entries are summarised as "identical."
+
+`env scan-leaks` is opportunistic — it flags values matching common token shapes (GitHub PATs, OpenAI/Anthropic/Stripe/Slack/AWS keys, db URLs with embedded credentials, private-key blocks). Output is redacted to never echo the suspect value verbatim. Non-zero exit when matches are found, suitable for a pre-commit hook.
 
 ### Environment Variables
 
@@ -188,6 +198,20 @@ chibby secrets delete DEPLOY_KEY --env production
 chibby secrets remove DEPLOY_KEY
 ```
 
+### Audit
+
+Per-secret lifecycle metadata: how many times each secret has been set/deleted, last action, and where (CLI / GUI / which importer). Stored under `<chibby_data_dir>/secret_audit/<repo_hash>.json` — follows the user's Chibby install, not the repo.
+
+```bash
+# Project-wide summary, one line per secret
+chibby audit list
+
+# Detailed snapshot for one secret
+chibby audit show STRIPE_KEY --env production
+```
+
+Audit records are written best-effort — failures are logged but never block the underlying secret operation.
+
 ### Doctor
 
 End-to-end diagnostic — config files present, SSH reachable, all declared secrets resolved in the keychain.
@@ -198,6 +222,63 @@ chibby doctor -p /path/to/project
 ```
 
 Exits non-zero if any check fails — suitable for CI gating before a deploy.
+
+### Import
+
+Pull env/secret references from external sources into Chibby's configs. Each importer classifies names with the bootstrap heuristic and merges them into `environments.toml` + `secrets.toml`. Existing entries are never overwritten.
+
+```bash
+# From a .env file — names only (default)
+chibby import dotenv .env.production --env production
+
+# From a .env file — also pull values (vars to environments.toml,
+# secret values into the OS keychain)
+chibby import dotenv .env.production --env production --with-values
+
+# From Vercel (requires `vercel login` + `vercel link` in the project)
+chibby import vercel --env production
+chibby import vercel --env production --with-values   # runs `vercel env pull`
+
+# From Railway (requires `railway login` + `railway link`)
+chibby import railway --env production --with-values
+
+# From Fly.io (names only — Fly's secrets API is write-only by design)
+chibby import fly --env production
+```
+
+Each adapter fails with an actionable error message if the vendor CLI isn't installed or isn't authenticated.
+
+### Export
+
+Write resolved variables + secret values for an environment to a `.env` file. Useful for `dev` workflows that need a plain `.env` to point a local app at production-equivalent config without spelunking through keychain entries.
+
+```bash
+chibby export dotenv --env production --out .env.production.local
+```
+
+Output includes a `Do not commit` header. Variables come from the layered `environments.toml`; secret values are resolved from the keychain. Missing secrets are emitted as commented placeholders so the user knows what's still unset.
+
+### Bootstrap
+
+Scan a project for env/secret references and populate `.chibby/environments.toml` + `.chibby/secrets.toml` with the detected names. Values stay empty — set them with `chibby secrets set` / `chibby env vars set` afterwards.
+
+```bash
+# Show what would be detected without writing anything
+chibby bootstrap --dry-run
+
+# Apply (refuses if either config already exists)
+chibby bootstrap
+
+# Merge with existing configs — only adds newly-detected names
+chibby bootstrap --merge
+
+# Quieter output (skip the per-name table, just write)
+chibby bootstrap --silent
+```
+
+Sources scanned: `.env*` files, `docker-compose*.yml`, `.github/workflows/*.yml`, and source code patterns (`process.env.X` in JS/TS, `os.getenv("X")` in Python, `env::var("X")` in Rust). Heuristic classifier sorts each detected name into a secret or variable based on word segments — `TOKEN`/`SECRET`/`KEY`/`PASSWORD`/`PAT`/`CREDENTIAL`/`PRIVATE`/`WEBHOOK` indicate secrets; `URL`/`HOST`/`PORT`/`PATH`/`DIR`/`NAME`/`REGION` indicate variables. Variable indicators win on collision (e.g. `PASSWORD_PATH` is a variable).
+
+The GUI's Add Project wizard runs the same scan automatically, controlled by the `bootstrap_mode` app setting (`confirm` / `silent` / `off`, default `confirm`).
 
 ### Security Scans
 

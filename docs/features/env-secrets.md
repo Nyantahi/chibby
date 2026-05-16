@@ -1,5 +1,10 @@
 # Environments & Secrets
 
+> **Quick start:** for a brand-new project, run `chibby bootstrap` (or let the Add Project wizard do it). Chibby scans your repo and writes populated `environments.toml` + `secrets.toml` files. Then `chibby secrets set NAME --env production` to fill in values. See [Auto-bootstrap](#auto-bootstrap) below.
+
+---
+
+
 Chibby keeps deploy-time configuration in two places per project:
 
 - **`.chibby/environments.toml`** — non-secret config (SSH host, environment variables). Committed to git.
@@ -118,6 +123,119 @@ chibby run --env production
 ```
 
 Stages backed by `local` get vars + secrets through `Command::envs(...)`. Stages backed by `ssh` get them via `export KEY='val'` prefixes on the remote shell.
+
+## Auto-bootstrap
+
+For new projects, Chibby can populate `environments.toml` and `secrets.toml` automatically by scanning the repo for env-variable references.
+
+### Sources scanned
+
+| Source | What's extracted |
+| ------ | ---------------- |
+| `.env*` files | Keys only (values discarded) |
+| `docker-compose*.yml` | `${VAR}`, `${VAR:-default}` interpolations |
+| `.github/workflows/*.yml` | `${{ secrets.X }}` references |
+| `*.js`, `*.ts`, `*.jsx`, `*.tsx`, `*.mjs`, `*.cjs` | `process.env.X`, `process.env["X"]` |
+| `*.py` | `os.getenv("X")`, `os.environ["X"]`, `os.environ.get("X")` |
+| `*.rs` | `env::var("X")`, `std::env::var("X")`, `env::var_os("X")` |
+
+Skip directories: `node_modules`, `target`, `venv`, `.venv`, `__pycache__`, `dist`, `build`, `.git`, `.chibby`, `.next`, `.nuxt`, `coverage`.
+
+### Classification
+
+Each detected name is classified as **secret** or **variable** using name-segment heuristics:
+
+- **Secret indicators** (any segment): `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `PAT`, `CREDENTIAL`, `PRIVATE`, `APIKEY`, `SIGNING`, `WEBHOOK`, `DSN`, `BEARER`, or a `KEY` segment.
+- **Variable indicators** (win over secret indicators when both present): `URL`, `HOST`, `HOSTNAME`, `PORT`, `PATH`, `DIR`, `DIRECTORY`, `NAME`, `MODE`, `ENV`, `REGION`, `VERSION`, `STAGE`, `TIMEOUT`.
+- **Default for unknown names**: variable. Conservative bias — a misclassified non-secret in `environments.toml` is recoverable; a non-secret in the keychain is friction.
+
+False-positive examples handled correctly: `MONKEY` (not KEY), `KEYBOARD_LAYOUT` (not KEY), `PASSWORD_PATH` (PATH wins → variable).
+
+### Environment inference
+
+The scan also suggests environment names based on the files it finds:
+
+- `.env.production` → `production`
+- `.env.staging` → `staging`
+- `docker-compose.prod.yml` → `production`
+- `docker-compose.staging.yml` → `staging`
+
+If nothing suggests an environment, `production` is the default.
+
+### App setting: `bootstrap_mode`
+
+Controls what the GUI does when you add a project:
+
+| Mode | Behaviour |
+| ---- | --------- |
+| `confirm` (default) | Scan and show a review modal — you check/uncheck names and classifications before writing |
+| `silent` | Scan and write configs immediately, no review |
+| `off` | Skip the scan entirely |
+
+Set it from the desktop Settings panel, or edit `<data_dir>/settings.toml`:
+
+```toml
+bootstrap_mode = "silent"
+```
+
+### Apply modes (CLI)
+
+| Flag | Behaviour |
+| ---- | --------- |
+| _(default)_ | Refuses to write if `environments.toml` or `secrets.toml` already exists |
+| `--merge` | Appends only newly-detected names; never modifies existing entries |
+| `--dry-run` | Prints what would be written without touching the filesystem |
+| `--silent` | Skip the per-name preview table (still writes) |
+
+## Importers
+
+Adapters for pulling references (and optionally values) from external sources.
+
+| Source | Names | Values | Notes |
+| ------ | ----- | ------ | ----- |
+| `dotenv` | ✓ | ✓ | Parses `KEY=VALUE`, supports quoted values + `export` prefix |
+| `vercel` | ✓ | ✓ | Names via `vercel env ls --json`; values via `vercel env pull`. Requires `vercel login` + `vercel link`. |
+| `railway` | ✓ | ✓ | Single call to `railway variables --json`. Requires `railway login` + `railway link`. |
+| `fly` | ✓ | ✗ | Names from `flyctl secrets list --json`. Fly's secrets API is write-only by design. |
+
+All importers reuse the bootstrap classifier — a name detected as `STRIPE_SECRET` will land in `secrets.toml` regardless of which adapter found it.
+
+```bash
+# Pull a .env file end-to-end (variables to environments.toml,
+# secret values into the keychain)
+chibby import dotenv .env.production --env production --with-values
+
+# Bring Vercel's production env into Chibby
+chibby import vercel --env production --with-values
+
+# Round-trip — re-emit a .env file from Chibby's configs
+chibby export dotenv --env production --out .env.production.local
+```
+
+## Safety features
+
+### Audit metadata
+
+Every set/delete on a secret value is recorded under `<chibby_data_dir>/secret_audit/<repo_hash>.json` with:
+
+- `last_set` / `last_deleted` timestamps (UTC)
+- `set_count` / `delete_count`
+- `last_provenance` — `cli`, `gui`, `import:vercel`, `import:dotenv`, etc.
+
+Inspect via `chibby audit list` or `chibby audit show NAME --env ENV`. Useful for "when did I last rotate this?" and "is this secret still in use anywhere?" questions during incident response.
+
+The audit file lives in the user's Chibby data dir, not the repo — so it never gets accidentally committed and follows the user across project clones.
+
+### Leak scanning
+
+`environments.toml` is *only* for non-secret config. If a token-shaped value lands in a variable by accident, Chibby flags it:
+
+- On every `save_environments` call, a warning is logged.
+- `chibby env scan-leaks` runs an explicit scan and exits non-zero when anything matches.
+- Patterns covered: GitHub PATs, GitHub fine-grained PATs, GitLab PATs, OpenAI / Anthropic API keys, Slack tokens, Stripe keys, SendGrid keys, AWS access key IDs, Twilio keys, private-key blocks, database URLs with embedded credentials.
+- Previews are redacted (`ghp_…(40 chars)`) — the suspect value is never echoed verbatim in logs or output.
+
+A separate full-repo gitleaks-backed scan is available via `chibby scan secrets` (configured in `.chibby/gates.toml`) and includes `.chibby/*.toml` files by default.
 
 ## How keychain storage works
 
