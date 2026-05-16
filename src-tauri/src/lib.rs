@@ -133,6 +133,9 @@ pub fn run() {
             env_commands::scan_bootstrap,
             env_commands::apply_bootstrap,
             env_commands::auto_bootstrap_for_project,
+            env_commands::run_importer,
+            env_commands::importer_cli_status,
+            env_commands::export_dotenv,
             env_commands::run_preflight,
             // Version commands
             version_commands::detect_versions,

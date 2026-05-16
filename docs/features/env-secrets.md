@@ -187,6 +187,31 @@ bootstrap_mode = "silent"
 | `--dry-run` | Prints what would be written without touching the filesystem |
 | `--silent` | Skip the per-name preview table (still writes) |
 
+## Importers
+
+Adapters for pulling references (and optionally values) from external sources.
+
+| Source | Names | Values | Notes |
+| ------ | ----- | ------ | ----- |
+| `dotenv` | ✓ | ✓ | Parses `KEY=VALUE`, supports quoted values + `export` prefix |
+| `vercel` | ✓ | ✓ | Names via `vercel env ls --json`; values via `vercel env pull`. Requires `vercel login` + `vercel link`. |
+| `railway` | ✓ | ✓ | Single call to `railway variables --json`. Requires `railway login` + `railway link`. |
+| `fly` | ✓ | ✗ | Names from `flyctl secrets list --json`. Fly's secrets API is write-only by design. |
+
+All importers reuse the bootstrap classifier — a name detected as `STRIPE_SECRET` will land in `secrets.toml` regardless of which adapter found it.
+
+```bash
+# Pull a .env file end-to-end (variables to environments.toml,
+# secret values into the keychain)
+chibby import dotenv .env.production --env production --with-values
+
+# Bring Vercel's production env into Chibby
+chibby import vercel --env production --with-values
+
+# Round-trip — re-emit a .env file from Chibby's configs
+chibby export dotenv --env production --out .env.production.local
+```
+
 ## How keychain storage works
 
 | OS | Backend |

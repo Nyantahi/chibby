@@ -9,6 +9,10 @@ use chibby_lib::engine::models::{
     StageStatus as EngineStageStatus,
 };
 use chibby_lib::engine::bootstrap::{self, ApplyMode, Classification};
+use chibby_lib::engine::importers::{
+    self, dotenv::DotEnvImporter, flyio::FlyImporter, railway::RailwayImporter,
+    vercel::VercelImporter, ApplyOptions, ImportContext, ImportReport, Importer,
+};
 use chibby_lib::engine::{persistence, pipeline, preflight, run_support, secrets as secrets_engine};
 use clap::{Parser, Subcommand};
 use owo_colors::OwoColorize;
@@ -207,6 +211,14 @@ enum Commands {
         merge: bool,
     },
 
+    /// Import env/secrets from .env, Vercel, Railway, or Fly.io
+    #[command(subcommand)]
+    Import(ImportCmd),
+
+    /// Export environment + secret values to a .env file
+    #[command(subcommand)]
+    Export(ExportCmd),
+
     /// Stream logs from a run
     Logs {
         /// Run ID
@@ -270,6 +282,68 @@ enum PipelineCmd {
     },
     /// Edit pipeline in $EDITOR
     Edit {
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ImportCmd {
+    /// Import names (and optionally values) from a .env file
+    Dotenv {
+        /// Path to the .env file
+        path: PathBuf,
+        /// Target environment to merge into
+        #[arg(short, long, default_value = "production")]
+        env: String,
+        /// Also pull values (variables -> environments.toml, secrets -> keychain)
+        #[arg(long)]
+        with_values: bool,
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Import env vars from Vercel via `vercel env`
+    Vercel {
+        /// Target environment ("production" maps to Vercel's `production`)
+        #[arg(short, long, default_value = "production")]
+        env: String,
+        /// Pull values via `vercel env pull` (otherwise names only)
+        #[arg(long)]
+        with_values: bool,
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Import env vars from Railway via `railway variables`
+    Railway {
+        #[arg(short, long, default_value = "production")]
+        env: String,
+        #[arg(long)]
+        with_values: bool,
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Import secret names from Fly.io via `flyctl secrets list` (names only — Fly is write-only)
+    Fly {
+        #[arg(short, long, default_value = "production")]
+        env: String,
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ExportCmd {
+    /// Export resolved variables + secret values to a .env file
+    Dotenv {
+        /// Source environment
+        #[arg(short, long, default_value = "production")]
+        env: String,
+        /// Output path (parent dirs created if needed)
+        #[arg(short, long, default_value = ".env.chibby")]
+        out: PathBuf,
         /// Project path
         #[arg(short, long)]
         project: Option<PathBuf>,
@@ -656,6 +730,10 @@ async fn main() {
             dry_run,
             merge,
         }) => bootstrap_cmd(&printer, project.as_ref(), *silent, *dry_run, *merge).await,
+
+        Some(Commands::Import(cmd)) => handle_import(&printer, cmd).await,
+
+        Some(Commands::Export(cmd)) => handle_export(&printer, cmd).await,
 
         Some(Commands::Preflight { env, project }) => {
             run_preflight(&printer, env.as_deref(), project.as_ref()).await
@@ -1631,6 +1709,138 @@ async fn bootstrap_cmd(
         }
         Err(e) => return Err(e.into()),
     }
+    Ok(())
+}
+
+async fn handle_import(printer: &Printer, cmd: &ImportCmd) -> anyhow::Result<()> {
+    let (report, repo_path) = match cmd {
+        ImportCmd::Dotenv {
+            path,
+            env,
+            with_values,
+            project,
+        } => {
+            let repo = project_path(project.as_ref());
+            let ctx = ImportContext {
+                repo_path: repo.clone(),
+                env_name: env.clone(),
+                source_path: Some(path.clone()),
+                include_values: *with_values,
+            };
+            (DotEnvImporter.run(&ctx)?, repo)
+        }
+        ImportCmd::Vercel {
+            env,
+            with_values,
+            project,
+        } => {
+            let repo = project_path(project.as_ref());
+            let ctx = ImportContext {
+                repo_path: repo.clone(),
+                env_name: env.clone(),
+                source_path: None,
+                include_values: *with_values,
+            };
+            (VercelImporter.run(&ctx)?, repo)
+        }
+        ImportCmd::Railway {
+            env,
+            with_values,
+            project,
+        } => {
+            let repo = project_path(project.as_ref());
+            let ctx = ImportContext {
+                repo_path: repo.clone(),
+                env_name: env.clone(),
+                source_path: None,
+                include_values: *with_values,
+            };
+            (RailwayImporter.run(&ctx)?, repo)
+        }
+        ImportCmd::Fly { env, project } => {
+            let repo = project_path(project.as_ref());
+            let ctx = ImportContext {
+                repo_path: repo.clone(),
+                env_name: env.clone(),
+                source_path: None,
+                include_values: false,
+            };
+            (FlyImporter.run(&ctx)?, repo)
+        }
+    };
+
+    printer.header(&format!("{} Import from {}", icons::GEAR, report.source));
+    printer.kv("Env", &report.env_name);
+    printer.kv("Detected", &report.entries.len().to_string());
+    printer.newline();
+
+    print_import_report(printer, &report);
+
+    let applied = importers::apply_report(&report, &repo_path, ApplyOptions::default())?;
+    printer.newline();
+    printer.success(&format!(
+        "Variables: {} added ({} with values), Secret refs: {} added ({} values stored in keychain)",
+        applied.variables_added,
+        applied.variables_value_set,
+        applied.secrets_ref_added,
+        applied.secrets_value_saved
+    ));
+    if applied.secrets_value_saved == 0
+        && report
+            .entries
+            .iter()
+            .any(|e| e.classification == Classification::Secret)
+    {
+        printer.info(
+            "No secret values were stored. Re-run with `--with-values` (where supported) or set them with `chibby secrets set NAME --env <env>`.",
+        );
+    }
+    Ok(())
+}
+
+fn print_import_report(printer: &Printer, report: &ImportReport) {
+    let mut secrets: Vec<&_> = report
+        .entries
+        .iter()
+        .filter(|e| e.classification == Classification::Secret)
+        .collect();
+    let mut vars: Vec<&_> = report
+        .entries
+        .iter()
+        .filter(|e| e.classification == Classification::Variable)
+        .collect();
+    secrets.sort_by(|a, b| a.name.cmp(&b.name));
+    vars.sort_by(|a, b| a.name.cmp(&b.name));
+
+    if !vars.is_empty() {
+        printer.subheader(&format!("Variables ({})", vars.len()));
+        for v in &vars {
+            let label = if v.value.is_some() { "value" } else { "name only" };
+            printer.kv(&v.name, label);
+        }
+        printer.newline();
+    }
+    if !secrets.is_empty() {
+        printer.subheader(&format!("Secrets ({})", secrets.len()));
+        for s in &secrets {
+            let label = if s.value.is_some() { "value" } else { "name only" };
+            printer.kv(&s.name, label);
+        }
+    }
+}
+
+async fn handle_export(printer: &Printer, cmd: &ExportCmd) -> anyhow::Result<()> {
+    let ExportCmd::Dotenv { env, out, project } = cmd;
+    let repo = project_path(project.as_ref());
+    let lines = importers::export_dotenv(&repo, env, out)?;
+    printer.success(&format!(
+        "Wrote {} lines to {}",
+        lines,
+        out.display()
+    ));
+    printer.info(
+        "This file may contain plaintext secrets — keep it out of git and treat it like a credential.",
+    );
     Ok(())
 }
 

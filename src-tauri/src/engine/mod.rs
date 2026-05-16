@@ -10,6 +10,7 @@ pub mod cleanup;
 pub mod detector;
 pub mod executor;
 pub mod gates;
+pub mod importers;
 pub mod models;
 pub mod notify;
 pub mod persistence;

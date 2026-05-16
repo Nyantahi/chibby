@@ -199,6 +199,41 @@ chibby doctor -p /path/to/project
 
 Exits non-zero if any check fails — suitable for CI gating before a deploy.
 
+### Import
+
+Pull env/secret references from external sources into Chibby's configs. Each importer classifies names with the bootstrap heuristic and merges them into `environments.toml` + `secrets.toml`. Existing entries are never overwritten.
+
+```bash
+# From a .env file — names only (default)
+chibby import dotenv .env.production --env production
+
+# From a .env file — also pull values (vars to environments.toml,
+# secret values into the OS keychain)
+chibby import dotenv .env.production --env production --with-values
+
+# From Vercel (requires `vercel login` + `vercel link` in the project)
+chibby import vercel --env production
+chibby import vercel --env production --with-values   # runs `vercel env pull`
+
+# From Railway (requires `railway login` + `railway link`)
+chibby import railway --env production --with-values
+
+# From Fly.io (names only — Fly's secrets API is write-only by design)
+chibby import fly --env production
+```
+
+Each adapter fails with an actionable error message if the vendor CLI isn't installed or isn't authenticated.
+
+### Export
+
+Write resolved variables + secret values for an environment to a `.env` file. Useful for `dev` workflows that need a plain `.env` to point a local app at production-equivalent config without spelunking through keychain entries.
+
+```bash
+chibby export dotenv --env production --out .env.production.local
+```
+
+Output includes a `Do not commit` header. Variables come from the layered `environments.toml`; secret values are resolved from the keychain. Missing secrets are emitted as commented placeholders so the user knows what's still unset.
+
 ### Bootstrap
 
 Scan a project for env/secret references and populate `.chibby/environments.toml` + `.chibby/secrets.toml` with the detected names. Values stay empty — set them with `chibby secrets set` / `chibby env vars set` afterwards.
