@@ -7,7 +7,7 @@
 #   brew install --cask chibby
 
 cask "chibby" do
-  version "0.1.0"
+  version "0.1.28"
 
   on_arm do
     url "https://github.com/Nyantahi/chibby/releases/download/v#{version}/Chibby_#{version}_aarch64.dmg"

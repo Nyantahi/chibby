@@ -167,6 +167,10 @@ fn builtin_template_entries() -> Vec<(&'static str, &'static str)> {
             "akamai-edgeworkers-deploy.toml",
             include_str!("../../templates/stages/akamai-edgeworkers-deploy.toml"),
         ),
+        (
+            "vercel-deploy.toml",
+            include_str!("../../templates/stages/vercel-deploy.toml"),
+        ),
     ]
 }
 

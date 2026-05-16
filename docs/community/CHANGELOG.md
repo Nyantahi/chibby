@@ -7,6 +7,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.34] - 2026-05-08
+
+### Fixed
+
+- **Phantom duplicate config files on macOS/Windows** — `Makefile` (or any case-only variant) is no longer reported as a conflict against itself, and the "Detected Files" sidebar lists it once. `Path::exists()` is case-insensitive on APFS/NTFS, so probing each candidate name separately double-counted a single on-disk file; detection now intersects pattern names against actual directory entries.
+- Same fix applied to subdirectory script detection (`frontend/`, `backend/`, …) so a single `Makefile` in a subdir is not duplicated.
+
+## [0.1.32] - 2026-05-01
+
+### Fixed
+
+- **Pipeline generation ignores custom Tauri/Rust subdirectory layout** — projects whose `Cargo.toml` and `tauri.conf.json` live in a non-standard folder (e.g. `backend/`) no longer lose their cargo-build, cargo-test, and tauri-build stages when creating a project or hitting Regenerate in the pipeline editor.
+- Root-level Cargo/Tauri detection now uses exact filename matching (`has_file`) so a `backend/Cargo.toml` cannot trigger the standard `src-tauri/` stage logic.
+
+### Added
+
+- `ProjectFolder` struct gains `has_rust` and `has_tauri` fields; `detect_project_folders` now recognises Rust (`Cargo.toml`) subdirectories alongside Node.js and Python ones.
+- Subdir Rust stage generation in the project-folders loop: emits `cargo build --release --manifest-path <subdir>/Cargo.toml`, `cargo test --manifest-path <subdir>/Cargo.toml`, and `npx tauri build -c <subdir>/tauri.conf.json` when a subdirectory contains a custom Tauri config.
+
+## [0.1.29] - 2026-04-11
+
+### Added
+
+- **Deployment configuration step** in project creation wizard for selecting deployment method
+- **Auto-create environments.toml** with sensible defaults when deploy pipeline is generated
+  - SSH-based deploys (Docker Compose SSH, Docker Registry, rsync) create production + staging
+  - PaaS deploys (Fly.io, Render, Railway, Vercel, Netlify, S3) create production only
+- **Fullstack project detection** for monorepos with frontend/backend/admin folders
+- **Multi-folder pipeline generation** with per-folder stages (install, test, build)
+- GitHub Actions deploy workflow parsing integrated into pipeline generation
+- Scripts directory detection (`scripts/`) for shell script discovery
+- Docker Compose variant detection (`docker-compose.prod.yml`, `docker-compose.staging.yml`, etc.)
+- Python test icons (pytest, test directories) in detected files list
+- Tooltip on detected files showing full file path
+
+### Fixed
+
+- Grey out disabled pipeline/target dropdowns instead of hiding them
+- Always show pipeline and target dropdowns for consistent UI layout
+- Only generate root npm stages when root `package.json` exists (fixes duplicate stages)
+- Only generate root Python stages when root `requirements.txt` exists
+- Use `npm install` instead of `npm ci` for broader compatibility
+- Git branch text overflow with ellipsis for long branch names
+
+### Changed
+
+- Widen page max-width from 960px to 1600px for better screen utilization
+
+## [0.1.28] - 2026-04-04
+
+### Security
+
+- **Critical**: Prevent path traversal in pipeline save/load via name validation
+- **Critical**: Sanitize log lines in agent context to block prompt injection
+- **Critical**: Redact secret patterns (passwords, API keys, tokens) before sending logs to AI APIs
+- **Critical**: Validate environment variable names in SSH export commands
+- **Critical**: Fix keychain key collision using percent-encoded delimiters
+- **Critical**: Validate SSH host to prevent option injection
+- **High**: Add input length limits to agent chat (8 KB) and pipeline generation (16 KB)
+- **High**: Add rate limiting to AI API calls (15 requests/minute token bucket)
+- **High**: Set restrictive permissions (chmod 700) on app data directory on Unix
+- **Medium**: Validate environment variable names in frontend EnvironmentEditor
+- **Medium**: Add audit logging for sensitive operations (secrets, API keys, environments)
+- **Medium**: Validate agent-generated pipeline save paths stay within project directory
+
+### Added
+
+- `security:audit` npm script for running `cargo audit` on Rust dependencies
+- Audit log file (`<data_dir>/audit.log`) for tracking sensitive operations
+
+### Fixed
+
+- Version displayed in sidebar now fetched dynamically from backend instead of hardcoded
+- Synced version across all config files (package.json, Cargo.toml, tauri.conf.json, Homebrew formulas)
+
 ## [0.1.26] - 2026-04-03
 
 ### Added
