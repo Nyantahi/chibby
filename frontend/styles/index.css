@@ -191,13 +191,13 @@ a:hover {
    ============================================================ */
 
 .page {
-  max-width: 960px;
+  max-width: 1600px;
 }
 
 .page-with-sidebar {
   display: flex;
   gap: var(--space-xl);
-  max-width: 1200px;
+  max-width: 1600px;
   overflow: hidden;
 }
 
@@ -259,6 +259,10 @@ a:hover {
   margin-top: var(--space-sm);
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
+  flex-wrap: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .git-info svg {
@@ -268,6 +272,10 @@ a:hover {
 .git-branch {
   font-weight: 600;
   color: var(--color-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .git-commit {
@@ -1173,6 +1181,102 @@ select.input {
 .wizard-summary-value {
   font-weight: 500;
   font-family: var(--font-mono);
+}
+
+/* Deploy method selection */
+
+.wizard-deploy-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+}
+
+.wizard-deploy-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  background: var(--color-bg);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+  text-align: center;
+  color: var(--color-text);
+  font-family: inherit;
+}
+
+.wizard-deploy-card:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  background: var(--color-surface-hover);
+}
+
+.wizard-deploy-card.selected {
+  border-color: var(--color-primary);
+  background: var(--color-primary-subtle);
+}
+
+.wizard-deploy-card:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.wizard-deploy-card .deploy-icon {
+  color: var(--color-primary);
+}
+
+.wizard-deploy-card .deploy-title {
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.wizard-deploy-card .deploy-desc {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  line-height: 1.3;
+}
+
+/* Deploy configuration form */
+
+.wizard-deploy-config {
+  padding: var(--space-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-lg);
+}
+
+.wizard-deploy-config h5 {
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-md);
+  color: var(--color-text);
+}
+
+.wizard-deploy-config .form-group {
+  margin-bottom: var(--space-md);
+}
+
+.wizard-deploy-config .form-group:last-child {
+  margin-bottom: 0;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+}
+
+.checkbox-label input[type='checkbox'] {
+  accent-color: var(--color-primary);
+  width: 16px;
+  height: 16px;
 }
 
 /* ============================================================
@@ -2132,6 +2236,12 @@ select.input {
   cursor: pointer;
 }
 
+.env-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--color-surface);
+}
+
 /* Secrets Manager */
 .secret-list {
   display: flex;
@@ -2822,12 +2932,12 @@ select.input {
    ============================================================ */
 
 .project-sidebar {
-  width: 270px;
+  width: 340px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
-  padding-top: 140px; /* align below header + action bar */
+  padding-top: 0;
 }
 
 .project-sidebar-card {

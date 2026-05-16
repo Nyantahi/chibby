@@ -4,10 +4,14 @@
 /// independent of the Tauri UI layer.
 pub mod app_settings;
 pub mod artifacts;
+pub mod audit;
+pub mod bootstrap;
 pub mod cleanup;
 pub mod detector;
 pub mod executor;
 pub mod gates;
+pub mod importers;
+pub mod leak_scanner;
 pub mod models;
 pub mod notify;
 pub mod persistence;
@@ -15,6 +19,7 @@ pub mod pipeline;
 pub mod preflight;
 pub mod recommendations;
 pub mod run_support;
+pub mod secret_audit;
 pub mod secrets;
 pub mod signing;
 pub mod templates;
