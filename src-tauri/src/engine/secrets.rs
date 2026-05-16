@@ -4,9 +4,21 @@ use std::collections::HashMap;
 
 const SERVICE_NAME: &str = "chibby";
 
+/// Encode a segment for use in a keychain account key.
+/// Replaces the delimiter character '|' so no segment can spoof another.
+fn encode_key_segment(s: &str) -> String {
+    s.replace('%', "%25").replace('|', "%7C")
+}
+
 /// Build a deterministic keychain account key for a secret.
+/// Uses '|' as delimiter with percent-encoding to prevent key collisions.
 fn account_key(project_path: &str, env_name: &str, secret_name: &str) -> String {
-    format!("{}:{}:{}", project_path, env_name, secret_name)
+    format!(
+        "{}|{}|{}",
+        encode_key_segment(project_path),
+        encode_key_segment(env_name),
+        encode_key_segment(secret_name)
+    )
 }
 
 /// Store a secret value in the OS keychain.

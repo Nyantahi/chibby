@@ -1,6 +1,6 @@
 # Pipeline Templates
 
-Chibby's template system lets you create, share, and reuse pipeline configurations across projects. Templates come in two flavors: **full pipelines** (complete multi-stage configurations) and **stage snippets** (individual stages you can add to any pipeline). Chibby ships with 20 built-in templates.
+Chibby's template system lets you create, share, and reuse pipeline configurations across projects. Templates come in two flavors: **full pipelines** (complete multi-stage configurations) and **stage snippets** (individual stages you can add to any pipeline). Chibby ships with 21 built-in templates.
 
 ## Template Resolution
 
@@ -16,7 +16,7 @@ If a project template has the same name as a built-in template, the project vers
 
 ## Built-in Templates
 
-Chibby ships with 19 built-in templates covering common languages and deployment patterns.
+Chibby ships with built-in templates covering common languages and deployment patterns.
 
 ### Full Pipeline Templates (9)
 
@@ -32,7 +32,7 @@ Chibby ships with 19 built-in templates covering common languages and deployment
 | Tauri Desktop | rust | Frontend build, Tauri bundle, and code signing |
 | Docker Compose Deploy | docker | Build, push, deploy via docker-compose over SSH |
 
-### Stage Snippet Templates (11)
+### Stage Snippet Templates (12)
 
 | Template | Category | Description |
 | -------- | -------- | ----------- |
@@ -47,6 +47,7 @@ Chibby ships with 19 built-in templates covering common languages and deployment
 | Version Bump & Tag | deployment | Bump semver (patch/minor/major), commit, tag, and push |
 | Homebrew Tap Publish | deployment | Update and push a formula in your own Homebrew tap repository |
 | Homebrew Core PR | deployment | Submit a PR to homebrew-core or homebrew-cask to update your formula |
+| Vercel Deploy | deployment | Deploy a frontend or serverless project to Vercel via the Vercel CLI |
 
 ## Template Variables
 

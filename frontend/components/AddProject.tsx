@@ -12,30 +12,206 @@ import {
   Plus,
   BookTemplate,
   X,
+  Rocket,
+  Package,
+  Container,
+  Cloud,
+  Tag,
+  SkipForward,
+  Server,
+  Plane,
 } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
   addProject,
   detectScripts,
-  generatePipeline,
+  generatePipelineWithDeploy,
   savePipeline,
   getGithubWorkflows,
   workflowsToPipelineStages,
+  detectDeploymentMethod,
+  getSuggestedDeployMethods,
+  detectProjectType,
 } from '../services/api';
 import { repoNameFromPath } from '../utils/format';
 import { FileTypeIcon } from './FileTypeIcon';
 import TemplateBrowser from './TemplateBrowser';
 import TemplateVariableDialog from './TemplateVariableDialog';
-import type { DetectedScript, Pipeline, PipelineTemplate, Stage, WorkflowInfo } from '../types';
+import type {
+  DetectedScript,
+  Pipeline,
+  PipelineTemplate,
+  Stage,
+  WorkflowInfo,
+  DeploymentMethod,
+  DeploymentConfig,
+  ProjectType,
+} from '../types';
 
-type WizardStep = 'select' | 'source' | 'configure' | 'review' | 'done';
+type WizardStep = 'select' | 'source' | 'configure' | 'deploy' | 'review' | 'done';
 type PipelineSource = 'auto' | 'github' | 'template';
 
 const WIZARD_STEPS: { key: WizardStep; label: string }[] = [
   { key: 'select', label: 'Select' },
   { key: 'source', label: 'Source' },
-  { key: 'configure', label: 'Configure' },
+  { key: 'configure', label: 'CI Stages' },
+  { key: 'deploy', label: 'Deploy' },
   { key: 'review', label: 'Review' },
+];
+
+// Deployment method display information
+interface DeployMethodDisplay {
+  method: DeploymentMethod;
+  label: string;
+  description: string;
+  icon: React.ReactNode;
+  requiresSshHost: boolean;
+  requiresRegistry: boolean;
+  requiresHealthCheck: boolean;
+  requiresPlatformProject: boolean;
+}
+
+const DEPLOY_METHOD_INFO: DeployMethodDisplay[] = [
+  {
+    method: 'auto_detect',
+    label: 'Auto-detect',
+    description: 'Use GitHub Actions deploy workflow',
+    icon: <Wand2 size={20} />,
+    requiresSshHost: false,
+    requiresRegistry: false,
+    requiresHealthCheck: false,
+    requiresPlatformProject: false,
+  },
+  {
+    method: 'docker_compose_ssh',
+    label: 'Docker Compose SSH',
+    description: 'Deploy with docker compose over SSH',
+    icon: <Container size={20} />,
+    requiresSshHost: true,
+    requiresRegistry: false,
+    requiresHealthCheck: true,
+    requiresPlatformProject: false,
+  },
+  {
+    method: 'docker_registry',
+    label: 'Docker Registry',
+    description: 'Push to registry, pull on server',
+    icon: <Container size={20} />,
+    requiresSshHost: true,
+    requiresRegistry: true,
+    requiresHealthCheck: false,
+    requiresPlatformProject: false,
+  },
+  {
+    method: 'cargo_publish',
+    label: 'Cargo Publish',
+    description: 'Publish to crates.io',
+    icon: <Package size={20} />,
+    requiresSshHost: false,
+    requiresRegistry: false,
+    requiresHealthCheck: false,
+    requiresPlatformProject: false,
+  },
+  {
+    method: 'npm_publish',
+    label: 'npm Publish',
+    description: 'Publish to npm registry',
+    icon: <Package size={20} />,
+    requiresSshHost: false,
+    requiresRegistry: false,
+    requiresHealthCheck: false,
+    requiresPlatformProject: false,
+  },
+  {
+    method: 'github_release',
+    label: 'GitHub Release',
+    description: 'Create release with binaries',
+    icon: <Tag size={20} />,
+    requiresSshHost: false,
+    requiresRegistry: false,
+    requiresHealthCheck: false,
+    requiresPlatformProject: false,
+  },
+  {
+    method: 'ssh_rsync',
+    label: 'SSH + rsync',
+    description: 'Sync files to server via rsync',
+    icon: <Server size={20} />,
+    requiresSshHost: true,
+    requiresRegistry: false,
+    requiresHealthCheck: false,
+    requiresPlatformProject: false,
+  },
+  {
+    method: 'flyio',
+    label: 'Fly.io',
+    description: 'Deploy to Fly.io',
+    icon: <Plane size={20} />,
+    requiresSshHost: false,
+    requiresRegistry: false,
+    requiresHealthCheck: true,
+    requiresPlatformProject: true,
+  },
+  {
+    method: 'render',
+    label: 'Render',
+    description: 'Deploy to Render',
+    icon: <Cloud size={20} />,
+    requiresSshHost: false,
+    requiresRegistry: false,
+    requiresHealthCheck: false,
+    requiresPlatformProject: false,
+  },
+  {
+    method: 'railway',
+    label: 'Railway',
+    description: 'Deploy to Railway',
+    icon: <Cloud size={20} />,
+    requiresSshHost: false,
+    requiresRegistry: false,
+    requiresHealthCheck: false,
+    requiresPlatformProject: false,
+  },
+  {
+    method: 'netlify',
+    label: 'Netlify',
+    description: 'Deploy to Netlify',
+    icon: <Cloud size={20} />,
+    requiresSshHost: false,
+    requiresRegistry: false,
+    requiresHealthCheck: false,
+    requiresPlatformProject: false,
+  },
+  {
+    method: 'vercel',
+    label: 'Vercel',
+    description: 'Deploy to Vercel',
+    icon: <Cloud size={20} />,
+    requiresSshHost: false,
+    requiresRegistry: false,
+    requiresHealthCheck: false,
+    requiresPlatformProject: false,
+  },
+  {
+    method: 's3_static',
+    label: 'S3 Static',
+    description: 'Deploy to AWS S3',
+    icon: <Cloud size={20} />,
+    requiresSshHost: false,
+    requiresRegistry: false,
+    requiresHealthCheck: false,
+    requiresPlatformProject: true,
+  },
+  {
+    method: 'skip',
+    label: 'Skip',
+    description: 'CI only, no deployment',
+    icon: <SkipForward size={20} />,
+    requiresSshHost: false,
+    requiresRegistry: false,
+    requiresHealthCheck: false,
+    requiresPlatformProject: false,
+  },
 ];
 
 // Missing-stage suggestion rules: detected file -> keyword to look for in commands -> suggested stage
@@ -148,6 +324,16 @@ function AddProject() {
   // Template pre-selected from the Templates page — waits for repo selection before applying
   const [pendingTemplate, setPendingTemplate] = useState<PipelineTemplate | null>(null);
 
+  // Deployment state
+  const [projectType, setProjectType] = useState<ProjectType>('Unknown');
+  const [detectedDeployMethod, setDetectedDeployMethod] = useState<DeploymentMethod>('skip');
+  const [suggestedDeployMethods, setSuggestedDeployMethods] = useState<DeploymentMethod[]>([]);
+  const [selectedDeployMethod, setSelectedDeployMethod] = useState<DeploymentMethod>('skip');
+  const [deployConfig, setDeployConfig] = useState<DeploymentConfig>({
+    method: 'skip',
+    dry_run_first: true,
+  });
+
   // Pick up template passed from the Templates page via router state
   useEffect(() => {
     const state = location.state as { template?: PipelineTemplate; editMode?: boolean } | null;
@@ -161,7 +347,7 @@ function AddProject() {
 
   const currentStepIdx = WIZARD_STEPS.findIndex((s) => s.key === step);
 
-  // Scan repo: detect scripts, generate auto pipeline, check for workflows
+  // Scan repo: detect scripts, generate auto pipeline, check for workflows, detect deployment
   async function handleScan() {
     if (!repoPath.trim()) {
       setError('Please enter a repository path.');
@@ -173,16 +359,28 @@ function AddProject() {
       const name = repoName.trim() || repoNameFromPath(repoPath);
       setRepoName(name);
 
-      const [detected, pipeline, wfs] = await Promise.all([
-        detectScripts(repoPath),
-        generatePipeline(repoPath, name),
-        getGithubWorkflows(repoPath).catch(() => [] as WorkflowInfo[]),
-      ]);
+      const [detected, pipeline, wfs, detectedDeploy, suggestedDeploys, projType] =
+        await Promise.all([
+          detectScripts(repoPath),
+          generatePipelineWithDeploy(repoPath, name, undefined), // Generate without deploy for now
+          getGithubWorkflows(repoPath).catch(() => [] as WorkflowInfo[]),
+          detectDeploymentMethod(repoPath).catch(() => 'skip' as DeploymentMethod),
+          getSuggestedDeployMethods(repoPath).catch(() => ['skip'] as DeploymentMethod[]),
+          detectProjectType(repoPath).catch(() => 'Unknown' as ProjectType),
+        ]);
 
       setScripts(detected);
       setAutoDraft(pipeline);
       setDraft(pipeline);
       setWorkflows(wfs);
+      setProjectType(projType);
+      setDetectedDeployMethod(detectedDeploy);
+      setSuggestedDeployMethods(suggestedDeploys);
+      setSelectedDeployMethod(detectedDeploy);
+      setDeployConfig({
+        method: detectedDeploy,
+        dry_run_first: true,
+      });
 
       // Initialize stage selection from auto draft
       const sel: Record<number, boolean> = {};
@@ -271,6 +469,12 @@ function AddProject() {
         const filtered: Pipeline = { name: draft.name, stages: selectedStages };
         await savePipeline(repoPath, filtered);
       }
+
+      // Generate deploy pipeline if deployment method is not skip
+      if (deployConfig.method !== 'skip') {
+        await generatePipelineWithDeploy(repoPath, repoName, deployConfig);
+      }
+
       await addProject(repoName, repoPath);
 
       setStep('done');
@@ -281,6 +485,22 @@ function AddProject() {
       setLoading(false);
     }
   }
+
+  // Helper to select a deployment method
+  function handleSelectDeployMethod(method: DeploymentMethod) {
+    setSelectedDeployMethod(method);
+    setDeployConfig((prev) => ({ ...prev, method }));
+  }
+
+  // Get available deploy methods for the current project
+  const availableDeployMethods = DEPLOY_METHOD_INFO.filter((info) =>
+    suggestedDeployMethods.includes(info.method)
+  );
+
+  // Get the selected method info
+  const selectedMethodInfo = DEPLOY_METHOD_INFO.find(
+    (info) => info.method === selectedDeployMethod
+  );
 
   async function handleSkipPipeline() {
     try {
@@ -551,7 +771,7 @@ function AddProject() {
             </button>
             <button
               className="btn btn-primary"
-              onClick={() => (anySelected ? setStep('review') : handleCreate())}
+              onClick={() => (anySelected ? setStep('deploy') : handleCreate())}
               disabled={loading}
             >
               {anySelected ? 'Continue' : 'Skip Pipeline & Create'}
@@ -561,7 +781,168 @@ function AddProject() {
         </div>
       )}
 
-      {/* Step 4: Review */}
+      {/* Step 4: Deploy */}
+      {step === 'deploy' && (
+        <div className="onboarding-card onboarding-card--wide">
+          <div className="onboarding-icon">
+            <Rocket size={32} />
+          </div>
+          <h3>Configure Deployment</h3>
+          <p>
+            Choose how to deploy your <strong>{projectType}</strong> project, or skip to CI only.
+            {detectedDeployMethod !== 'skip' && (
+              <span className="text-muted">
+                {' '}
+                (Detected: <code>{detectedDeployMethod.replace(/_/g, ' ')}</code>)
+              </span>
+            )}
+          </p>
+
+          <div className="wizard-deploy-options">
+            {availableDeployMethods.map((info) => (
+              <button
+                key={info.method}
+                className={`wizard-deploy-card${selectedDeployMethod === info.method ? ' selected' : ''}`}
+                onClick={() => handleSelectDeployMethod(info.method)}
+              >
+                <span className="deploy-icon">{info.icon}</span>
+                <span className="deploy-title">{info.label}</span>
+                <span className="deploy-desc">{info.description}</span>
+                {detectedDeployMethod === info.method && info.method !== 'skip' && (
+                  <span className="badge badge-success" style={{ marginTop: '0.5rem' }}>
+                    Detected
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Configuration form for methods that need it */}
+          {selectedMethodInfo &&
+            (selectedMethodInfo.requiresSshHost ||
+              selectedMethodInfo.requiresRegistry ||
+              selectedMethodInfo.requiresHealthCheck ||
+              selectedMethodInfo.requiresPlatformProject) && (
+              <div className="wizard-deploy-config">
+                <h5>Configuration</h5>
+
+                {selectedMethodInfo.requiresSshHost && (
+                  <div className="form-group">
+                    <label htmlFor="ssh-host">SSH Host</label>
+                    <input
+                      id="ssh-host"
+                      type="text"
+                      className="input"
+                      placeholder="user@server.example.com"
+                      value={deployConfig.ssh_host || ''}
+                      onChange={(e) =>
+                        setDeployConfig((prev) => ({ ...prev, ssh_host: e.target.value }))
+                      }
+                    />
+                  </div>
+                )}
+
+                {selectedMethodInfo.requiresRegistry && (
+                  <div className="form-group">
+                    <label htmlFor="docker-registry">Docker Registry</label>
+                    <input
+                      id="docker-registry"
+                      type="text"
+                      className="input"
+                      placeholder="ghcr.io/username"
+                      value={deployConfig.docker_registry || ''}
+                      onChange={(e) =>
+                        setDeployConfig((prev) => ({ ...prev, docker_registry: e.target.value }))
+                      }
+                    />
+                  </div>
+                )}
+
+                {selectedMethodInfo.requiresHealthCheck && (
+                  <div className="form-group">
+                    <label htmlFor="health-check-url">Health Check URL (optional)</label>
+                    <input
+                      id="health-check-url"
+                      type="text"
+                      className="input"
+                      placeholder="/health"
+                      value={deployConfig.health_check_url || ''}
+                      onChange={(e) =>
+                        setDeployConfig((prev) => ({ ...prev, health_check_url: e.target.value }))
+                      }
+                    />
+                  </div>
+                )}
+
+                {selectedMethodInfo.requiresPlatformProject && (
+                  <div className="form-group">
+                    <label htmlFor="platform-project">
+                      {selectedDeployMethod === 's3_static' ? 'S3 Bucket Name' : 'App/Project Name'}
+                    </label>
+                    <input
+                      id="platform-project"
+                      type="text"
+                      className="input"
+                      placeholder={selectedDeployMethod === 's3_static' ? 'my-bucket' : 'my-app'}
+                      value={deployConfig.platform_project || ''}
+                      onChange={(e) =>
+                        setDeployConfig((prev) => ({ ...prev, platform_project: e.target.value }))
+                      }
+                    />
+                  </div>
+                )}
+
+                {(selectedDeployMethod === 'cargo_publish' ||
+                  selectedDeployMethod === 'npm_publish') && (
+                  <div className="form-group">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={deployConfig.dry_run_first ?? true}
+                        onChange={(e) =>
+                          setDeployConfig((prev) => ({ ...prev, dry_run_first: e.target.checked }))
+                        }
+                      />
+                      Run dry-run first (recommended)
+                    </label>
+                  </div>
+                )}
+
+                {selectedDeployMethod === 'docker_compose_ssh' && (
+                  <div className="form-group">
+                    <label htmlFor="compose-file">Compose File (optional)</label>
+                    <input
+                      id="compose-file"
+                      type="text"
+                      className="input"
+                      placeholder="docker-compose.prod.yml"
+                      value={deployConfig.compose_file || ''}
+                      onChange={(e) =>
+                        setDeployConfig((prev) => ({ ...prev, compose_file: e.target.value }))
+                      }
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+          <div className="form-actions">
+            <button className="btn btn-secondary" onClick={() => setStep('configure')}>
+              <ArrowLeft size={16} /> Back
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={() => setStep('review')}
+              disabled={loading}
+            >
+              Continue
+              <ArrowRight size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 5: Review */}
       {step === 'review' && draft && (
         <div className="onboarding-card onboarding-card--wide">
           <h3>Review & create</h3>
@@ -577,17 +958,33 @@ function AddProject() {
               <span className="wizard-summary-value">{repoPath}</span>
             </div>
             <div className="wizard-summary-row">
-              <span className="wizard-summary-label">Source</span>
+              <span className="wizard-summary-label">Project Type</span>
+              <span className="wizard-summary-value">{projectType}</span>
+            </div>
+            <div className="wizard-summary-row">
+              <span className="wizard-summary-label">CI Source</span>
               <span className="wizard-summary-value">
-                {pipelineSource === 'github' ? 'GitHub Actions' : 'Auto-detected'}
+                {pipelineSource === 'github'
+                  ? 'GitHub Actions'
+                  : pipelineSource === 'template'
+                    ? 'Template'
+                    : 'Auto-detected'}
               </span>
             </div>
             <div className="wizard-summary-row">
-              <span className="wizard-summary-label">Stages</span>
+              <span className="wizard-summary-label">CI Stages</span>
               <span className="wizard-summary-value">{selectedStages.length}</span>
+            </div>
+            <div className="wizard-summary-row">
+              <span className="wizard-summary-label">Deployment</span>
+              <span className="wizard-summary-value">
+                {selectedMethodInfo?.label || 'None'}
+                {deployConfig.ssh_host && ` (${deployConfig.ssh_host})`}
+              </span>
             </div>
           </div>
 
+          <h5 style={{ marginTop: 'var(--space-lg)' }}>CI Pipeline Stages</h5>
           <div className="stage-list">
             {selectedStages.map((stage, idx) => (
               <div key={idx} className="stage-card-mini">
@@ -601,8 +998,18 @@ function AddProject() {
             ))}
           </div>
 
+          {selectedDeployMethod !== 'skip' && (
+            <>
+              <h5 style={{ marginTop: 'var(--space-lg)' }}>CD Pipeline (deploy.toml)</h5>
+              <p className="text-muted text-sm">
+                A separate deploy pipeline will be created with{' '}
+                {selectedMethodInfo?.label || 'deployment'} stages.
+              </p>
+            </>
+          )}
+
           <div className="form-actions" style={{ marginTop: 'var(--space-xl)' }}>
-            <button className="btn btn-secondary" onClick={() => setStep('configure')}>
+            <button className="btn btn-secondary" onClick={() => setStep('deploy')}>
               <ArrowLeft size={16} /> Back
             </button>
             <button className="btn btn-primary" onClick={handleCreate} disabled={loading}>

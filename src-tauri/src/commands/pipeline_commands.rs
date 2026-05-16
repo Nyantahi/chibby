@@ -1,5 +1,5 @@
 use crate::engine::detector;
-use crate::engine::models::{Pipeline, PipelineValidation, ProjectRecommendations, Stage};
+use crate::engine::models::{Pipeline, PipelineValidation, ProjectRecommendations, Stage, DeploymentMethod, DeploymentConfig};
 use crate::engine::pipeline;
 use crate::engine::recommendations;
 use serde::Serialize;
@@ -51,10 +51,25 @@ pub fn detect_scripts(repo_path: String) -> Result<Vec<DetectedScriptInfo>, Stri
 }
 
 /// Generate a draft pipeline from detected scripts.
+///
+/// For fullstack Docker projects (multiple folders + docker-compose), this also
+/// generates a separate deploy.toml with Docker deployment stages.
 #[tauri::command]
 pub fn generate_pipeline(repo_path: String, repo_name: String) -> Result<Pipeline, String> {
-    let scripts = detector::detect_scripts(Path::new(&repo_path));
-    let draft = detector::generate_draft_pipeline(&repo_name, &scripts, Path::new(&repo_path));
+    let path = Path::new(&repo_path);
+    let scripts = detector::detect_scripts(path);
+    let draft = detector::generate_draft_pipeline(&repo_name, &scripts, path);
+
+    // For fullstack Docker projects, also generate and save a deploy pipeline
+    if detector::is_fullstack_docker_project(path) {
+        if let Some(deploy_pipeline) = detector::generate_deploy_pipeline(&repo_name, &scripts, path) {
+            // Save the deploy pipeline to deploy.toml
+            if let Err(e) = pipeline::save_pipeline_by_name(path, "deploy", &deploy_pipeline) {
+                log::warn!("Failed to save deploy pipeline: {}", e);
+            }
+        }
+    }
+
     Ok(draft)
 }
 
@@ -157,4 +172,90 @@ pub fn get_recommendations(repo_path: String) -> Result<ProjectRecommendations, 
         return Err(format!("Repository path does not exist: {}", repo_path));
     }
     Ok(recommendations::analyze_repository(path))
+}
+
+/// Detect the most likely deployment method for a repository.
+///
+/// Analyzes project type, existing config files (fly.toml, netlify.toml, etc.),
+/// and GitHub Actions workflows to determine the best deployment method.
+#[tauri::command]
+pub fn detect_deployment_method(repo_path: String) -> Result<DeploymentMethod, String> {
+    let path = Path::new(&repo_path);
+    if !path.exists() {
+        return Err(format!("Repository path does not exist: {}", repo_path));
+    }
+    Ok(detector::detect_deployment_method(path))
+}
+
+/// Get suggested deployment methods for a repository.
+///
+/// Returns a list of applicable deployment methods based on the project type.
+#[tauri::command]
+pub fn get_suggested_deploy_methods(repo_path: String) -> Result<Vec<DeploymentMethod>, String> {
+    let path = Path::new(&repo_path);
+    if !path.exists() {
+        return Err(format!("Repository path does not exist: {}", repo_path));
+    }
+    Ok(detector::get_suggested_deploy_methods(path))
+}
+
+/// Get the detected project type for a repository.
+///
+/// Returns a string describing the project type (Rust, Node, Python, etc.).
+#[tauri::command]
+pub fn detect_project_type(repo_path: String) -> Result<String, String> {
+    let path = Path::new(&repo_path);
+    if !path.exists() {
+        return Err(format!("Repository path does not exist: {}", repo_path));
+    }
+    let project_type = detector::detect_project_type(path);
+    Ok(format!("{:?}", project_type))
+}
+
+/// Generate a CI pipeline and optionally a CD pipeline based on deployment config.
+///
+/// If deploy_config is provided and method is not Skip, generates and saves a deploy.toml.
+/// Returns the main CI pipeline.
+#[tauri::command]
+pub fn generate_pipeline_with_deploy(
+    repo_path: String,
+    repo_name: String,
+    deploy_config: Option<DeploymentConfig>,
+) -> Result<Pipeline, String> {
+    let path = Path::new(&repo_path);
+    let scripts = detector::detect_scripts(path);
+
+    // Generate the main CI pipeline
+    let ci_pipeline = detector::generate_draft_pipeline(&repo_name, &scripts, path);
+
+    // Generate and save deploy pipeline if requested
+    if let Some(ref config) = deploy_config {
+        if config.method != DeploymentMethod::Skip {
+            if let Some(deploy_pipeline) = detector::generate_deployment_pipeline(&repo_name, config, path) {
+                if let Err(e) = pipeline::save_pipeline_by_name(path, "deploy", &deploy_pipeline) {
+                    log::warn!("Failed to save deploy pipeline: {}", e);
+                }
+            }
+
+            // Auto-create environments.toml if it doesn't exist
+            if !pipeline::has_environments(path) {
+                if let Some(env_config) = detector::generate_default_environments(config) {
+                    if let Err(e) = pipeline::save_environments(path, &env_config) {
+                        log::warn!("Failed to save environments: {}", e);
+                    }
+                }
+            }
+        }
+    } else {
+        // For fullstack Docker projects, auto-generate deploy pipeline if no config provided
+        if detector::is_fullstack_docker_project(path) {
+            if let Some(deploy_pipeline) = detector::generate_deploy_pipeline(&repo_name, &scripts, path) {
+                if let Err(e) = pipeline::save_pipeline_by_name(path, "deploy", &deploy_pipeline) {
+                    log::warn!("Failed to save deploy pipeline: {}", e);
+                }
+            }
+        }
+    }
+
+    Ok(ci_pipeline)
 }

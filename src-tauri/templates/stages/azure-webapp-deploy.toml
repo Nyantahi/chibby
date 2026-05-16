@@ -1,0 +1,22 @@
+[meta]
+name = "Azure Web App Deploy"
+description = "Deploy to Azure Web Apps / App Service"
+author = "chibby"
+version = "1.0.0"
+category = "deployment"
+tags = ["azure", "webapp", "appservice", "deploy"]
+required_tools = ["az"]
+template_type = "stage"
+
+[[stages]]
+name = "azure-deploy"
+commands = [
+  "az webapp deployment source config-zip --resource-group {{resource_group}} --name {{app_name}} --src {{zip_path}}"
+]
+backend = "local"
+fail_fast = true
+
+[stages.health_check]
+command = "curl -sf https://{{app_name}}.azurewebsites.net/health"
+retries = 5
+delay_secs = 10

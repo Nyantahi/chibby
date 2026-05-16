@@ -1,0 +1,20 @@
+[meta]
+name = "Fly.io Deploy"
+description = "Deploy a containerized application to Fly.io"
+author = "chibby"
+version = "1.0.0"
+category = "deployment"
+tags = ["fly.io", "container", "cloud", "deploy"]
+required_tools = ["flyctl"]
+template_type = "stage"
+
+[[stages]]
+name = "flyio-deploy"
+commands = ["flyctl deploy --app {{app_name}}"]
+backend = "local"
+fail_fast = true
+
+[stages.health_check]
+command = "flyctl status --app {{app_name}} | grep -q running"
+retries = 5
+delay_secs = 10
