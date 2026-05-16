@@ -2,6 +2,37 @@ use serde::{Deserialize, Serialize};
 
 use crate::engine::models::{Pipeline, PipelineRun, RunStatus, StageStatus};
 
+/// Regex patterns for common secret values that should be redacted from logs
+/// before inclusion in LLM prompts.
+static SECRET_PATTERNS: &[&str] = &[
+    // Generic API keys / tokens (20+ alphanumeric chars after a key-like prefix)
+    r"(?i)(password|passwd|secret|token|api[_-]?key|apikey|auth|credential|private[_-]?key)\s*[:=]\s*\S+",
+    // AWS-style keys
+    r"(?i)AKIA[0-9A-Z]{16}",
+    // Bearer tokens
+    r"(?i)bearer\s+[a-zA-Z0-9\-._~+/]+=*",
+    // Base64-encoded long strings that look like secrets (64+ chars)
+    r"[A-Za-z0-9+/]{64,}={0,3}",
+];
+
+/// Sanitize a log line by redacting potential secrets and escaping markdown
+/// code fence breaks that could enable prompt injection.
+fn sanitize_log_line(line: &str) -> String {
+    let mut sanitized = line.to_string();
+
+    // 1. Redact secret-like patterns
+    for pattern in SECRET_PATTERNS {
+        if let Ok(re) = regex::Regex::new(pattern) {
+            sanitized = re.replace_all(&sanitized, "[REDACTED]").to_string();
+        }
+    }
+
+    // 2. Escape backtick sequences that could break out of markdown code fences
+    sanitized = sanitized.replace("```", "` ` `");
+
+    sanitized
+}
+
 /// Context provided to the agent for analysis or chat.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AnalysisContext {
@@ -116,7 +147,7 @@ impl AnalysisContext {
                     parts.push("**stdout** (last 50 lines):".to_string());
                     parts.push("```".to_string());
                     for line in &stdout_lines[start..] {
-                        parts.push(line.to_string());
+                        parts.push(sanitize_log_line(line));
                     }
                     parts.push("```".to_string());
                 }
@@ -126,7 +157,7 @@ impl AnalysisContext {
                     parts.push("**stderr** (last 50 lines):".to_string());
                     parts.push("```".to_string());
                     for line in &stderr_lines[start..] {
-                        parts.push(line.to_string());
+                        parts.push(sanitize_log_line(line));
                     }
                     parts.push("```".to_string());
                 }

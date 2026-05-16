@@ -1,0 +1,15 @@
+[meta]
+name = "Fly.io Static Site"
+description = "Deploy a static website to Fly.io"
+author = "chibby"
+version = "1.0.0"
+category = "deployment"
+tags = ["fly.io", "static", "website", "deploy"]
+required_tools = ["flyctl"]
+template_type = "stage"
+
+[[stages]]
+name = "flyio-static"
+commands = ["flyctl deploy --app {{app_name}}"]
+backend = "local"
+fail_fast = true

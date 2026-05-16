@@ -44,7 +44,9 @@ pub struct SharedDirectives {
 pub struct AgentIdentityRegistry {
     pub agent: AgentIdentity,
     pub shared: SharedDirectives,
+    #[allow(dead_code)]
     base_path: Option<PathBuf>,
+    #[allow(dead_code)]
     checksum: u64,
 }
 
