@@ -183,7 +183,7 @@ pub fn compute_sha256(path: &Path) -> Result<String> {
     let mut hasher = Sha256::new();
     hasher.update(&bytes);
     let hash = hasher.finalize();
-    Ok(format!("{:x}", hash))
+    Ok(hash.iter().map(|b| format!("{:02x}", b)).collect())
 }
 
 /// Write a SHA256SUMS file alongside the artifacts.

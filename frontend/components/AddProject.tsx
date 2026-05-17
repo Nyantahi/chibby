@@ -24,6 +24,7 @@ import {
 import { open } from '@tauri-apps/plugin-dialog';
 import {
   addProject,
+  autoBootstrapForProject,
   detectScripts,
   generatePipelineWithDeploy,
   savePipeline,
@@ -33,11 +34,14 @@ import {
   getSuggestedDeployMethods,
   detectProjectType,
 } from '../services/api';
+import { notifySuccess } from '../services/notify';
 import { repoNameFromPath } from '../utils/format';
 import { FileTypeIcon } from './FileTypeIcon';
 import TemplateBrowser from './TemplateBrowser';
 import TemplateVariableDialog from './TemplateVariableDialog';
+import BootstrapWizardModal from './BootstrapWizardModal';
 import type {
+  BootstrapReport,
   DetectedScript,
   Pipeline,
   PipelineTemplate,
@@ -333,6 +337,8 @@ function AddProject() {
     method: 'skip',
     dry_run_first: true,
   });
+  const [bootstrapReview, setBootstrapReview] = useState<BootstrapReport | null>(null);
+  const [bootstrapTarget, setBootstrapTarget] = useState<string | null>(null);
 
   // Pick up template passed from the Templates page via router state
   useEffect(() => {
@@ -460,6 +466,29 @@ function AddProject() {
   const selectedStages = draft?.stages.filter((_, i) => stageSelection[i]) ?? [];
   const anySelected = selectedStages.length > 0;
 
+  async function handleAutoBootstrap(projectPath: string): Promise<boolean> {
+    try {
+      const outcome = await autoBootstrapForProject(projectPath);
+      if (outcome.mode === 'silent' && outcome.applied) {
+        notifySuccess('Bootstrap applied', 'Detected env/secrets written to .chibby/');
+        return false;
+      }
+      if (
+        outcome.mode === 'confirm' &&
+        outcome.report &&
+        outcome.report.detected.length > 0
+      ) {
+        setBootstrapTarget(projectPath);
+        setBootstrapReview(outcome.report);
+        return true;
+      }
+    } catch (err) {
+      // Auto-bootstrap is best-effort. Don't block project creation.
+      console.warn('auto_bootstrap_for_project failed', err);
+    }
+    return false;
+  }
+
   async function handleCreate() {
     try {
       setLoading(true);
@@ -478,7 +507,10 @@ function AddProject() {
       await addProject(repoName, repoPath);
 
       setStep('done');
-      setTimeout(() => navigate('/projects'), 800);
+      const deferred = await handleAutoBootstrap(repoPath);
+      if (!deferred) {
+        setTimeout(() => navigate('/projects'), 800);
+      }
     } catch (err) {
       setError(String(err));
     } finally {
@@ -507,7 +539,8 @@ function AddProject() {
       setLoading(true);
       setError(null);
       await addProject(repoName || repoNameFromPath(repoPath), repoPath);
-      navigate('/projects');
+      const deferred = await handleAutoBootstrap(repoPath);
+      if (!deferred) navigate('/projects');
     } catch (err) {
       setError(String(err));
     } finally {
@@ -1073,6 +1106,23 @@ function AddProject() {
             setStep('configure');
           }}
           onCancel={() => setSelectedTemplate(null)}
+        />
+      )}
+
+      {bootstrapReview && bootstrapTarget && (
+        <BootstrapWizardModal
+          repoPath={bootstrapTarget}
+          initialReport={bootstrapReview}
+          onClose={() => {
+            setBootstrapReview(null);
+            setBootstrapTarget(null);
+            navigate('/projects');
+          }}
+          onApplied={() => {
+            setBootstrapReview(null);
+            setBootstrapTarget(null);
+            navigate('/projects');
+          }}
         />
       )}
     </div>

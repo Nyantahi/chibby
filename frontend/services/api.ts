@@ -43,6 +43,13 @@ import type {
   DeploymentMethod,
   DeploymentConfig,
   ProjectType,
+  BootstrapReport,
+  AutoBootstrapOutcome,
+  ImporterSource,
+  ImportReport,
+  ApplyReport,
+  EnvLeakHit,
+  SecretAuditEntry,
 } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -334,6 +341,112 @@ export async function runPreflight(
   environment: string
 ): Promise<PreflightResult> {
   return invoke<PreflightResult>('run_preflight', { repoPath, environment });
+}
+
+// ---------------------------------------------------------------------------
+// Env/Secrets epic — Bootstrap, Importers, Leak scanner, Audit, Layered envs
+// ---------------------------------------------------------------------------
+
+/** Load environments.toml with `environments.local.toml` overrides applied. */
+export async function loadEnvironmentsLayered(repoPath: string): Promise<EnvironmentsConfig> {
+  return invoke<EnvironmentsConfig>('load_environments_layered', { repoPath });
+}
+
+/** Load per-developer overrides from `.chibby/environments.local.toml`. */
+export async function loadEnvironmentsLocal(repoPath: string): Promise<EnvironmentsConfig> {
+  return invoke<EnvironmentsConfig>('load_environments_local', { repoPath });
+}
+
+/** Save per-developer overrides (auto-adds `.gitignore` entries). */
+export async function saveEnvironmentsLocal(
+  repoPath: string,
+  config: EnvironmentsConfig
+): Promise<void> {
+  return invoke<void>('save_environments_local', { repoPath, config });
+}
+
+/** Scan a project for env/secret references without writing anything. */
+export async function scanBootstrap(repoPath: string): Promise<BootstrapReport> {
+  return invoke<BootstrapReport>('scan_bootstrap', { repoPath });
+}
+
+/** Apply a BootstrapReport. `merge=true` merges with existing files; `false` is Safe mode. */
+export async function applyBootstrap(
+  repoPath: string,
+  report: BootstrapReport,
+  merge: boolean
+): Promise<boolean> {
+  return invoke<boolean>('apply_bootstrap', { repoPath, report, merge });
+}
+
+/** Honor AppSettings.bootstrap_mode after adding a project. */
+export async function autoBootstrapForProject(repoPath: string): Promise<AutoBootstrapOutcome> {
+  return invoke<AutoBootstrapOutcome>('auto_bootstrap_for_project', { repoPath });
+}
+
+/** Run an importer (dotenv|vercel|railway|fly) and apply its report. */
+export async function runImporter(
+  source: ImporterSource,
+  repoPath: string,
+  envName: string,
+  sourcePath: string | undefined,
+  withValues: boolean,
+  persistSecretValues: boolean
+): Promise<[ImportReport, ApplyReport]> {
+  return invoke<[ImportReport, ApplyReport]>('run_importer', {
+    source,
+    repoPath,
+    envName,
+    sourcePath: sourcePath ?? null,
+    withValues,
+    persistSecretValues,
+  });
+}
+
+/** Probe whether the vendor CLI required by an importer is installed. */
+export async function importerCliStatus(source: ImporterSource): Promise<boolean> {
+  return invoke<boolean>('importer_cli_status', { source });
+}
+
+/** Export resolved variables + secret values for an environment to a .env file. */
+export async function exportDotenv(
+  repoPath: string,
+  envName: string,
+  outputPath: string
+): Promise<number> {
+  return invoke<number>('export_dotenv', { repoPath, envName, outputPath });
+}
+
+/** Scan environments.toml for variable values that look like real credentials. */
+export async function scanEnvironmentsForLeaks(repoPath: string): Promise<EnvLeakHit[]> {
+  return invoke<EnvLeakHit[]>('scan_environments_for_leaks', { repoPath });
+}
+
+/** Fetch the per-secret audit snapshot. */
+export async function getSecretAudit(
+  projectPath: string,
+  envName: string,
+  secretName: string
+): Promise<SecretAuditEntry | null> {
+  return invoke<SecretAuditEntry | null>('get_secret_audit', {
+    projectPath,
+    envName,
+    secretName,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Crash log
+// ---------------------------------------------------------------------------
+
+/** Read the global crash log file. Returns null if empty/missing. */
+export async function getCrashLog(): Promise<string | null> {
+  return invoke<string | null>('get_crash_log');
+}
+
+/** Delete the global crash log file. */
+export async function clearCrashLog(): Promise<void> {
+  return invoke<void>('clear_crash_log');
 }
 
 // ---------------------------------------------------------------------------

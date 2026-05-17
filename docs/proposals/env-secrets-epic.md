@@ -1,9 +1,9 @@
 # Environments & Secrets Feature Epic
 
-> **Status:** Complete — four iterations shipped as stacked PRs (#40, #41, #42, #43).
+> **Status:** Complete — four backend iterations shipped as stacked PRs (#40, #41, #42, #43), plus a follow-up GUI pass (2026-05-16) wiring every Tauri command into the desktop app.
 > **Timeline:** May 2026.
 > **Owner:** @Nyantahi
-> **See also:** [`features/env-secrets.md`](../features/env-secrets.md), [`features/cli-commands.md`](../features/cli-commands.md)
+> **See also:** [`features/env-secrets.md`](../features/env-secrets.md), [`features/cli-commands.md`](../features/cli-commands.md), [`guides/user-guide.md`](../guides/user-guide.md#environments-tab)
 
 ---
 
@@ -223,14 +223,24 @@ chibby doctor
 
 ---
 
-## What's deferred
+## What shipped after — UI follow-up (2026-05-16)
 
-All deferred items are pure frontend work — backend support is in place.
+Most of what was originally deferred to the GUI now ships. Tracking what's done:
 
-- **AddProject review modal** — calls existing `auto_bootstrap_for_project`. Shows detected names grouped by source with checkboxes + reclassify dropdowns before writing.
-- **"Import from..." menu** in Secrets/Environments panels — calls existing `run_importer`.
-- **Audit display** in EnvironmentEditor — calls existing `get_secret_audit`.
-- **Reveal gate** in SecretsManager — masked-by-default secret display with OS re-auth (Touch ID / Windows Hello via Tauri webview APIs).
+- **AddProject auto-bootstrap hook** — wizard finish calls `auto_bootstrap_for_project`; in `confirm` mode the review modal opens before navigating away. (`BootstrapWizardModal.tsx`, `AddProject.tsx`.) [Done]
+- **Bootstrap wizard modal** — runs `scan_bootstrap`, lists every detected name with classification + source chips, applies in Safe or Merge mode. Also reachable from the Environments tab's **Bootstrap** button at any time. [Done]
+- **"Import from…" modal** in the Environments tab — driver UI for `run_importer` covering `dotenv`, `vercel`, `railway`, `fly` with a pre-flight `importer_cli_status` probe. [Done]
+- **Export .env modal** — save-dialog-driven `export_dotenv` for any environment. [Done]
+- **Per-secret audit modal** — clock icon on each row of `SecretsManager` opens the `get_secret_audit` snapshot (last set/deleted, counts, provenance). [Done]
+- **Inline leak warnings** — `EnvironmentEditor` runs `scan_environments_for_leaks` on mount and after every save; matches surface in a redacted banner. [Done]
+- **Committed / Local / Layered toggle** — `EnvironmentEditor` mode selector switches between `environments.toml`, `environments.local.toml`, and the read-only merged view via `load_environments_layered` / `load_environments_local` / `save_environments_local`. [Done]
+- **Bootstrap-mode setting** in Settings → About — `confirm` / `silent` / `off` selector. [Done]
+
+Still deferred:
+
+- **Reveal gate** in `SecretsManager` — masked-by-default secret display with OS re-auth (Touch ID / Windows Hello via Tauri webview APIs).
+- **Per-environment leak suppression rules** — currently the banner shows every hit; no UI to mark known-safe variables.
+- **Multi-step bootstrap wizard with per-name toggles + reclassify dropdowns** — single-screen review → apply for now.
 
 ---
 

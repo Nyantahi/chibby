@@ -8,7 +8,11 @@ export interface AppSettings {
   default_notify_on_failure: boolean;
   default_artifact_retention: number;
   default_run_retention: number;
+  bootstrap_mode: BootstrapMode;
 }
+
+/** Behaviour when adding a project that has detectable env/secret references. */
+export type BootstrapMode = 'confirm' | 'silent' | 'off';
 
 /** Execution backend for a pipeline stage. */
 export type Backend = 'local' | 'ssh';
@@ -715,4 +719,101 @@ export interface PipelineTemplate {
   source: TemplateSource;
   pipeline?: Pipeline;
   stages?: Stage[];
+}
+
+// ---------------------------------------------------------------------------
+// Env / Secrets Epic — Bootstrap, Importers, Leak scanner, Secret audit
+// ---------------------------------------------------------------------------
+
+/** Where a detected env/secret name was discovered. */
+export type SourceKind =
+  | 'dot_env'
+  | 'docker_compose'
+  | 'gha_workflow'
+  | 'js_code'
+  | 'py_code'
+  | 'rs_code';
+
+/** Classification of a detected name. */
+export type Classification = 'secret' | 'variable';
+
+/** A single detection event for a name. */
+export interface DetectionSource {
+  path: string;
+  kind: SourceKind;
+}
+
+/** A single detected name with its classification + provenance. */
+export interface DetectedName {
+  name: string;
+  classification: Classification;
+  sources: DetectionSource[];
+}
+
+/** Top-level result of a bootstrap scan. */
+export interface BootstrapReport {
+  detected: DetectedName[];
+  suggested_environments: string[];
+  scanned_files: number;
+}
+
+/** Result of `auto_bootstrap_for_project`. */
+export interface AutoBootstrapOutcome {
+  /** "confirm" | "silent" | "off" */
+  mode: string;
+  /** Scan result. `null` when mode is `off`. */
+  report: BootstrapReport | null;
+  /** Whether files were written. */
+  applied: boolean;
+}
+
+/** Mode for `apply_bootstrap`. `false` = Safe (refuses if files exist); `true` = Merge. */
+export type ApplyMode = boolean;
+
+/** A single token-shaped value caught by the leak scanner. */
+export interface LeakMatch {
+  rule: string;
+  start: number;
+  end: number;
+  preview: string;
+}
+
+/** Leak hit inside a specific environment variable. */
+export interface EnvLeakHit extends LeakMatch {
+  env: string;
+  variable: string;
+}
+
+/** Per-secret audit metadata. */
+export interface SecretAuditEntry {
+  last_set?: string;
+  last_deleted?: string;
+  set_count: number;
+  delete_count: number;
+  last_provenance?: string;
+}
+
+/** Source identifier for an importer. */
+export type ImporterSource = 'dotenv' | 'vercel' | 'railway' | 'fly' | 'flyio';
+
+/** One detected entry from an importer. */
+export interface ImportEntry {
+  name: string;
+  classification: Classification;
+  value?: string;
+}
+
+/** Result of running an importer. */
+export interface ImportReport {
+  source: string;
+  env_name: string;
+  entries: ImportEntry[];
+}
+
+/** Result of applying an importer report. */
+export interface ApplyReport {
+  variables_added: number;
+  variables_value_set: number;
+  secrets_ref_added: number;
+  secrets_value_saved: number;
 }

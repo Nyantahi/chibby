@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Project Detail is now 5 tabs** — Pipeline, History, **Environments**, **Release**, **Quality**. Every Tauri command in the backend now has a UI entry point; "Project Settings" is gone in favour of the three focused tabs.
+- **Environments tab** — promotes the existing `EnvironmentEditor` and `SecretsManager` out of the collapsed Settings section and adds:
+  - **Bootstrap button** — opens a modal that runs `scan_bootstrap`, shows every detected name with classification + provenance, and applies in Safe or Merge mode.
+  - **Import button** — modal driver for `dotenv`, `vercel`, `railway`, and `fly` importers with a vendor-CLI presence check and report summary.
+  - **Export .env button** — save-dialog-driven `export_dotenv` for a chosen environment.
+  - **Inline leak warnings** in `EnvironmentEditor` — banner listing every `EnvLeakHit` from `scan_environments_for_leaks` (redacted previews).
+  - **Committed / Local / Layered toggle** in `EnvironmentEditor` — switches between editing `environments.toml`, `environments.local.toml`, and the read-only merged view.
+  - **Per-secret audit modal** in `SecretsManager` — clock icon on each row opens `get_secret_audit` (last set/deleted, counts, provenance).
+- **Auto-bootstrap on Add Project** — the wizard finish step now calls `auto_bootstrap_for_project`. In `confirm` mode the review modal appears before navigation; in `silent` mode the apply happens and a toast confirms; in `off` mode nothing runs.
+- **Release tab** — surfaces all of Phase 5 with one card each:
+  - `VersionCard` — `detect_versions`, semver bump (patch/minor/major) with optional git tag, `generate_changelog` with copy-to-clipboard.
+  - `ArtifactsCard` — artifact config form, `collect_artifacts`, manifest list with "Reveal output dir", inline Signing sub-section + per-artifact `sign_artifact`.
+  - `UpdaterCard` — updater config, key management (generate / rotate / delete / import), `updater_preflight`, `generate_latest_json`, dry-run / live `publish_update`.
+  - `NotifyCard` — notification targets editor and `send_test_notification`.
+- **Quality tab** — `GatesCard` (config + run all gates / individual scans / create baseline), `CleanupCard` (config + dry-run / live `run_cleanup`), `DeploymentHistoryCard` (per-environment `get_deployment_history` table).
+- **Crash log page** — new `/crashes` route reading `get_crash_log` with Reveal-in-Finder and Clear buttons; linked from Settings → About.
+- **Quick Links sidebar card** on Project Detail — reveal `.chibby/`, reveal app data dir, open repo folder.
+- **Plugin-shell wiring** — `services/openExternal.ts` wraps `@tauri-apps/plugin-shell` for OS-native opens. Recommendations panel doc links, Run Detail's new "Reveal" button (opens `<data_dir>/runs/<run_id>/`), Settings' "Open data directory", and every "Reveal in Finder" affordance route through this helper.
+- **In-app toaster** — `services/notify.ts` + `Toaster` component mounted in `Layout`. Replaces the previous mix of `alert()` and silent failures with non-blocking toasts.
+- **Bootstrap mode setting** in Settings → About — `confirm` / `silent` / `off` picker, persisted to `AppSettings.bootstrap_mode`.
+
+### Fixed
+
+- **sha2 0.11 hash formatting** — `Sha256::finalize()` now returns a `hybrid_array::Array` that no longer implements `LowerHex`; replaced `format!("{:x}", hash)` with explicit per-byte hex in `engine/artifacts.rs`.
+- **Unused imports in `engine/bootstrap.rs`** — dropped `EnvironmentsConfig` and `SecretsConfig` from the model imports.
+
+### Changed
+
+- `AppSettings` TypeScript interface now includes `bootstrap_mode: BootstrapMode` to match the Rust struct.
+- `ProjectDetail` legacy router-state `tab: 'settings'` deep-links are silently rewritten to `tab: 'environments'` to keep old links working.
+
 ## [0.1.34] - 2026-05-08
 
 ### Fixed
