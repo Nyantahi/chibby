@@ -20,6 +20,22 @@ pub struct AppSettings {
     /// Default run history retention count for new projects.
     #[serde(default = "default_run_retention")]
     pub default_run_retention: u32,
+    /// Behaviour when adding a project — see `BootstrapMode`.
+    #[serde(default)]
+    pub bootstrap_mode: BootstrapMode,
+}
+
+/// What to do when adding a project that has detectable env/secret references.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum BootstrapMode {
+    /// Scan and present detected names for user review before writing. (Default.)
+    #[default]
+    Confirm,
+    /// Scan and write configs immediately, skipping review.
+    Silent,
+    /// Don't scan at all.
+    Off,
 }
 
 fn default_true() -> bool {
@@ -41,6 +57,7 @@ impl Default for AppSettings {
             default_notify_on_failure: true,
             default_artifact_retention: 5,
             default_run_retention: 50,
+            bootstrap_mode: BootstrapMode::Confirm,
         }
     }
 }
