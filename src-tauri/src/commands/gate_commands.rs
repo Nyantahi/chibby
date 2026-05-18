@@ -1,5 +1,6 @@
 use crate::engine::models::{
-    AuditResult, CommitLintResult, GatesConfig, GatesResult, SecretScanResult,
+    AuditResult, CommitLintResult, ContainerScanResult, GatesConfig, GatesResult, IacScanResult,
+    LicenseCheckResult, SastResult, SecretScanResult,
 };
 use crate::engine::gates;
 use std::path::Path;
@@ -55,4 +56,32 @@ pub fn run_commit_lint(repo_path: String) -> Result<CommitLintResult, String> {
 #[tauri::command]
 pub fn create_secret_scan_baseline(repo_path: String) -> Result<String, String> {
     gates::create_secret_scan_baseline(Path::new(&repo_path)).map_err(|e| e.to_string())
+}
+
+/// Run SAST (static analysis) only — wraps semgrep.
+#[tauri::command]
+pub fn run_sast(repo_path: String) -> Result<SastResult, String> {
+    let config = gates::load_gates_config(Path::new(&repo_path)).map_err(|e| e.to_string())?;
+    gates::run_sast(Path::new(&repo_path), &config).map_err(|e| e.to_string())
+}
+
+/// Run container image scanning only — wraps `trivy image`.
+#[tauri::command]
+pub fn run_container_scan(repo_path: String) -> Result<ContainerScanResult, String> {
+    let config = gates::load_gates_config(Path::new(&repo_path)).map_err(|e| e.to_string())?;
+    gates::run_container_scan(Path::new(&repo_path), &config).map_err(|e| e.to_string())
+}
+
+/// Run IaC scanning only — wraps `trivy config`.
+#[tauri::command]
+pub fn run_iac_scan(repo_path: String) -> Result<IacScanResult, String> {
+    let config = gates::load_gates_config(Path::new(&repo_path)).map_err(|e| e.to_string())?;
+    gates::run_iac_scan(Path::new(&repo_path), &config).map_err(|e| e.to_string())
+}
+
+/// Run license compliance check only.
+#[tauri::command]
+pub fn run_license_check(repo_path: String) -> Result<LicenseCheckResult, String> {
+    let config = gates::load_gates_config(Path::new(&repo_path)).map_err(|e| e.to_string())?;
+    gates::run_license_check(Path::new(&repo_path), &config).map_err(|e| e.to_string())
 }

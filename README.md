@@ -32,7 +32,7 @@ Chibby helps developers turn existing scripts into visual, repeatable pipelines 
 - **Code Signing** — macOS notarization, Windows Authenticode, Linux GPG
 - **Artifacts** — Consistent naming, SHA256 checksums, configurable retention, reveal-in-Finder
 - **Tauri Updater** — Generate `latest.json`, sign update bundles, manage signing keys, dry-run/live publish to GitHub Releases / S3 / SCP / local
-- **Security Gates** — Secret scanning (gitleaks), CVE scanning, commit linting; per-gate quick actions and baseline creation from the Quality tab
+- **Security Gates** — Seven built-in gates: secret scanning (gitleaks), CVE scanning, commit linting, SAST (semgrep), container image scan (trivy image), IaC scan (trivy config), license compliance (cargo-license + license-checker). Per-gate quick actions, baseline creation, and configurable severity thresholds from the Quality tab. Auto-appended as pipeline stages when `.chibby/gates.toml` exists. ([Security gates docs](docs/features/security-gates.md))
 - **Run History** — Full history with retry from failure, explicit rollback, and reveal-run-folder
 - **Notifications** — Desktop OS notifications and webhooks (Slack, Discord, HTTP) with one-click test send
 - **Crash log viewer** — Inspect, reveal, and clear `<data_dir>/crash.log` from the app

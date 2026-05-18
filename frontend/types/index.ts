@@ -497,10 +497,21 @@ export interface GatesConfig {
   secret_scanning: GateMode;
   dependency_scanning: GateMode;
   commit_lint: GateMode;
+  sast: GateMode;
+  container_scan: GateMode;
+  iac_scan: GateMode;
+  license_check: GateMode;
   secret_scan_allowlist: string[];
   audit_allowlist: string[];
   audit_severity_threshold: string;
   secret_scan_baseline: boolean;
+  sast_severity_threshold: string;
+  sast_allowlist: string[];
+  container_severity_threshold: string;
+  container_images: string[];
+  iac_severity_threshold: string;
+  license_denylist: string[];
+  license_allowlist: string[];
   commit_types: string[];
   commit_max_subject_length: number;
   commit_require_scope: boolean;
@@ -560,12 +571,87 @@ export interface CommitLintResult {
   message: string;
 }
 
+/** A single SAST finding. */
+export interface SastFinding {
+  file: string;
+  line: number;
+  rule: string;
+  severity: VulnSeverity;
+  message: string;
+}
+
+/** Result of running SAST (semgrep). */
+export interface SastResult {
+  passed: boolean;
+  findings: SastFinding[];
+  scanner: string;
+  message: string;
+}
+
+/** A single container vulnerability finding. */
+export interface ContainerFinding {
+  target: string;
+  package: string;
+  installed_version: string;
+  fixed_version?: string;
+  advisory_id: string;
+  severity: VulnSeverity;
+  description: string;
+}
+
+/** Result of container scanning (trivy image). */
+export interface ContainerScanResult {
+  passed: boolean;
+  findings: ContainerFinding[];
+  scanner: string;
+  targets: string[];
+  message: string;
+}
+
+/** A single IaC misconfiguration finding. */
+export interface IacFinding {
+  file: string;
+  line?: number;
+  rule: string;
+  severity: VulnSeverity;
+  message: string;
+  resolution?: string;
+}
+
+/** Result of IaC scanning (trivy config). */
+export interface IacScanResult {
+  passed: boolean;
+  findings: IacFinding[];
+  scanner: string;
+  message: string;
+}
+
+/** A single license-compliance finding. */
+export interface LicenseFinding {
+  package: string;
+  version: string;
+  license: string;
+  reason: string;
+}
+
+/** Result of license compliance check. */
+export interface LicenseCheckResult {
+  passed: boolean;
+  findings: LicenseFinding[];
+  scanner: string;
+  message: string;
+}
+
 /** Combined result of running all enabled gates. */
 export interface GatesResult {
   passed: boolean;
   secret_scan?: SecretScanResult;
   dependency_audit?: AuditResult;
   commit_lint?: CommitLintResult;
+  sast?: SastResult;
+  container_scan?: ContainerScanResult;
+  iac_scan?: IacScanResult;
+  license_check?: LicenseCheckResult;
 }
 
 // ---------------------------------------------------------------------------

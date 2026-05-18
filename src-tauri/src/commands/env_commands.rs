@@ -193,10 +193,20 @@ pub struct AutoBootstrapOutcome {
 
 /// Honor `AppSettings.bootstrap_mode` and either scan-only (Confirm),
 /// scan-and-apply (Silent), or do nothing (Off). Called by the Add Project
-/// wizard after `add_project` resolves.
+/// wizard after `add_project` resolves. Also seeds a default
+/// `.chibby/gates.toml` so the Quality tab and pipeline-regen are populated
+/// out of the box (won't overwrite an existing file).
 #[tauri::command]
 pub fn auto_bootstrap_for_project(repo_path: String) -> Result<AutoBootstrapOutcome, String> {
     use crate::engine::app_settings::{load_app_settings, BootstrapMode};
+
+    // Always ensure a default gates.toml exists for the project — independent
+    // of bootstrap mode. Failure here is non-fatal; the user can recreate it
+    // manually via `chibby gates init` or the Quality tab.
+    if let Err(e) = ensure_default_gates_toml(Path::new(&repo_path)) {
+        log::warn!("ensure_default_gates_toml failed for {}: {}", repo_path, e);
+    }
+
     let settings = load_app_settings().map_err(|e| e.to_string())?;
     let mode_label = match settings.bootstrap_mode {
         BootstrapMode::Confirm => "confirm",
@@ -334,4 +344,50 @@ pub async fn run_preflight(
     preflight::validate_preflight(&pipe, &repo_path, &environment, &envs, &secs)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Write a default `.chibby/gates.toml` if none exists yet. Used by
+/// `auto_bootstrap_for_project` to seed new projects with security gates
+/// configured (all in `warn` mode initially so first runs surface findings
+/// without blocking the user).
+fn ensure_default_gates_toml(repo_path: &Path) -> Result<(), anyhow::Error> {
+    use crate::engine::gates;
+    use crate::engine::models::{GateMode, GatesConfig};
+
+    let target = repo_path.join(".chibby").join("gates.toml");
+    if target.exists() {
+        return Ok(());
+    }
+    let mut cfg = GatesConfig::default();
+    // Sensible defaults: warn everywhere so a fresh project sees findings
+    // surfaced in the Quality tab without breaking pipelines. Users can bump
+    // anything to "block" after triaging the initial baseline.
+    cfg.secret_scanning = GateMode::Warn;
+    cfg.dependency_scanning = GateMode::Warn;
+    cfg.commit_lint = GateMode::Warn;
+    cfg.sast = GateMode::Warn;
+    cfg.container_scan = GateMode::Warn;
+    cfg.iac_scan = GateMode::Warn;
+    cfg.license_check = GateMode::Warn;
+    cfg.secret_scan_baseline = true;
+    cfg.secret_scan_allowlist = vec![
+        "**/__tests__/**".into(),
+        "**/__mocks__/**".into(),
+        "**/tests/**".into(),
+        "**/test/**".into(),
+        "**/*.test.ts".into(),
+        "**/*.test.tsx".into(),
+        "**/*.spec.ts".into(),
+        "**/node_modules/**".into(),
+        "**/dist/**".into(),
+        "**/build/**".into(),
+        "**/.next/**".into(),
+        "**/.vercel/**".into(),
+    ];
+    gates::save_gates_config(repo_path, &cfg)?;
+    audit::log_event(
+        "auto_seed_gates",
+        &format!("project={}", repo_path.display()),
+    );
+    Ok(())
 }

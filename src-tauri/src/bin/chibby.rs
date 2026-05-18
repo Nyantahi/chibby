@@ -656,6 +656,30 @@ enum ScanCmd {
         #[arg(long)]
         since: Option<String>,
     },
+    /// Static analysis (semgrep)
+    Sast {
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Container image scan (trivy image)
+    Container {
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Infrastructure-as-Code scan (trivy config)
+    Iac {
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// License compliance check
+    License {
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2376,6 +2400,149 @@ async fn handle_scan(printer: &Printer, cmd: &ScanCmd) -> anyhow::Result<()> {
                     println!("      expected: {}", v.expected.bright_black());
                 }
                 std::process::exit(1);
+            }
+        }
+        ScanCmd::Sast { project } => {
+            let repo = resolve_project_path(project.as_ref())?;
+            printer.header(&format!("{} SAST (semgrep)", icons::SCAN));
+            printer.kv("Project", &repo.display().to_string());
+            printer.newline();
+
+            let config = gates::load_gates_config(&repo).unwrap_or_default();
+            let spin = cli::spinner("Running semgrep...");
+            let result = gates::run_sast(&repo, &config)?;
+            spin.finish_and_clear();
+
+            printer.kv("Scanner", &result.scanner);
+            if result.passed && result.findings.is_empty() {
+                printer.success(&result.message);
+            } else {
+                printer.warn(&result.message);
+                for f in result.findings.iter().take(50) {
+                    println!(
+                        "  {} {}:{} — {} {}",
+                        icons::WARN.yellow(),
+                        f.file.bright_black(),
+                        f.line,
+                        f.rule.red(),
+                        format!("[{:?}]", f.severity).bright_black()
+                    );
+                    if !f.message.is_empty() {
+                        println!("      {}", f.message.bright_black());
+                    }
+                }
+                if result.findings.len() > 50 {
+                    printer.info(&format!("+ {} more", result.findings.len() - 50));
+                }
+                if !result.passed {
+                    std::process::exit(1);
+                }
+            }
+        }
+        ScanCmd::Container { project } => {
+            let repo = resolve_project_path(project.as_ref())?;
+            printer.header(&format!("{} Container Scan (trivy)", icons::SCAN));
+            printer.kv("Project", &repo.display().to_string());
+            printer.newline();
+
+            let config = gates::load_gates_config(&repo).unwrap_or_default();
+            let spin = cli::spinner("Running trivy image...");
+            let result = gates::run_container_scan(&repo, &config)?;
+            spin.finish_and_clear();
+
+            printer.kv("Scanner", &result.scanner);
+            printer.kv("Targets", &result.targets.join(", "));
+            if result.passed && result.findings.is_empty() {
+                printer.success(&result.message);
+            } else {
+                printer.warn(&result.message);
+                for f in result.findings.iter().take(50) {
+                    println!(
+                        "  {} {} {} — {} [{:?}]",
+                        icons::WARN.yellow(),
+                        f.package.bright_white(),
+                        f.installed_version.bright_black(),
+                        f.advisory_id.red(),
+                        f.severity
+                    );
+                    if let Some(fixed) = &f.fixed_version {
+                        println!("      fixed in {}", fixed.green());
+                    }
+                }
+                if !result.passed {
+                    std::process::exit(1);
+                }
+            }
+        }
+        ScanCmd::Iac { project } => {
+            let repo = resolve_project_path(project.as_ref())?;
+            printer.header(&format!("{} IaC Scan (trivy config)", icons::SCAN));
+            printer.kv("Project", &repo.display().to_string());
+            printer.newline();
+
+            let config = gates::load_gates_config(&repo).unwrap_or_default();
+            let spin = cli::spinner("Running trivy config...");
+            let result = gates::run_iac_scan(&repo, &config)?;
+            spin.finish_and_clear();
+
+            printer.kv("Scanner", &result.scanner);
+            if result.passed && result.findings.is_empty() {
+                printer.success(&result.message);
+            } else {
+                printer.warn(&result.message);
+                for f in result.findings.iter().take(50) {
+                    let loc = match f.line {
+                        Some(l) => format!("{}:{}", f.file, l),
+                        None => f.file.clone(),
+                    };
+                    println!(
+                        "  {} {} — {} [{:?}]",
+                        icons::WARN.yellow(),
+                        loc.bright_black(),
+                        f.rule.red(),
+                        f.severity
+                    );
+                    if !f.message.is_empty() {
+                        println!("      {}", f.message.bright_black());
+                    }
+                    if let Some(r) = &f.resolution {
+                        println!("      fix: {}", r.green());
+                    }
+                }
+                if !result.passed {
+                    std::process::exit(1);
+                }
+            }
+        }
+        ScanCmd::License { project } => {
+            let repo = resolve_project_path(project.as_ref())?;
+            printer.header(&format!("{} License Check", icons::SCAN));
+            printer.kv("Project", &repo.display().to_string());
+            printer.newline();
+
+            let config = gates::load_gates_config(&repo).unwrap_or_default();
+            let spin = cli::spinner("Checking dependency licenses...");
+            let result = gates::run_license_check(&repo, &config)?;
+            spin.finish_and_clear();
+
+            printer.kv("Scanner", &result.scanner);
+            if result.passed && result.findings.is_empty() {
+                printer.success(&result.message);
+            } else {
+                printer.warn(&result.message);
+                for f in result.findings.iter().take(50) {
+                    println!(
+                        "  {} {} {} — {} ({})",
+                        icons::WARN.yellow(),
+                        f.package.bright_white(),
+                        f.version.bright_black(),
+                        f.license.red(),
+                        f.reason.bright_black()
+                    );
+                }
+                if !result.passed {
+                    std::process::exit(1);
+                }
             }
         }
     }

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Security gates (Phase 2 of the gates epic)
+
+- **Four new gates** alongside the existing secret / dependency / commit-lint trio:
+  - **`sast`** — wraps `semgrep --config=auto`. Catches SQLi, XSS, command injection, insecure crypto, dangerous subprocess use.
+  - **`container_scan`** — wraps `trivy image`. Scans image refs from `gates.toml`'s `container_images` list; falls back to Dockerfiles auto-detected in the repo (top-level + 1 dir deep).
+  - **`iac_scan`** — wraps `trivy config`. Catches Dockerfile / docker-compose / Kubernetes / Terraform / CloudFormation misconfigurations.
+  - **`license_check`** — wraps `cargo-license` + `license-checker`. Flags GPL/AGPL by default; configurable via `license_denylist` + `license_allowlist`.
+- **Graceful scanner-missing handling** — every gate detects its CLI at runtime and returns a non-failing `"(missing)"` result with the install command when the tool isn't installed. No more crashes on "semgrep not found."
+- **Auto-appended pipeline stages** — when `.chibby/gates.toml` exists, `chibby pipeline generate` (and the GUI's Regenerate button) append one `security-<gate>` stage per enabled gate to the produced `pipeline.toml`. Off-mode gates are skipped.
+- **Default `gates.toml` on project add** — `auto_bootstrap_for_project` now seeds a sensible default (`warn` mode everywhere, baseline mode on, test fixtures allowlisted) so the Quality tab is populated from day one. Won't overwrite an existing file.
+- **New CLI subcommands** — `chibby scan sast`, `chibby scan container`, `chibby scan iac`, `chibby scan license`. Same shape as the existing `secrets`/`deps`/`commits`; non-zero exit on blocking findings.
+- **Recommendations panel entries** — `.chibby/gates.toml` and `.github/workflows/security.yml` are now flagged when missing (High priority, Security category).
+- **`GatesConfig` schema extended** with new mode fields (`sast`, `container_scan`, `iac_scan`, `license_check`), severity thresholds (`sast_severity_threshold`, `container_severity_threshold`, `iac_severity_threshold`), allowlists (`sast_allowlist`, `license_allowlist`), `container_images`, and `license_denylist`.
+- **`GatesResult` schema extended** with `sast`, `container_scan`, `iac_scan`, `license_check` optional fields.
+- **`GatesCard` (Quality tab)** — surfaces all seven gate-mode selectors, three severity threshold inputs, the `container_images` textarea, and four new Run buttons.
+- **New docs** — [`docs/features/security-gates.md`](../features/security-gates.md) covers all seven gates, config keys, scanner install hints, and pipeline auto-append behaviour. Cross-linked from cli-commands.md and user-guide.md.
+
+### Fixed
+
+- **`chibby projects list/add/remove/info` were stubs** that printed hardcoded demo data (`my-app/website/api/mobile-app`). They now read/write `<data_dir>/projects.json` via the same `persistence` layer the GUI uses. `add` validates the path exists; `remove` resolves by id/name/path/abs-path; `info` defaults to the project whose path matches CWD.
+- **`chibby scan secrets/deps/commits` were stubs** that slept and printed "no findings". They now call `gates::run_secret_scan/run_dependency_audit/run_commit_lint` and exit non-zero on blocking findings.
+- **`bootstrap.rs` test imports** — re-added `EnvironmentsConfig`/`SecretsConfig` to the test module after the earlier prod-side import cleanup.
+
 ### Added
 
 - **Project Detail is now 5 tabs** — Pipeline, History, **Environments**, **Release**, **Quality**. Every Tauri command in the backend now has a UI entry point; "Project Settings" is gone in favour of the three focused tabs.

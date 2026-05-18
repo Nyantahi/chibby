@@ -604,6 +604,7 @@ pub fn report_paths(report: &BootstrapReport) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::models::{EnvironmentsConfig, SecretsConfig};
     use tempfile::TempDir;
 
     fn write(path: &Path, content: &str) {

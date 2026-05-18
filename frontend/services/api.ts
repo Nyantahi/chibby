@@ -38,6 +38,10 @@ import type {
   SecretScanResult,
   AuditResult,
   CommitLintResult,
+  SastResult,
+  ContainerScanResult,
+  IacScanResult,
+  LicenseCheckResult,
   PipelineTemplate,
   TemplateVariable,
   DeploymentMethod,
@@ -685,6 +689,26 @@ export async function runCommitLint(repoPath: string): Promise<CommitLintResult>
 /** Create a secret scan baseline (marks existing findings as acknowledged). */
 export async function createSecretScanBaseline(repoPath: string): Promise<string> {
   return invoke<string>('create_secret_scan_baseline', { repoPath });
+}
+
+/** Run SAST (semgrep) only. */
+export async function runSast(repoPath: string): Promise<SastResult> {
+  return invoke<SastResult>('run_sast', { repoPath });
+}
+
+/** Run container image scanning only. */
+export async function runContainerScan(repoPath: string): Promise<ContainerScanResult> {
+  return invoke<ContainerScanResult>('run_container_scan', { repoPath });
+}
+
+/** Run Infrastructure-as-Code scanning only. */
+export async function runIacScan(repoPath: string): Promise<IacScanResult> {
+  return invoke<IacScanResult>('run_iac_scan', { repoPath });
+}
+
+/** Run license-compliance check only. */
+export async function runLicenseCheck(repoPath: string): Promise<LicenseCheckResult> {
+  return invoke<LicenseCheckResult>('run_license_check', { repoPath });
 }
 
 // ---------------------------------------------------------------------------

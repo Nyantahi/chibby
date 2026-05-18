@@ -396,17 +396,27 @@ The **Quality** tab is the operational hygiene layer.
 
 ### Gates card
 
-Each gate has three modes: `block` (fail the run), `warn` (log only), or `off`. Configure one selector per gate:
+Each gate has three modes: `block` (fail the run), `warn` (log only), or `off`. The card exposes selectors for all seven gates:
 
-- **Secret scanning** — backed by `gitleaks` when available.
-- **Dependency scanning** — `cargo-audit`, `npm audit`.
+- **Secret scanning** — backed by `gitleaks` when available, built-in regex fallback otherwise.
+- **Dependency scanning** — auto-picks `cargo audit` / `npm audit` / `pnpm audit` / `pip-audit` based on what's in the repo.
 - **Commit lint** — conventional commits.
+- **SAST (semgrep)** — static analysis for SQLi, XSS, command injection, dangerous subprocess use, etc.
+- **Container scan** — `trivy image` against image refs listed in `container_images` (textarea below the selectors) or detected Dockerfiles.
+- **IaC scan** — `trivy config` over Dockerfile / docker-compose / Kubernetes / Terraform / CloudFormation.
+- **License check** — `cargo-license` + `license-checker`; flags GPL/AGPL by default (configurable via `license_denylist`).
+
+Plus severity thresholds for dependency audit, SAST, and container scans (one of `low` / `medium` / `high` / `critical` — block only on this level and above).
 
 Buttons:
 
-- **Run all** — runs everything enabled and shows a single passed/failed summary.
-- **Secret scan** / **Dependency audit** / **Commit lint** — run one gate at a time, surfacing scanner output inline.
+- **Run all** — runs every enabled gate and shows a single passed/failed summary.
+- **Per-gate run buttons** — Secret scan / Dependency audit / Commit lint / SAST / Container / IaC / License — kick off one at a time with scanner output rendered inline.
 - **Create secret-scan baseline** — snapshot current findings into a baseline so the gate only flags new leaks going forward.
+
+Each scanner is detected at runtime. If the underlying tool (gitleaks, trivy, semgrep, etc.) isn't installed, the gate returns a non-failing `"(missing)"` result with the install command — gates never crash on "scanner not installed."
+
+For the deep dive (config keys, finding shapes, install hints, pipeline auto-append), see [Security & Quality Gates](../features/security-gates.md).
 
 ### Cleanup card
 
@@ -800,6 +810,46 @@ chibby scan commits
 # Check commits since a tag
 chibby scan commits --since v1.0.0
 ```
+
+#### `chibby scan sast`
+
+Static analysis via semgrep.
+
+```bash
+chibby scan sast
+```
+
+Requires `semgrep` on PATH (`brew install semgrep` or `pip install semgrep`).
+
+#### `chibby scan container`
+
+Scan container images for OS + app vulnerabilities via `trivy image`. Image refs come from `gates.toml` (`container_images`); when empty, Chibby falls back to Dockerfiles auto-detected in the repo.
+
+```bash
+chibby scan container
+```
+
+Requires `trivy` (`brew install trivy`).
+
+#### `chibby scan iac`
+
+Scan Dockerfile / docker-compose / Kubernetes / Terraform / CloudFormation for misconfigurations via `trivy config`.
+
+```bash
+chibby scan iac
+```
+
+Requires `trivy`.
+
+#### `chibby scan license`
+
+Flag GPL/AGPL (or any denylisted licenses) in dependency manifests.
+
+```bash
+chibby scan license
+```
+
+Requires `cargo-license` for Rust and/or `license-checker` for npm (`cargo install cargo-license` and `npm i -g license-checker`).
 
 #### `chibby preflight`
 

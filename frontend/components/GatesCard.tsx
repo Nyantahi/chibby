@@ -4,8 +4,12 @@ import {
   createSecretScanBaseline,
   loadGatesConfig,
   runCommitLint,
+  runContainerScan,
   runDependencyAudit,
   runGates,
+  runIacScan,
+  runLicenseCheck,
+  runSast,
   runSecretScan,
   saveGatesConfig,
 } from '../services/api';
@@ -116,6 +120,66 @@ function GatesCard({ repoPath }: Props) {
     }
   }
 
+  async function handleRunSast() {
+    setRunning('sast');
+    setSingle(null);
+    try {
+      const r = await runSast(repoPath);
+      setSingle(
+        `SAST: ${r.passed ? 'PASS' : 'FAIL'} (${r.findings.length} findings via ${r.scanner})\n${r.message}`
+      );
+    } catch (err) {
+      notifyError('SAST failed', err);
+    } finally {
+      setRunning(null);
+    }
+  }
+
+  async function handleRunContainer() {
+    setRunning('container');
+    setSingle(null);
+    try {
+      const r = await runContainerScan(repoPath);
+      setSingle(
+        `Container scan: ${r.passed ? 'PASS' : 'FAIL'} (${r.findings.length} findings via ${r.scanner}, ${r.targets.length} target(s))\n${r.message}`
+      );
+    } catch (err) {
+      notifyError('Container scan failed', err);
+    } finally {
+      setRunning(null);
+    }
+  }
+
+  async function handleRunIac() {
+    setRunning('iac');
+    setSingle(null);
+    try {
+      const r = await runIacScan(repoPath);
+      setSingle(
+        `IaC scan: ${r.passed ? 'PASS' : 'FAIL'} (${r.findings.length} findings via ${r.scanner})\n${r.message}`
+      );
+    } catch (err) {
+      notifyError('IaC scan failed', err);
+    } finally {
+      setRunning(null);
+    }
+  }
+
+  async function handleRunLicense() {
+    setRunning('license');
+    setSingle(null);
+    try {
+      const r = await runLicenseCheck(repoPath);
+      setSingle(
+        `License check: ${r.passed ? 'PASS' : 'FAIL'} (${r.findings.length} findings via ${r.scanner})\n${r.message}`
+      );
+    } catch (err) {
+      notifyError('License check failed', err);
+    } finally {
+      setRunning(null);
+    }
+  }
+
   return (
     <div className="feature-card">
       <div className="feature-card-header">
@@ -181,15 +245,107 @@ function GatesCard({ repoPath }: Props) {
                   ))}
                 </select>
               </div>
+              <div className="form-row">
+                <label>SAST (semgrep)</label>
+                <select
+                  className="input"
+                  value={cfg.sast}
+                  onChange={(e) => updateMode('sast', e.target.value as GateMode)}
+                >
+                  {MODES.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-row">
+                <label>Container scan</label>
+                <select
+                  className="input"
+                  value={cfg.container_scan}
+                  onChange={(e) => updateMode('container_scan', e.target.value as GateMode)}
+                >
+                  {MODES.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-row">
+                <label>IaC scan</label>
+                <select
+                  className="input"
+                  value={cfg.iac_scan}
+                  onChange={(e) => updateMode('iac_scan', e.target.value as GateMode)}
+                >
+                  {MODES.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-row">
+                <label>License check</label>
+                <select
+                  className="input"
+                  value={cfg.license_check}
+                  onChange={(e) => updateMode('license_check', e.target.value as GateMode)}
+                >
+                  {MODES.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+              <div className="form-row">
+                <label>Dep audit threshold</label>
+                <input
+                  className="input"
+                  value={cfg.audit_severity_threshold}
+                  onChange={(e) => updateMode('audit_severity_threshold', e.target.value)}
+                  placeholder="low|medium|high|critical"
+                />
+              </div>
+              <div className="form-row">
+                <label>SAST threshold</label>
+                <input
+                  className="input"
+                  value={cfg.sast_severity_threshold}
+                  onChange={(e) => updateMode('sast_severity_threshold', e.target.value)}
+                  placeholder="low|medium|high|critical"
+                />
+              </div>
+              <div className="form-row">
+                <label>Container threshold</label>
+                <input
+                  className="input"
+                  value={cfg.container_severity_threshold}
+                  onChange={(e) => updateMode('container_severity_threshold', e.target.value)}
+                  placeholder="low|medium|high|critical"
+                />
+              </div>
             </div>
 
             <div className="form-row">
-              <label>Audit severity threshold</label>
-              <input
+              <label>Container images (one per line; falls back to detected Dockerfiles)</label>
+              <textarea
                 className="input"
-                value={cfg.audit_severity_threshold}
-                onChange={(e) => updateMode('audit_severity_threshold', e.target.value)}
-                placeholder="low|medium|high|critical"
+                rows={2}
+                value={cfg.container_images.join('\n')}
+                onChange={(e) =>
+                  updateMode(
+                    'container_images',
+                    e.target.value.split('\n').map((s) => s.trim()).filter(Boolean)
+                  )
+                }
+                placeholder="ghcr.io/your-org/your-app:tag"
               />
             </div>
 
@@ -214,6 +370,34 @@ function GatesCard({ repoPath }: Props) {
                 disabled={running !== null}
               >
                 {running === 'commit' ? '…' : 'Commit lint'}
+              </button>
+              <button
+                className="btn btn-sm btn-ghost"
+                onClick={handleRunSast}
+                disabled={running !== null}
+              >
+                {running === 'sast' ? '…' : 'SAST (semgrep)'}
+              </button>
+              <button
+                className="btn btn-sm btn-ghost"
+                onClick={handleRunContainer}
+                disabled={running !== null}
+              >
+                {running === 'container' ? '…' : 'Container scan'}
+              </button>
+              <button
+                className="btn btn-sm btn-ghost"
+                onClick={handleRunIac}
+                disabled={running !== null}
+              >
+                {running === 'iac' ? '…' : 'IaC scan'}
+              </button>
+              <button
+                className="btn btn-sm btn-ghost"
+                onClick={handleRunLicense}
+                disabled={running !== null}
+              >
+                {running === 'license' ? '…' : 'License check'}
               </button>
               <button
                 className="btn btn-sm btn-ghost"
