@@ -180,7 +180,10 @@ function EnvironmentEditor({ repoPath, config, onSaved }: Props) {
         <div className="leak-banner">
           <AlertTriangle size={14} />
           <div className="leak-banner-list">
-            <strong>{leaks.length} possible leaked credential{leaks.length === 1 ? '' : 's'} in environments.toml</strong>
+            <strong>
+              {leaks.length} possible leaked credential{leaks.length === 1 ? '' : 's'} in
+              environments.toml
+            </strong>
             {leaks.slice(0, 5).map((h, i) => (
               <span key={i}>
                 <code>{h.env}</code> · <code>{h.variable}</code> — {h.rule} ({h.preview})

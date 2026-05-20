@@ -1,6 +1,17 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Key, Bell, Archive, Info, Eye, EyeOff, Check, Bot, AlertTriangle, FolderOpen } from 'lucide-react';
+import {
+  Key,
+  Bell,
+  Archive,
+  Info,
+  Eye,
+  EyeOff,
+  Check,
+  Bot,
+  AlertTriangle,
+  FolderOpen,
+} from 'lucide-react';
 import {
   loadAppSettings,
   saveAppSettings,
@@ -43,10 +54,6 @@ function Settings() {
   const [appVersion, setAppVersion] = useState('');
   const [dataDir, setDataDir] = useState('');
 
-  useEffect(() => {
-    loadAll();
-  }, []);
-
   async function loadAll() {
     try {
       setLoading(true);
@@ -75,6 +82,11 @@ function Settings() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadAll();
+  }, []);
 
   async function handleSaveSettings() {
     if (!settings) return;

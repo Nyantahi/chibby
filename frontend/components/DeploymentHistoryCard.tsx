@@ -19,10 +19,12 @@ function DeploymentHistoryCard({ repoPath, environments }: Props) {
     if (environments.length === 0) return;
     Promise.all(
       environments.map((e) =>
-        getDeploymentHistory(repoPath, e.name).then((r) => [e.name, r] as const).catch((err) => {
-          notifyError(`History for ${e.name} failed`, err);
-          return [e.name, [] as DeploymentRecord[]] as const;
-        })
+        getDeploymentHistory(repoPath, e.name)
+          .then((r) => [e.name, r] as const)
+          .catch((err) => {
+            notifyError(`History for ${e.name} failed`, err);
+            return [e.name, [] as DeploymentRecord[]] as const;
+          })
       )
     )
       .then((pairs) => {

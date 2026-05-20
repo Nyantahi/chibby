@@ -79,11 +79,7 @@ function ExportDotenvModal({ repoPath, environments, onClose }: Props) {
           <button className="btn btn-ghost" onClick={onClose} disabled={running}>
             Cancel
           </button>
-          <button
-            className="btn btn-primary"
-            onClick={handleExport}
-            disabled={running || !envName}
-          >
+          <button className="btn btn-primary" onClick={handleExport} disabled={running || !envName}>
             {running ? 'Exporting…' : 'Export'}
           </button>
         </div>

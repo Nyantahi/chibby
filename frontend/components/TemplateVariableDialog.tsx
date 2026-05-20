@@ -20,11 +20,6 @@ function TemplateVariableDialog({ template, repoPath, projectName, onApplied, on
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadVariables();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [template.meta.name]);
-
   async function loadVariables() {
     try {
       setLoading(true);
@@ -74,9 +69,16 @@ function TemplateVariableDialog({ template, repoPath, projectName, onApplied, on
     }
   }
 
-  // If template has no variables, apply immediately
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadVariables();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [template.meta.name]);
+
+  // If template has no variables, apply immediately.
   useEffect(() => {
     if (!loading && variables.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       handleApply();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -35,16 +35,12 @@ function NotifyCard({ repoPath }: Props) {
 
   function addTarget() {
     setCfg((prev) =>
-      prev
-        ? { ...prev, targets: [...prev.targets, { channel: 'desktop', on: 'always' }] }
-        : prev
+      prev ? { ...prev, targets: [...prev.targets, { channel: 'desktop', on: 'always' }] } : prev
     );
   }
 
   function removeTarget(i: number) {
-    setCfg((prev) =>
-      prev ? { ...prev, targets: prev.targets.filter((_, j) => j !== i) } : prev
-    );
+    setCfg((prev) => (prev ? { ...prev, targets: prev.targets.filter((_, j) => j !== i) } : prev));
   }
 
   async function handleSave() {
@@ -79,7 +75,11 @@ function NotifyCard({ repoPath }: Props) {
           <Bell size={16} /> Notifications
         </div>
         <div className="feature-card-actions">
-          <button className="btn btn-sm btn-ghost" onClick={handleTest} disabled={testing || !cfg?.enabled}>
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={handleTest}
+            disabled={testing || !cfg?.enabled}
+          >
             {testing ? 'Sending…' : 'Send test'}
           </button>
           <button className="btn btn-sm btn-secondary" onClick={handleSave} disabled={saving}>
@@ -94,7 +94,14 @@ function NotifyCard({ repoPath }: Props) {
           </div>
         ) : cfg ? (
           <>
-            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 'var(--font-size-xs)' }}>
+            <label
+              style={{
+                display: 'flex',
+                gap: 6,
+                alignItems: 'center',
+                fontSize: 'var(--font-size-xs)',
+              }}
+            >
               <input
                 type="checkbox"
                 checked={cfg.enabled}

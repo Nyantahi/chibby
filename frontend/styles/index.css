@@ -3699,11 +3699,22 @@ select.input {
   margin-top: 2px;
 }
 
-.toast-success .toast-icon { color: var(--color-success); }
-.toast-error .toast-icon { color: var(--color-failed); }
+.toast-success .toast-icon {
+  color: var(--color-success);
+}
+.toast-error .toast-icon {
+  color: var(--color-failed);
+}
 
-.toast-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.toast-message { font-weight: 500; }
+.toast-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.toast-message {
+  font-weight: 500;
+}
 .toast-detail {
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
@@ -3718,7 +3729,10 @@ select.input {
   padding: 2px;
   border-radius: var(--radius-sm);
 }
-.toast-close:hover { color: var(--color-text); background: var(--color-surface-hover); }
+.toast-close:hover {
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+}
 
 /* ============================================================
    Bootstrap Wizard / env-epic shared
@@ -3745,7 +3759,9 @@ select.input {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
 }
-.bw-summary strong { color: var(--color-text); }
+.bw-summary strong {
+  color: var(--color-text);
+}
 
 .bw-list {
   display: flex;
@@ -3759,8 +3775,14 @@ select.input {
   border-radius: var(--radius-sm);
   background: var(--color-surface);
 }
-.bw-row-head { display: flex; align-items: center; gap: var(--space-sm); }
-.bw-row-head code { font-size: var(--font-size-sm); }
+.bw-row-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.bw-row-head code {
+  font-size: var(--font-size-sm);
+}
 .bw-row-sources {
   display: flex;
   flex-wrap: wrap;
@@ -3818,10 +3840,16 @@ select.input {
   font-size: var(--font-size-xs);
 }
 
-.spin { animation: bw-spin 1s linear infinite; }
+.spin {
+  animation: bw-spin 1s linear infinite;
+}
 @keyframes bw-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ============================================================
@@ -3913,7 +3941,10 @@ select.input {
   padding: 4px 8px;
   border-bottom: 1px solid var(--color-border);
 }
-.kv-table th { color: var(--color-text-muted); font-weight: 500; }
+.kv-table th {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
 
 .leak-banner {
   display: flex;
@@ -3927,8 +3958,14 @@ select.input {
   border-radius: var(--radius-sm);
   font-size: var(--font-size-xs);
 }
-.leak-banner-list { display: flex; flex-direction: column; gap: 2px; }
-.leak-banner code { color: var(--color-text); }
+.leak-banner-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.leak-banner code {
+  color: var(--color-text);
+}
 
 .layered-toggle {
   display: inline-flex;
@@ -3937,4 +3974,80 @@ select.input {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   margin-left: auto;
+}
+
+/* ============================================================
+   Gates results — collapsible cards
+   ============================================================ */
+
+.gates-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+.gates-results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-xs);
+}
+
+.gates-result-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.gates-result-header {
+  display: grid;
+  grid-template-columns: auto auto auto 1fr auto;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  background: transparent;
+  border: 0;
+  color: var(--color-text);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.gates-result-header:hover {
+  background: var(--color-surface-hover);
+}
+
+.gates-result-label {
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+}
+
+.gates-result-summary {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gates-result-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.gates-result-body {
+  margin: 0;
+  padding: var(--space-md);
+  font-size: var(--font-size-2xs);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  background: var(--color-bg);
+  color: var(--color-text);
+  border-top: 1px solid var(--color-border);
+  max-height: 360px;
+  overflow: auto;
 }

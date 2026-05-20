@@ -18,11 +18,20 @@ function VersionCard({ repoPath }: Props) {
   const [loadingChangelog, setLoadingChangelog] = useState(false);
 
   useEffect(() => {
-    setLoading(true);
+    let cancelled = false;
     detectVersions(repoPath)
-      .then(setInfo)
-      .catch((err) => notifyError('Failed to detect versions', err))
-      .finally(() => setLoading(false));
+      .then((r) => {
+        if (!cancelled) setInfo(r);
+      })
+      .catch((err) => {
+        if (!cancelled) notifyError('Failed to detect versions', err);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [repoPath]);
 
   async function handleBump(level: BumpLevel) {
@@ -77,8 +86,7 @@ function VersionCard({ repoPath }: Props) {
           <>
             <div className="bw-summary" style={{ marginBottom: 0 }}>
               <span>
-                current:{' '}
-                <strong>{info.current_version ?? '—'}</strong>
+                current: <strong>{info.current_version ?? '—'}</strong>
               </span>
               <span>
                 files: <strong>{info.files.length}</strong>
@@ -86,7 +94,11 @@ function VersionCard({ repoPath }: Props) {
               <span>
                 tag: <strong>{info.latest_tag ?? '—'}</strong>
               </span>
-              <span style={{ color: info.is_consistent ? 'var(--color-success)' : 'var(--color-failed)' }}>
+              <span
+                style={{
+                  color: info.is_consistent ? 'var(--color-success)' : 'var(--color-failed)',
+                }}
+              >
                 {info.is_consistent ? 'consistent ✓' : 'inconsistent !'}
               </span>
             </div>
@@ -132,7 +144,14 @@ function VersionCard({ repoPath }: Props) {
                 {bumping === 'major' ? 'Bumping…' : 'Bump major'}
               </button>
               <label
-                style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', display: 'flex', gap: 4, alignItems: 'center', marginLeft: 'auto' }}
+                style={{
+                  fontSize: 'var(--font-size-xs)',
+                  color: 'var(--color-text-muted)',
+                  display: 'flex',
+                  gap: 4,
+                  alignItems: 'center',
+                  marginLeft: 'auto',
+                }}
               >
                 <input
                   type="checkbox"
@@ -147,7 +166,12 @@ function VersionCard({ repoPath }: Props) {
             {lastBump && (
               <div className="text-muted" style={{ fontSize: 'var(--font-size-xs)' }}>
                 Last bump: {lastBump.old_version} → <strong>{lastBump.new_version}</strong>
-                {lastBump.git_tag && <> (tag: <code>{lastBump.git_tag}</code>)</>}
+                {lastBump.git_tag && (
+                  <>
+                    {' '}
+                    (tag: <code>{lastBump.git_tag}</code>)
+                  </>
+                )}
               </div>
             )}
 

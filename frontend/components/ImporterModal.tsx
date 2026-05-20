@@ -25,26 +25,33 @@ function ImporterModal({ repoPath, environments, onClose, onDone }: Props) {
   const [sourcePath, setSourcePath] = useState<string>('');
   const [withValues, setWithValues] = useState(true);
   const [persistSecrets, setPersistSecrets] = useState(true);
-  const [cliOk, setCliOk] = useState<boolean | null>(null);
+  /** CLI status tagged with the source it was fetched for, so we can detect
+   *  a stale result if the source has changed since the check started. */
+  const [cliStatus, setCliStatus] = useState<{ source: ImporterSource; ok: boolean } | null>(null);
   const [running, setRunning] = useState(false);
   const [report, setReport] = useState<ImportReport | null>(null);
   const [apply, setApply] = useState<ApplyReport | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Refetch CLI status when the importer source changes. Tag every result with
+  // its source so the renderer can fall back to "Checking…" if the source
+  // changed while the previous probe was in flight.
   useEffect(() => {
-    setCliOk(null);
     let cancelled = false;
     importerCliStatus(source)
       .then((ok) => {
-        if (!cancelled) setCliOk(ok);
+        if (!cancelled) setCliStatus({ source, ok });
       })
       .catch(() => {
-        if (!cancelled) setCliOk(false);
+        if (!cancelled) setCliStatus({ source, ok: false });
       });
     return () => {
       cancelled = true;
     };
   }, [source]);
+
+  /** ok|false if the most-recent probe matches the current source, null otherwise. */
+  const cliOk = cliStatus && cliStatus.source === source ? cliStatus.ok : null;
 
   async function handlePickFile() {
     const picked = await open({
@@ -149,7 +156,11 @@ function ImporterModal({ repoPath, environments, onClose, onDone }: Props) {
                   placeholder="/path/to/.env"
                   disabled={running}
                 />
-                <button className="btn btn-secondary btn-sm" onClick={handlePickFile} disabled={running}>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={handlePickFile}
+                  disabled={running}
+                >
                   Browse
                 </button>
               </div>
@@ -225,7 +236,9 @@ function ImporterModal({ repoPath, environments, onClose, onDone }: Props) {
           <button
             className="btn btn-primary"
             onClick={handleRun}
-            disabled={running || (cliNeeded && cliOk === false) || (source === 'dotenv' && !sourcePath)}
+            disabled={
+              running || (cliNeeded && cliOk === false) || (source === 'dotenv' && !sourcePath)
+            }
           >
             {running ? (
               <>

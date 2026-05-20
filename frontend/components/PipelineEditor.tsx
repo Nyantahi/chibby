@@ -67,14 +67,6 @@ function PipelineEditor({ repoPath, pipeline, onSaved }: Props) {
   const hasChanges =
     name !== pipeline.name || JSON.stringify(stages) !== JSON.stringify(pipeline.stages);
 
-  // Load workflows when import modal opens
-  useEffect(() => {
-    if (showImport && workflows.length === 0) {
-      loadWorkflows();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showImport]);
-
   async function loadWorkflows() {
     try {
       setLoadingWorkflows(true);
@@ -87,6 +79,15 @@ function PipelineEditor({ repoPath, pipeline, onSaved }: Props) {
       setLoadingWorkflows(false);
     }
   }
+
+  // Load workflows when import modal opens.
+  useEffect(() => {
+    if (showImport && workflows.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      loadWorkflows();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showImport]);
 
   function toggleStepSelection(jobName: string, stepIdx: number) {
     const key = `${jobName}:${stepIdx}`;

@@ -317,7 +317,17 @@ function AddProject() {
   const [autoDraft, setAutoDraft] = useState<Pipeline | null>(null);
   const [draft, setDraft] = useState<Pipeline | null>(null);
   const [workflows, setWorkflows] = useState<WorkflowInfo[]>([]);
-  const [pipelineSource, setPipelineSource] = useState<PipelineSource>('auto');
+  // Pick up template passed from the Templates page via router state.
+  // Reading once via useState lazy init avoids the "setState in effect" warning
+  // that would otherwise fire if we mirrored location.state -> component state.
+  const incomingTemplate = useState(
+    () =>
+      (location.state as { template?: PipelineTemplate; editMode?: boolean } | null)?.template ??
+      null
+  )[0];
+  const [pipelineSource, setPipelineSource] = useState<PipelineSource>(
+    incomingTemplate ? 'template' : 'auto'
+  );
   const [stageSelection, setStageSelection] = useState<Record<number, boolean>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -326,7 +336,7 @@ function AddProject() {
   const [showTemplateBrowser, setShowTemplateBrowser] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<PipelineTemplate | null>(null);
   // Template pre-selected from the Templates page — waits for repo selection before applying
-  const [pendingTemplate, setPendingTemplate] = useState<PipelineTemplate | null>(null);
+  const [pendingTemplate, setPendingTemplate] = useState<PipelineTemplate | null>(incomingTemplate);
 
   // Deployment state
   const [projectType, setProjectType] = useState<ProjectType>('Unknown');
@@ -340,16 +350,15 @@ function AddProject() {
   const [bootstrapReview, setBootstrapReview] = useState<BootstrapReport | null>(null);
   const [bootstrapTarget, setBootstrapTarget] = useState<string | null>(null);
 
-  // Pick up template passed from the Templates page via router state
+  // Clear router state once on mount so refreshing doesn't re-apply the template.
+  // (The template itself is read via the useState lazy initializer above.)
   useEffect(() => {
-    const state = location.state as { template?: PipelineTemplate; editMode?: boolean } | null;
-    if (state?.template) {
-      setPendingTemplate(state.template);
-      setPipelineSource('template');
-      // Clear state so refreshing doesn't re-trigger
+    if (incomingTemplate) {
       window.history.replaceState({}, '');
     }
-  }, [location.state]);
+    // Intentional one-shot; incomingTemplate is captured at mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const currentStepIdx = WIZARD_STEPS.findIndex((s) => s.key === step);
 
@@ -473,11 +482,7 @@ function AddProject() {
         notifySuccess('Bootstrap applied', 'Detected env/secrets written to .chibby/');
         return false;
       }
-      if (
-        outcome.mode === 'confirm' &&
-        outcome.report &&
-        outcome.report.detected.length > 0
-      ) {
+      if (outcome.mode === 'confirm' && outcome.report && outcome.report.detected.length > 0) {
         setBootstrapTarget(projectPath);
         setBootstrapReview(outcome.report);
         return true;

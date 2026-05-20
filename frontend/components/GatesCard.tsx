@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Shield, Loader2, ShieldCheck, AlertTriangle } from 'lucide-react';
+import {
+  Shield,
+  Loader2,
+  ShieldCheck,
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  X,
+} from 'lucide-react';
 import {
   createSecretScanBaseline,
   loadGatesConfig,
@@ -22,13 +31,55 @@ interface Props {
 
 const MODES: GateMode[] = ['block', 'warn', 'off'];
 
+type ScanStatus = 'pass' | 'fail' | 'info';
+
+interface ScanEntry {
+  /** Stable id per gate so reruns replace the prior entry. */
+  id: string;
+  label: string;
+  status: ScanStatus;
+  /** Single-line summary shown on the collapsed header. */
+  summary: string;
+  /** Full body shown when expanded (and what Copy puts on the clipboard). */
+  body: string;
+  /** Whether this entry is currently expanded. */
+  expanded: boolean;
+  /** Wall-clock time the entry was produced. */
+  at: number;
+}
+
 function GatesCard({ repoPath }: Props) {
   const [cfg, setCfg] = useState<GatesConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState<string | null>(null);
-  const [result, setResult] = useState<GatesResult | null>(null);
-  const [single, setSingle] = useState<string | null>(null);
+  /** Ordered most-recent-first; reruns replace by id. */
+  const [entries, setEntries] = useState<ScanEntry[]>([]);
+
+  function upsertEntry(entry: Omit<ScanEntry, 'at' | 'expanded'> & { expanded?: boolean }) {
+    setEntries((prev) => {
+      const at = Date.now();
+      const next = prev.filter((e) => e.id !== entry.id);
+      next.unshift({ expanded: entry.expanded ?? true, at, ...entry });
+      return next;
+    });
+  }
+
+  function toggleEntry(id: string) {
+    setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, expanded: !e.expanded } : e)));
+  }
+
+  function removeEntry(id: string) {
+    setEntries((prev) => prev.filter((e) => e.id !== id));
+  }
+
+  function copyEntry(entry: ScanEntry) {
+    const text = `# ${entry.label}\n# ${entry.summary}\n\n${entry.body}`;
+    navigator.clipboard
+      .writeText(text)
+      .then(() => notifySuccess('Copied to clipboard'))
+      .catch((err) => notifyError('Copy failed', err));
+  }
 
   useEffect(() => {
     loadGatesConfig(repoPath)
@@ -54,13 +105,23 @@ function GatesCard({ repoPath }: Props) {
     }
   }
 
+  function statusOf(passed: boolean): ScanStatus {
+    return passed ? 'pass' : 'fail';
+  }
+
   async function handleRunAll() {
     setRunning('all');
-    setResult(null);
-    setSingle(null);
     try {
-      const r = await runGates(repoPath);
-      setResult(r);
+      const r: GatesResult = await runGates(repoPath);
+      upsertEntry({
+        id: 'all',
+        label: 'Run all gates',
+        status: statusOf(r.passed),
+        summary: r.passed
+          ? 'All enabled gates passed'
+          : 'One or more gates failed — expand for details',
+        body: JSON.stringify(r, null, 2),
+      });
       if (r.passed) notifySuccess('Gates passed');
     } catch (err) {
       notifyError('Run gates failed', err);
@@ -71,10 +132,15 @@ function GatesCard({ repoPath }: Props) {
 
   async function handleRunSecretScan() {
     setRunning('secret');
-    setSingle(null);
     try {
       const r = await runSecretScan(repoPath);
-      setSingle(`Secret scan: ${r.passed ? 'PASS' : 'FAIL'} (${r.findings.length} findings via ${r.scanner})\n${r.message}`);
+      upsertEntry({
+        id: 'secret',
+        label: 'Secret scan',
+        status: statusOf(r.passed),
+        summary: `${r.findings.length} finding(s) via ${r.scanner}`,
+        body: `${r.message}\n\n${JSON.stringify(r, null, 2)}`,
+      });
     } catch (err) {
       notifyError('Secret scan failed', err);
     } finally {
@@ -84,10 +150,15 @@ function GatesCard({ repoPath }: Props) {
 
   async function handleRunAudit() {
     setRunning('audit');
-    setSingle(null);
     try {
       const r = await runDependencyAudit(repoPath);
-      setSingle(`Dependency audit: ${r.passed ? 'PASS' : 'FAIL'} (${r.findings.length} findings via ${r.scanner})\n${r.message}`);
+      upsertEntry({
+        id: 'audit',
+        label: 'Dependency audit',
+        status: statusOf(r.passed),
+        summary: `${r.findings.length} finding(s) via ${r.scanner}`,
+        body: `${r.message}\n\n${JSON.stringify(r, null, 2)}`,
+      });
     } catch (err) {
       notifyError('Dependency audit failed', err);
     } finally {
@@ -97,10 +168,15 @@ function GatesCard({ repoPath }: Props) {
 
   async function handleRunCommitLint() {
     setRunning('commit');
-    setSingle(null);
     try {
       const r = await runCommitLint(repoPath);
-      setSingle(`Commit lint: ${r.passed ? 'PASS' : 'FAIL'} (${r.violations.length} violations across ${r.commits_checked} commits)\n${r.message}`);
+      upsertEntry({
+        id: 'commit',
+        label: 'Commit lint',
+        status: statusOf(r.passed),
+        summary: `${r.violations.length} violation(s) across ${r.commits_checked} commits`,
+        body: `${r.message}\n\n${JSON.stringify(r, null, 2)}`,
+      });
     } catch (err) {
       notifyError('Commit lint failed', err);
     } finally {
@@ -112,6 +188,13 @@ function GatesCard({ repoPath }: Props) {
     setRunning('baseline');
     try {
       const msg = await createSecretScanBaseline(repoPath);
+      upsertEntry({
+        id: 'baseline',
+        label: 'Secret-scan baseline',
+        status: 'info',
+        summary: msg,
+        body: msg,
+      });
       notifySuccess('Baseline created', msg);
     } catch (err) {
       notifyError('Baseline failed', err);
@@ -122,12 +205,15 @@ function GatesCard({ repoPath }: Props) {
 
   async function handleRunSast() {
     setRunning('sast');
-    setSingle(null);
     try {
       const r = await runSast(repoPath);
-      setSingle(
-        `SAST: ${r.passed ? 'PASS' : 'FAIL'} (${r.findings.length} findings via ${r.scanner})\n${r.message}`
-      );
+      upsertEntry({
+        id: 'sast',
+        label: 'SAST (semgrep)',
+        status: statusOf(r.passed),
+        summary: `${r.findings.length} finding(s) via ${r.scanner}`,
+        body: `${r.message}\n\n${JSON.stringify(r, null, 2)}`,
+      });
     } catch (err) {
       notifyError('SAST failed', err);
     } finally {
@@ -137,12 +223,15 @@ function GatesCard({ repoPath }: Props) {
 
   async function handleRunContainer() {
     setRunning('container');
-    setSingle(null);
     try {
       const r = await runContainerScan(repoPath);
-      setSingle(
-        `Container scan: ${r.passed ? 'PASS' : 'FAIL'} (${r.findings.length} findings via ${r.scanner}, ${r.targets.length} target(s))\n${r.message}`
-      );
+      upsertEntry({
+        id: 'container',
+        label: 'Container scan',
+        status: statusOf(r.passed),
+        summary: `${r.findings.length} finding(s) via ${r.scanner}, ${r.targets.length} target(s)`,
+        body: `${r.message}\nTargets: ${r.targets.join(', ') || '(none)'}\n\n${JSON.stringify(r, null, 2)}`,
+      });
     } catch (err) {
       notifyError('Container scan failed', err);
     } finally {
@@ -152,12 +241,15 @@ function GatesCard({ repoPath }: Props) {
 
   async function handleRunIac() {
     setRunning('iac');
-    setSingle(null);
     try {
       const r = await runIacScan(repoPath);
-      setSingle(
-        `IaC scan: ${r.passed ? 'PASS' : 'FAIL'} (${r.findings.length} findings via ${r.scanner})\n${r.message}`
-      );
+      upsertEntry({
+        id: 'iac',
+        label: 'IaC scan',
+        status: statusOf(r.passed),
+        summary: `${r.findings.length} finding(s) via ${r.scanner}`,
+        body: `${r.message}\n\n${JSON.stringify(r, null, 2)}`,
+      });
     } catch (err) {
       notifyError('IaC scan failed', err);
     } finally {
@@ -167,12 +259,15 @@ function GatesCard({ repoPath }: Props) {
 
   async function handleRunLicense() {
     setRunning('license');
-    setSingle(null);
     try {
       const r = await runLicenseCheck(repoPath);
-      setSingle(
-        `License check: ${r.passed ? 'PASS' : 'FAIL'} (${r.findings.length} findings via ${r.scanner})\n${r.message}`
-      );
+      upsertEntry({
+        id: 'license',
+        label: 'License check',
+        status: statusOf(r.passed),
+        summary: `${r.findings.length} finding(s) via ${r.scanner}`,
+        body: `${r.message}\n\n${JSON.stringify(r, null, 2)}`,
+      });
     } catch (err) {
       notifyError('License check failed', err);
     } finally {
@@ -190,7 +285,11 @@ function GatesCard({ repoPath }: Props) {
           <button className="btn btn-sm btn-secondary" onClick={handleSave} disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
           </button>
-          <button className="btn btn-sm btn-primary" onClick={handleRunAll} disabled={running !== null}>
+          <button
+            className="btn btn-sm btn-primary"
+            onClick={handleRunAll}
+            disabled={running !== null}
+          >
             {running === 'all' ? 'Running…' : 'Run all'}
           </button>
         </div>
@@ -342,7 +441,10 @@ function GatesCard({ repoPath }: Props) {
                 onChange={(e) =>
                   updateMode(
                     'container_images',
-                    e.target.value.split('\n').map((s) => s.trim()).filter(Boolean)
+                    e.target.value
+                      .split('\n')
+                      .map((s) => s.trim())
+                      .filter(Boolean)
                   )
                 }
                 placeholder="ghcr.io/your-org/your-app:tag"
@@ -408,46 +510,86 @@ function GatesCard({ repoPath }: Props) {
               </button>
             </div>
 
-            {result && (
-              <div
-                style={{
-                  marginTop: 12,
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: 'var(--space-md)',
-                }}
-              >
-                <strong
-                  style={{
-                    display: 'flex',
-                    gap: 6,
-                    alignItems: 'center',
-                    color: result.passed ? 'var(--color-success)' : 'var(--color-failed)',
-                  }}
-                >
-                  {result.passed ? <ShieldCheck size={14} /> : <AlertTriangle size={14} />}
-                  {result.passed ? 'Passed' : 'Failed'}
-                </strong>
-                <pre style={{ marginTop: 8, fontSize: 'var(--font-size-2xs)', whiteSpace: 'pre-wrap' }}>
-                  {JSON.stringify(result, null, 2)}
-                </pre>
+            {entries.length > 0 && (
+              <div className="gates-results">
+                <div className="gates-results-header">
+                  <strong style={{ fontSize: 'var(--font-size-sm)' }}>
+                    Results ({entries.length})
+                  </strong>
+                  <button
+                    className="btn btn-xs btn-ghost"
+                    onClick={() => setEntries([])}
+                    title="Clear all results"
+                  >
+                    Clear
+                  </button>
+                </div>
+                {entries.map((e) => {
+                  const color =
+                    e.status === 'pass'
+                      ? 'var(--color-success)'
+                      : e.status === 'fail'
+                        ? 'var(--color-failed)'
+                        : 'var(--color-text-muted)';
+                  const Icon = e.status === 'pass' ? ShieldCheck : AlertTriangle;
+                  return (
+                    <div key={e.id} className="gates-result-card">
+                      <button
+                        type="button"
+                        className="gates-result-header"
+                        onClick={() => toggleEntry(e.id)}
+                        aria-expanded={e.expanded}
+                      >
+                        {e.expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                        <Icon size={14} style={{ color }} />
+                        <span className="gates-result-label" style={{ color }}>
+                          {e.label}
+                        </span>
+                        <span className="gates-result-summary">{e.summary}</span>
+                        <span className="gates-result-actions">
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            className="btn-icon btn-xs"
+                            title="Copy result"
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              copyEntry(e);
+                            }}
+                            onKeyDown={(ev) => {
+                              if (ev.key === 'Enter' || ev.key === ' ') {
+                                ev.preventDefault();
+                                copyEntry(e);
+                              }
+                            }}
+                          >
+                            <Copy size={12} />
+                          </span>
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            className="btn-icon btn-xs"
+                            title="Dismiss"
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              removeEntry(e.id);
+                            }}
+                            onKeyDown={(ev) => {
+                              if (ev.key === 'Enter' || ev.key === ' ') {
+                                ev.preventDefault();
+                                removeEntry(e.id);
+                              }
+                            }}
+                          >
+                            <X size={12} />
+                          </span>
+                        </span>
+                      </button>
+                      {e.expanded && <pre className="gates-result-body">{e.body}</pre>}
+                    </div>
+                  );
+                })}
               </div>
-            )}
-
-            {single && (
-              <pre
-                style={{
-                  marginTop: 8,
-                  padding: 'var(--space-md)',
-                  fontSize: 'var(--font-size-xs)',
-                  whiteSpace: 'pre-wrap',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-sm)',
-                  background: 'var(--color-surface)',
-                }}
-              >
-                {single}
-              </pre>
             )}
           </>
         ) : null}

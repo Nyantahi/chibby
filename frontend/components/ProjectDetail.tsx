@@ -1253,8 +1253,15 @@ function ProjectDetail() {
                     </button>
                   </div>
                 </div>
-                <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', padding: '0 var(--space-md) var(--space-sm)' }}>
-                  Scan the repo for env / secret references, or pull from Vercel / Railway / Fly / a .env file.
+                <p
+                  className="text-muted"
+                  style={{
+                    fontSize: 'var(--font-size-xs)',
+                    padding: '0 var(--space-md) var(--space-sm)',
+                  }}
+                >
+                  Scan the repo for env / secret references, or pull from Vercel / Railway / Fly / a
+                  .env file.
                 </p>
               </section>
 

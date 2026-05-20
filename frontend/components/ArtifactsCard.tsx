@@ -118,7 +118,11 @@ function ArtifactsCard({ repoPath }: Props) {
           <Package size={16} /> Artifacts &amp; Signing
         </div>
         <div className="feature-card-actions">
-          <button className="btn btn-sm btn-secondary" onClick={handleCollect} disabled={collecting || !cfg}>
+          <button
+            className="btn btn-sm btn-secondary"
+            onClick={handleCollect}
+            disabled={collecting || !cfg}
+          >
             {collecting ? 'Collecting…' : 'Collect'}
           </button>
         </div>
@@ -147,7 +151,9 @@ function ArtifactsCard({ repoPath }: Props) {
                       className="input"
                       type="number"
                       value={cfg.retention_count}
-                      onChange={(e) => updateCfg('retention_count', parseInt(e.target.value, 10) || 0)}
+                      onChange={(e) =>
+                        updateCfg('retention_count', parseInt(e.target.value, 10) || 0)
+                      }
                     />
                   </div>
                   <div className="form-row" style={{ flex: 1 }}>
@@ -169,7 +175,10 @@ function ArtifactsCard({ repoPath }: Props) {
                     onChange={(e) =>
                       updateCfg(
                         'patterns',
-                        e.target.value.split('\n').map((s) => s.trim()).filter(Boolean)
+                        e.target.value
+                          .split('\n')
+                          .map((s) => s.trim())
+                          .filter(Boolean)
                       )
                     }
                     placeholder="target/release/*.dmg"
@@ -194,7 +203,11 @@ function ArtifactsCard({ repoPath }: Props) {
                   </div>
                 </div>
                 <div>
-                  <button className="btn btn-sm btn-secondary" onClick={handleSaveConfig} disabled={saving}>
+                  <button
+                    className="btn btn-sm btn-secondary"
+                    onClick={handleSaveConfig}
+                    disabled={saving}
+                  >
                     {saving ? 'Saving…' : 'Save config'}
                   </button>
                 </div>
@@ -203,16 +216,30 @@ function ArtifactsCard({ repoPath }: Props) {
 
             {/* Signing sub-section */}
             {signing && (
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--color-border)' }}>
+              <div
+                style={{
+                  marginTop: 12,
+                  paddingTop: 12,
+                  borderTop: '1px solid var(--color-border)',
+                }}
+              >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                   <FileSignature size={14} />
                   <strong>Signing</strong>
-                  <span className="text-muted" style={{ fontSize: 'var(--font-size-2xs)', marginLeft: 'auto' }}>
+                  <span
+                    className="text-muted"
+                    style={{ fontSize: 'var(--font-size-2xs)', marginLeft: 'auto' }}
+                  >
                     tools: {tools.length ? tools.join(', ') : 'none detected'}
                   </span>
                 </div>
                 <label
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--font-size-xs)' }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontSize: 'var(--font-size-xs)',
+                  }}
                 >
                   <input
                     type="checkbox"
@@ -221,7 +248,9 @@ function ArtifactsCard({ repoPath }: Props) {
                   />
                   Enabled
                 </label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+                <div
+                  style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}
+                >
                   <div className="form-row">
                     <label>macOS identity</label>
                     <input

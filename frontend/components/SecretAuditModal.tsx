@@ -65,7 +65,9 @@ function SecretAuditModal({ repoPath, envName, secretName, onClose }: Props) {
                 </tr>
                 <tr>
                   <th>Last deleted</th>
-                  <td>{audit.last_deleted ? new Date(audit.last_deleted).toLocaleString() : '—'}</td>
+                  <td>
+                    {audit.last_deleted ? new Date(audit.last_deleted).toLocaleString() : '—'}
+                  </td>
                 </tr>
                 <tr>
                   <th>Set count</th>

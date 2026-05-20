@@ -64,7 +64,6 @@ function BootstrapWizardModal({ repoPath, initialReport, onClose, onApplied }: P
   useEffect(() => {
     if (initialReport) return;
     let cancelled = false;
-    setLoading(true);
     scanBootstrap(repoPath)
       .then((r) => {
         if (!cancelled) setReport(r);
@@ -131,8 +130,8 @@ function BootstrapWizardModal({ repoPath, initialReport, onClose, onApplied }: P
 
         <div className="modal-body" style={{ maxHeight: '60vh', overflow: 'auto' }}>
           <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginBottom: 12 }}>
-            Chibby scans <code>.env</code> files, Docker Compose, GitHub workflows, and source
-            code for environment variable and secret references, then writes them into{' '}
+            Chibby scans <code>.env</code> files, Docker Compose, GitHub workflows, and source code
+            for environment variable and secret references, then writes them into{' '}
             <code>.chibby/environments.toml</code> and <code>.chibby/secrets.toml</code>.
           </p>
 
@@ -167,9 +166,7 @@ function BootstrapWizardModal({ repoPath, initialReport, onClose, onApplied }: P
               </div>
 
               {report.detected.length === 0 ? (
-                <div className="bw-empty">
-                  No env/secret references detected. Nothing to do.
-                </div>
+                <div className="bw-empty">No env/secret references detected. Nothing to do.</div>
               ) : (
                 <div className="bw-list">
                   {report.detected.map((d) => (

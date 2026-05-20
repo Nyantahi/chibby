@@ -99,7 +99,14 @@ function CleanupCard({ repoPath }: Props) {
                 />
               </div>
             </div>
-            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 'var(--font-size-xs)' }}>
+            <label
+              style={{
+                display: 'flex',
+                gap: 6,
+                alignItems: 'center',
+                fontSize: 'var(--font-size-xs)',
+              }}
+            >
               <input
                 type="checkbox"
                 checked={cfg.prune_remote_docker}
@@ -107,7 +114,14 @@ function CleanupCard({ repoPath }: Props) {
               />
               Prune remote Docker images on SSH hosts
             </label>
-            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 'var(--font-size-xs)' }}>
+            <label
+              style={{
+                display: 'flex',
+                gap: 6,
+                alignItems: 'center',
+                fontSize: 'var(--font-size-xs)',
+              }}
+            >
               <input
                 type="checkbox"
                 checked={dryRun}

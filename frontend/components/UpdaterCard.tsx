@@ -1,5 +1,13 @@
 import { useEffect, useState } from 'react';
-import { ArrowUpCircle, KeyRound, Loader2, Send, Copy, ShieldCheck, AlertTriangle } from 'lucide-react';
+import {
+  ArrowUpCircle,
+  KeyRound,
+  Loader2,
+  Send,
+  Copy,
+  ShieldCheck,
+  AlertTriangle,
+} from 'lucide-react';
 import {
   checkTauriCli,
   deleteUpdateKey,
@@ -89,7 +97,9 @@ function UpdaterCard({ repoPath }: Props) {
   }
 
   async function handleRotate() {
-    if (!window.confirm('Rotate signing keys? Existing installs will need an OTA before next update.'))
+    if (
+      !window.confirm('Rotate signing keys? Existing installs will need an OTA before next update.')
+    )
       return;
     setBusy('rotate');
     try {
@@ -178,7 +188,11 @@ function UpdaterCard({ repoPath }: Props) {
           <ArrowUpCircle size={16} /> Auto-updater
         </div>
         <div className="feature-card-actions">
-          <button className="btn btn-sm btn-ghost" onClick={handlePreflight} disabled={busy !== null}>
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={handlePreflight}
+            disabled={busy !== null}
+          >
             {busy === 'preflight' ? 'Checking…' : 'Preflight'}
           </button>
           <button className="btn btn-sm btn-secondary" onClick={handleSave} disabled={saving}>
@@ -202,7 +216,14 @@ function UpdaterCard({ repoPath }: Props) {
               </span>
             </div>
 
-            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 'var(--font-size-xs)' }}>
+            <label
+              style={{
+                display: 'flex',
+                gap: 6,
+                alignItems: 'center',
+                fontSize: 'var(--font-size-xs)',
+              }}
+            >
               <input
                 type="checkbox"
                 checked={cfg.enabled}
@@ -308,8 +329,17 @@ function UpdaterCard({ repoPath }: Props) {
             )}
 
             {/* Keys */}
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--color-border)' }}>
-              <strong style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--font-size-sm)' }}>
+            <div
+              style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--color-border)' }}
+            >
+              <strong
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 'var(--font-size-sm)',
+                }}
+              >
                 <KeyRound size={14} /> Keys
               </strong>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
@@ -365,8 +395,17 @@ function UpdaterCard({ repoPath }: Props) {
             </div>
 
             {/* Publish */}
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--color-border)' }}>
-              <strong style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--font-size-sm)' }}>
+            <div
+              style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--color-border)' }}
+            >
+              <strong
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 'var(--font-size-sm)',
+                }}
+              >
                 <Send size={14} /> Publish
               </strong>
               <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginTop: 8 }}>
@@ -378,7 +417,14 @@ function UpdaterCard({ repoPath }: Props) {
                     onChange={(e) => setPublishVersion(e.target.value)}
                   />
                 </div>
-                <label style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 'var(--font-size-xs)' }}>
+                <label
+                  style={{
+                    display: 'flex',
+                    gap: 4,
+                    alignItems: 'center',
+                    fontSize: 'var(--font-size-xs)',
+                  }}
+                >
                   <input
                     type="checkbox"
                     checked={dryRun}
@@ -411,12 +457,26 @@ function UpdaterCard({ repoPath }: Props) {
                 }}
               >
                 {preflightIssues.length === 0 ? (
-                  <div style={{ color: 'var(--color-success)', display: 'flex', gap: 4, alignItems: 'center' }}>
+                  <div
+                    style={{
+                      color: 'var(--color-success)',
+                      display: 'flex',
+                      gap: 4,
+                      alignItems: 'center',
+                    }}
+                  >
                     <ShieldCheck size={12} /> Preflight passed.
                   </div>
                 ) : (
                   <div>
-                    <strong style={{ display: 'flex', gap: 4, alignItems: 'center', color: 'var(--color-failed)' }}>
+                    <strong
+                      style={{
+                        display: 'flex',
+                        gap: 4,
+                        alignItems: 'center',
+                        color: 'var(--color-failed)',
+                      }}
+                    >
                       <AlertTriangle size={12} /> {preflightIssues.length} issues
                     </strong>
                     <ul style={{ paddingLeft: 16 }}>

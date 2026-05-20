@@ -21,10 +21,6 @@ function Projects() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
   async function loadData() {
     try {
       setLoading(true);
@@ -37,6 +33,13 @@ function Projects() {
       setLoading(false);
     }
   }
+
+  // One-shot data fetch on mount. setState inside the .finally is intentional
+  // — the rule is overly strict here.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadData();
+  }, []);
 
   const stats = useMemo(() => {
     const todayRuns = runs.filter((r) => isToday(r.started_at));

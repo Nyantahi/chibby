@@ -35,6 +35,9 @@ export function renderWithMemoryRouter(
   return render(ui, { wrapper: Wrapper, ...options });
 }
 
-// Re-export everything from testing-library
+// Re-export everything from testing-library.
+// The react-refresh rule can't verify `export *` ergonomics, but this file is
+// a test-only helper not loaded by Fast Refresh, so the rule doesn't apply.
+// eslint-disable-next-line react-refresh/only-export-components
 export * from '@testing-library/react';
 export { default as userEvent } from '@testing-library/user-event';
