@@ -19,7 +19,11 @@ export default defineConfig({
     },
   },
   build: {
-    target: ['es2021', 'chrome100', 'safari13'],
+    // Tauri ships modern WebViews on every platform (WebKit on macOS/Linux
+    // via webkit2gtk, Chromium-based WebView2 on Windows). Targeting `esnext`
+    // lets esbuild emit the actual syntax used by react-router 7 et al.
+    // without the destructuring-transform errors that older floors trigger.
+    target: 'esnext',
     minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
     sourcemap: !!process.env.TAURI_DEBUG,
     outDir: 'dist',
