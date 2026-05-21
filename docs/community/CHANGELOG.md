@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.36] - 2026-05-21
+
 ### Added — Security gates (Phase 2 of the gates epic)
 
 - **Four new gates** alongside the existing secret / dependency / commit-lint trio:
@@ -57,6 +59,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **sha2 0.11 hash formatting** — `Sha256::finalize()` now returns a `hybrid_array::Array` that no longer implements `LowerHex`; replaced `format!("{:x}", hash)` with explicit per-byte hex in `engine/artifacts.rs`.
 - **Unused imports in `engine/bootstrap.rs`** — dropped `EnvironmentsConfig` and `SecretsConfig` from the model imports.
+- **Security Scans workflow failures on `main`** — both jobs were red after the PR #60 merge interleaved with the Dependabot stack: `npm ci` rejected `package-lock.json` (esbuild 0.28.0 in lock vs 0.27.7 resolved) and `cargo audit` choked on stale `phf 0.8.0`/`0.10.1` entries pulling the yanked `proc-macro-hack`. Lockfile regenerated, Cargo.lock pruned, and the cargo-audit step pinned to a known-good version with `Swatinem/rust-cache`.
+
+### Dependencies
+
+- `tauri` Rust crate `2.9.1` → `2.11.2` (fixes the `tauri (v2.10.3) : @tauri-apps/api (v2.11.0)` mismatch that was blocking `npx tauri build`).
+- `tauri-build` `2.5.1` → `2.6.2`.
+- `@tauri-apps/cli` `^2.9.1` → `^2.11.2` (was reported outdated).
+- `vite` `^8.0.2` → `^8.0.13` then `^8.0.14`. Closes `GHSA-4w7w-66w2-5vf9` (high-severity advisory flagged by `chibby scan deps`).
+- `eslint-plugin-react-hooks` `^7.0.1` → `^7.1.1` (declares ESLint 10 in peer range — fixes `ERESOLVE` on install).
+- Plus the routine Dependabot bumps for `eslint`, `prettier`, `typescript-eslint`, `esbuild`, `lucide-react`, `react-dom`.
 
 ### Changed
 
