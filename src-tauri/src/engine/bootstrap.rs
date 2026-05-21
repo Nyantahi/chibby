@@ -18,7 +18,7 @@
 //! "variable" — a misclassified non-secret in `environments.toml` is recoverable,
 //! a non-secret stashed in the keychain is friction.
 
-use crate::engine::models::{Environment, EnvironmentsConfig, SecretRef, SecretsConfig};
+use crate::engine::models::{Environment, SecretRef};
 use crate::engine::pipeline;
 use anyhow::Result;
 use regex::Regex;
@@ -604,6 +604,7 @@ pub fn report_paths(report: &BootstrapReport) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::models::{EnvironmentsConfig, SecretsConfig};
     use tempfile::TempDir;
 
     fn write(path: &Path, content: &str) {

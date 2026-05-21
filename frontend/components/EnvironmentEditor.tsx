@@ -1,7 +1,17 @@
-import { useState } from 'react';
-import { Server, Plus, Trash2, Wifi, X } from 'lucide-react';
-import { saveEnvironments, testSshConnection } from '../services/api';
-import type { EnvironmentsConfig, Environment } from '../types';
+import { useEffect, useState } from 'react';
+import { Server, Plus, Trash2, Wifi, X, AlertTriangle } from 'lucide-react';
+import {
+  loadEnvironmentsLayered,
+  loadEnvironmentsLocal,
+  saveEnvironments,
+  saveEnvironmentsLocal,
+  scanEnvironmentsForLeaks,
+  testSshConnection,
+} from '../services/api';
+import { notifyError, notifySuccess } from '../services/notify';
+import type { EnvironmentsConfig, Environment, EnvLeakHit } from '../types';
+
+type EditMode = 'committed' | 'local' | 'layered';
 
 /** Validate that a string is a legal shell environment variable name. */
 function isValidEnvVarName(name: string): boolean {
@@ -22,10 +32,37 @@ function EnvironmentEditor({ repoPath, config, onSaved }: Props) {
   const [sshStatus, setSshStatus] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<EditMode>('committed');
+  const [leaks, setLeaks] = useState<EnvLeakHit[]>([]);
 
   function emptyEnv(): Environment {
     return { name: '', ssh_host: undefined, ssh_port: undefined, variables: {} };
   }
+
+  useEffect(() => {
+    let cancelled = false;
+    if (mode === 'committed') {
+      setEnvs(config.environments);
+    } else if (mode === 'local') {
+      loadEnvironmentsLocal(repoPath)
+        .then((r) => !cancelled && setEnvs(r.environments))
+        .catch((err) => !cancelled && notifyError('Load local envs failed', err));
+    } else {
+      loadEnvironmentsLayered(repoPath)
+        .then((r) => !cancelled && setEnvs(r.environments))
+        .catch((err) => !cancelled && notifyError('Load layered envs failed', err));
+    }
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, repoPath]);
+
+  useEffect(() => {
+    scanEnvironmentsForLeaks(repoPath)
+      .then(setLeaks)
+      .catch(() => setLeaks([]));
+  }, [repoPath, config]);
 
   async function handleSave() {
     // Validate all variable names before saving
@@ -43,7 +80,15 @@ function EnvironmentEditor({ repoPath, config, onSaved }: Props) {
     try {
       setSaving(true);
       setError(null);
-      await saveEnvironments(repoPath, { environments: envs });
+      if (mode === 'local') {
+        await saveEnvironmentsLocal(repoPath, { environments: envs });
+        notifySuccess('Saved local overrides', '.chibby/environments.local.toml');
+      } else {
+        await saveEnvironments(repoPath, { environments: envs });
+        notifySuccess('Saved environments');
+      }
+      const fresh = await scanEnvironmentsForLeaks(repoPath).catch(() => []);
+      setLeaks(fresh);
       onSaved();
     } catch (err) {
       setError(String(err));
@@ -97,7 +142,9 @@ function EnvironmentEditor({ repoPath, config, onSaved }: Props) {
     }
   }
 
-  const hasChanges = JSON.stringify(config.environments) !== JSON.stringify(envs);
+  const hasChanges =
+    mode !== 'layered' && JSON.stringify(config.environments) !== JSON.stringify(envs);
+  const readOnly = mode === 'layered';
 
   return (
     <div className="env-editor">
@@ -106,7 +153,17 @@ function EnvironmentEditor({ repoPath, config, onSaved }: Props) {
           <Server size={16} /> Environments
         </h3>
         <div className="section-header-actions">
-          {!adding && (
+          <select
+            className="input input-sm"
+            value={mode}
+            onChange={(e) => setMode(e.target.value as EditMode)}
+            title="committed: environments.toml — local: per-dev overrides — layered: read-only merged view"
+          >
+            <option value="committed">Committed</option>
+            <option value="local">Local overrides</option>
+            <option value="layered">Layered (read-only)</option>
+          </select>
+          {!adding && !readOnly && (
             <button className="btn btn-secondary btn-sm" onClick={() => setAdding(true)}>
               <Plus size={14} /> Add
             </button>
@@ -118,6 +175,24 @@ function EnvironmentEditor({ repoPath, config, onSaved }: Props) {
           )}
         </div>
       </div>
+
+      {leaks.length > 0 && (
+        <div className="leak-banner">
+          <AlertTriangle size={14} />
+          <div className="leak-banner-list">
+            <strong>
+              {leaks.length} possible leaked credential{leaks.length === 1 ? '' : 's'} in
+              environments.toml
+            </strong>
+            {leaks.slice(0, 5).map((h, i) => (
+              <span key={i}>
+                <code>{h.env}</code> · <code>{h.variable}</code> — {h.rule} ({h.preview})
+              </span>
+            ))}
+            {leaks.length > 5 && <span>+ {leaks.length - 5} more</span>}
+          </div>
+        </div>
+      )}
 
       {error && <div className="alert alert-error">{error}</div>}
 

@@ -1,0 +1,61 @@
+name: Security Scans
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Weekly Monday 06:00 UTC — catches new CVEs in dormant branches.
+    - cron: '0 6 * * 1'
+
+# Minimum-permission token scope at the workflow level.
+permissions:
+  contents: read
+
+jobs:
+  # ─── Secret scanning ─────────────────────────────────────────────────────
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks needs full history to scan every commit.
+          fetch-depth: 0
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}  # required for private repos
+
+  # ─── Frontend dependency audit ───────────────────────────────────────────
+  frontend-audit:
+    name: Frontend dep audit (npm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+      - name: Install
+        run: npm ci --ignore-scripts
+      - name: Audit (fail on high + critical)
+        run: npm audit --audit-level=high
+
+  # ─── Rust dependency audit ───────────────────────────────────────────────
+  cargo-audit:
+    name: Rust dep audit (cargo audit)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit
+        run: cargo audit

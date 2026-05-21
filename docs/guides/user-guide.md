@@ -7,14 +7,19 @@ This guide walks you through using Chibby to manage CI/CD pipelines for your pro
 1. [Getting Started](#getting-started)
 2. [Adding a Project](#adding-a-project)
 3. [Understanding the Dashboard](#understanding-the-dashboard)
-4. [Working with Pipelines](#working-with-pipelines)
-5. [Pipeline Templates](#pipeline-templates)
-6. [Running Pipelines](#running-pipelines)
-7. [Viewing Run History](#viewing-run-history)
-8. [Pipeline Configuration](#pipeline-configuration)
-9. [App Settings](#app-settings)
-10. [Command Line Interface (CLI)](#command-line-interface-cli)
-11. [Troubleshooting](#troubleshooting)
+4. [Project Detail tabs](#project-detail-tabs)
+5. [Working with Pipelines](#working-with-pipelines)
+6. [Pipeline Templates](#pipeline-templates)
+7. [Running Pipelines](#running-pipelines)
+8. [Viewing Run History](#viewing-run-history)
+9. [Environments tab](#environments-tab)
+10. [Release tab](#release-tab)
+11. [Quality tab](#quality-tab)
+12. [Pipeline Configuration](#pipeline-configuration)
+13. [App Settings](#app-settings)
+14. [Crash log](#crash-log)
+15. [Command Line Interface (CLI)](#command-line-interface-cli)
+16. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -47,7 +52,7 @@ details including SSH configuration and keychain access.
 
 ## Adding a Project
 
-The Add Project wizard walks you through a 4-step flow to set up a new project with a pipeline.
+The Add Project wizard walks you through a 5-step flow to set up a new project with a pipeline and optional deployment.
 
 ### Step 1: Select Repository
 
@@ -69,9 +74,15 @@ If you arrived here from the **Templates** page via "Apply Template" or "Use as 
 
 Toggle individual stages on or off. When using GitHub Actions import, Chibby may suggest additional stages based on detected build files that aren't covered by the imported workflow.
 
-### Step 4: Review and Create
+### Step 4: Deploy
 
-Review the final project setup showing project name, path, source method, stage count, and all selected stages. Click **Create Project** to save. The pipeline is stored as `.chibby/pipeline.toml` in your project.
+Pick a deployment method (Docker Compose over SSH, GitHub Release, Vercel, Fly.io, Railway, etc., or **Skip** for CI-only). Fill in any required fields — SSH host, registry, health-check URL, platform project name. The selected method generates a separate `deploy.toml` pipeline alongside `pipeline.toml`.
+
+### Step 5: Review and Create
+
+Review the final project setup showing project name, path, source method, stage count, deploy target, and all selected stages. Click **Create Project** to save. The pipeline is stored as `.chibby/pipeline.toml` in your project.
+
+After creation, Chibby runs **auto-bootstrap** — it scans your repo for env variable and secret references and either pops the [Bootstrap wizard](#bootstrap-wizard) (default `confirm` mode), silently writes `environments.toml` + `secrets.toml` (`silent` mode), or does nothing (`off` mode). Change this from [App Settings](#app-settings).
 
 ---
 
@@ -100,6 +111,22 @@ Each card shows:
 ### Navigation
 
 Click any project card to open the Project Detail view.
+
+---
+
+## Project Detail tabs
+
+The Project Detail view is organised into five tabs:
+
+| Tab | What it covers |
+|-----|----------------|
+| **Pipeline** | The current pipeline's stages, the editor, live run output |
+| **History** | Past runs with status, branch, commit, retry, and rollback |
+| **Environments** | `environments.toml`, `secrets.toml`, the Bootstrap wizard, importers, leak warnings, and `.env` export |
+| **Release** | Version bumping, artifacts, code signing, the Tauri updater, and notifications |
+| **Quality** | Security/quality gates, retention cleanup, and deployment history |
+
+The right-hand sidebar is shared across tabs. It always shows project stats, recommendations, the file detector, and a **Quick Links** card with reveal-in-Finder buttons for `.chibby/`, the data directory, and the repo folder.
 
 ---
 
@@ -272,6 +299,133 @@ In the Run Detail view:
 - Stderr may appear in a different color
 - Long logs are scrollable
 
+### Reveal run folder
+
+The Run Detail header has a **Reveal** button that opens `<data_dir>/runs/<run_id>/` in your OS file manager — handy for inspecting raw stage output, attached artifacts, or sharing the folder with a teammate.
+
+---
+
+## Environments tab
+
+Open the **Environments** tab on Project Detail to manage everything in `.chibby/environments.toml`, `.chibby/environments.local.toml`, and `.chibby/secrets.toml`. See the [Environments & Secrets feature doc](../features/env-secrets.md) for the underlying file formats and resolution order.
+
+### Bootstrap & Import bar
+
+A toolbar at the top of the tab exposes three actions:
+
+- **Bootstrap** — opens the Bootstrap wizard for an existing project at any time.
+- **Import…** — opens the importer modal to pull names (and optionally values) from a `.env` file, Vercel, Railway, or Fly.io.
+- **Export .env** — opens a save dialog and writes the resolved variables + secret values for the selected environment to a flat `.env` file (uses the OS keychain).
+
+### Bootstrap wizard
+
+The wizard runs `scan_bootstrap` on your repo and lists every detected name with:
+
+- **Classification** — secret (keychain) or variable (`environments.toml`), inferred from name segments.
+- **Sources** — the files where the name appeared (e.g. `.env.production`, `docker-compose.prod.yml`, `.github/workflows/deploy.yml`).
+- **Suggested environments** — extracted from filenames like `.env.staging` → `staging`.
+
+Two apply modes:
+
+| Mode | Behaviour |
+|------|-----------|
+| **Safe** (Merge checkbox off) | Refuses to write if `environments.toml` or `secrets.toml` already exists |
+| **Merge** (default) | Appends only newly-detected names; never modifies existing entries |
+
+The same wizard runs automatically after Add Project unless you set bootstrap mode to `silent` or `off` in App Settings.
+
+### Importer modal
+
+Pick a source, target environment, and (for `dotenv`) the `.env` file to read. The modal probes the vendor CLI first — Vercel/Railway/Fly importers report whether `vercel`, `railway`, or `flyctl` is on PATH before you click Run.
+
+| Checkbox | What it does |
+|----------|--------------|
+| **Pull values** | Asks the source for plaintext values, not just names. Off = names-only. |
+| **Save secret values to keychain** | Persists detected secret values into the OS keychain. Off = secret names land in `secrets.toml` but you set values later via the Secrets card. |
+
+After running, the modal shows variables added, variables valued, secret refs added, and secret values saved.
+
+### Environments card
+
+The same `EnvironmentEditor` you've always had, plus two additions:
+
+- **Mode selector** — switches between editing the **Committed** file, your per-developer **Local overrides** (`environments.local.toml`, auto-gitignored), and a read-only **Layered** view that previews the merged result a run would see.
+- **Leak banner** — a red banner appears whenever `scan_environments_for_leaks` finds token-shaped values inside `environments.toml`. Each hit shows env · variable · rule and a redacted preview. Re-runs on every save.
+
+### Secrets card
+
+The existing per-environment Set/Delete workflow, plus a clock icon next to each secret/env pair. Click it to open the **Secret audit modal** showing last-set, last-deleted, set/delete counts, and last provenance (`cli`, `gui`, `import:vercel`, etc.) — handy for "when did I last rotate this?" questions.
+
+---
+
+## Release tab
+
+The **Release** tab stacks four cards, each backed by a corresponding `.chibby/*.toml` file. Open it once your project is past the build/test phase and you want to ship.
+
+### Version card
+
+- Shows every version file detected (`package.json`, `Cargo.toml`, `pyproject.toml`, `VERSION`, …), the resolved current version, the latest git tag, and a consistency badge.
+- **Bump patch / minor / major** buttons run `bump_version`. The **Create git tag** checkbox decides whether a tag is created.
+- **Generate changelog** lists commits since the latest tag with a one-click **Copy** to clipboard for pasting into release notes.
+
+### Artifacts & Signing card
+
+- **Output directory**, **Retention count**, optional **Upload to** URI, and a **Glob patterns** textarea (one per line).
+- **Collect** runs `collect_artifacts` against the configured patterns and writes a manifest with SHA256 hashes.
+- **Manifests** table lists all collected manifests with a **Reveal output dir** button per row.
+- **Signing** sub-section (inside the same card): toggle Enabled, fill in macOS identity / team ID / Windows cert path / Linux GPG key. Detected signing tools are shown in the card header. Each artifact in the latest manifest gets a per-file **Sign** action.
+
+### Updater card
+
+- Config form: Enabled, **Public key**, **Base URL**, **Publish target** (GitHub Release / S3 / SCP / local), and target-specific fields (`github_repo`, S3 bucket/region/endpoint, SCP destination, or local directory).
+- **Keys** sub-panel: **Generate**, **Rotate**, **Delete** the private key in the OS keychain, **Copy pub** to clipboard, or paste an existing private key and **Import** it.
+- **Preflight** runs `updater_preflight` and lists any blocking issues.
+- **Publish** flow: enter a version, toggle **Dry run**, hit **latest.json** to generate the manifest, and **Publish** (or **Dry run**) to ship.
+
+### Notify card
+
+- Toggle Enabled, **Add target**, pick **desktop** or **webhook**, choose when to fire (`always`, `success`, `failure`).
+- **Send test** dispatches a notification via the current config so you can verify before a real run.
+- Webhook URLs go in a per-target input (Slack / Discord / generic HTTP).
+
+---
+
+## Quality tab
+
+The **Quality** tab is the operational hygiene layer.
+
+### Gates card
+
+Each gate has three modes: `block` (fail the run), `warn` (log only), or `off`. The card exposes selectors for all seven gates:
+
+- **Secret scanning** — backed by `gitleaks` when available, built-in regex fallback otherwise.
+- **Dependency scanning** — auto-picks `cargo audit` / `npm audit` / `pnpm audit` / `pip-audit` based on what's in the repo.
+- **Commit lint** — conventional commits.
+- **SAST (semgrep)** — static analysis for SQLi, XSS, command injection, dangerous subprocess use, etc.
+- **Container scan** — `trivy image` against image refs listed in `container_images` (textarea below the selectors) or detected Dockerfiles.
+- **IaC scan** — `trivy config` over Dockerfile / docker-compose / Kubernetes / Terraform / CloudFormation.
+- **License check** — `cargo-license` + `license-checker`; flags GPL/AGPL by default (configurable via `license_denylist`).
+
+Plus severity thresholds for dependency audit, SAST, and container scans (one of `low` / `medium` / `high` / `critical` — block only on this level and above).
+
+Buttons:
+
+- **Run all** — runs every enabled gate and shows a single passed/failed summary.
+- **Per-gate run buttons** — Secret scan / Dependency audit / Commit lint / SAST / Container / IaC / License — kick off one at a time with scanner output rendered inline.
+- **Create secret-scan baseline** — snapshot current findings into a baseline so the gate only flags new leaks going forward.
+
+Each scanner is detected at runtime. If the underlying tool (gitleaks, trivy, semgrep, etc.) isn't installed, the gate returns a non-failing `"(missing)"` result with the install command — gates never crash on "scanner not installed."
+
+For the deep dive (config keys, finding shapes, install hints, pipeline auto-append), see [Security & Quality Gates](../features/security-gates.md).
+
+### Cleanup card
+
+Reflects `.chibby/cleanup.toml`. Set **Artifact retention**, **Run retention**, and toggle **Prune remote Docker images on SSH hosts**. Run with **Dry run** checked first to preview what would be removed.
+
+### Deployment history card
+
+Read-only table per environment showing run id, status, kind (normal/retry/rollback), branch, duration, and a **View** link straight to the Run Detail page.
+
 ---
 
 ## Pipeline Configuration
@@ -365,11 +519,42 @@ These defaults apply to all projects unless a project has its own `.chibby/notif
 
 After each pipeline run, Chibby automatically prunes old artifacts and run history based on these limits. Per-project `.chibby/cleanup.toml` overrides the app defaults.
 
+### Bootstrap mode
+
+Controls what happens when you add a new project — Chibby can scan the repo for env/secret references and either prompt you, do it silently, or skip:
+
+| Mode | Behaviour |
+|------|-----------|
+| `confirm` (default) | Open the Bootstrap wizard for review before writing anything |
+| `silent` | Scan and write `environments.toml` + `secrets.toml` immediately, with a confirmation toast |
+| `off` | Skip the scan entirely |
+
+You can always run the wizard manually later from the Environments tab's **Bootstrap** button.
+
+### About
+
+- **Version** — Current app version.
+- **Data directory** — Where run history, settings, and the keychain audit live. The folder icon opens it in your OS file manager.
+- **View crash log** — Jumps to the [Crash log](#crash-log) page if a crash has been recorded.
+
+---
+
+## Crash log
+
+Visit `/crashes` (or follow Settings → About → View crash log) to inspect `<data_dir>/crash.log`. The page shows the file's content inline with two actions:
+
+- **Reveal in Finder** opens the file in your OS file manager.
+- **Clear** deletes the file after confirmation.
+
+If no crash has been recorded, the page just shows "No crash log present."
+
 ---
 
 ## Command Line Interface (CLI)
 
 Chibby includes a standalone CLI that shares data with the desktop app. Use it for headless servers, scripting, and terminal-first workflows.
+
+The full CLI reference lives in [features/cli-commands.md](../features/cli-commands.md). This section covers the most common workflows; consult the reference for every flag and example.
 
 ### Installation
 
@@ -626,6 +811,46 @@ chibby scan commits
 chibby scan commits --since v1.0.0
 ```
 
+#### `chibby scan sast`
+
+Static analysis via semgrep.
+
+```bash
+chibby scan sast
+```
+
+Requires `semgrep` on PATH (`brew install semgrep` or `pip install semgrep`).
+
+#### `chibby scan container`
+
+Scan container images for OS + app vulnerabilities via `trivy image`. Image refs come from `gates.toml` (`container_images`); when empty, Chibby falls back to Dockerfiles auto-detected in the repo.
+
+```bash
+chibby scan container
+```
+
+Requires `trivy` (`brew install trivy`).
+
+#### `chibby scan iac`
+
+Scan Dockerfile / docker-compose / Kubernetes / Terraform / CloudFormation for misconfigurations via `trivy config`.
+
+```bash
+chibby scan iac
+```
+
+Requires `trivy`.
+
+#### `chibby scan license`
+
+Flag GPL/AGPL (or any denylisted licenses) in dependency manifests.
+
+```bash
+chibby scan license
+```
+
+Requires `cargo-license` for Rust and/or `license-checker` for npm (`cargo install cargo-license` and `npm i -g license-checker`).
+
 #### `chibby preflight`
 
 Run all preflight checks.
@@ -665,6 +890,62 @@ Delete a secret.
 chibby secrets delete DEPLOY_KEY
 ```
 
+#### `chibby secrets rotate`
+
+Re-prompt for a value and overwrite the existing keychain entry. Other developers' keychains aren't affected — they rotate independently.
+
+```bash
+chibby secrets rotate STRIPE_KEY --env production
+```
+
+### Bootstrap, Import, and Export
+
+#### `chibby bootstrap`
+
+Scan the current project for env/secret references and populate `.chibby/environments.toml` + `.chibby/secrets.toml`. Names only — values stay empty.
+
+```bash
+# Preview without writing
+chibby bootstrap --dry-run
+
+# Default: refuses to write if configs already exist
+chibby bootstrap
+
+# Merge: append only newly-detected names
+chibby bootstrap --merge
+
+# Skip the review table (still writes)
+chibby bootstrap --silent
+```
+
+The same scanner runs automatically after `chibby projects add` (and the Add Project wizard) when `bootstrap_mode = "confirm"` or `"silent"`.
+
+#### `chibby import`
+
+Pull names (and optionally values) from an external source. Vercel/Railway/Fly require the vendor CLI installed and authenticated.
+
+```bash
+# Pull a .env file end-to-end (vars to environments.toml, secrets to keychain)
+chibby import dotenv .env.production --env production --with-values
+
+# Bring Vercel's production env in
+chibby import vercel --env production --with-values
+
+# Railway
+chibby import railway --env production --with-values
+
+# Fly.io — names only (Fly's secrets API is write-only)
+chibby import fly --env production
+```
+
+#### `chibby export dotenv`
+
+Round-trip — emit a flat `.env` file from Chibby's resolved variables and secret values.
+
+```bash
+chibby export dotenv --env production --out .env.production.local
+```
+
 ### Environment Management
 
 #### `chibby env list`
@@ -689,6 +970,61 @@ Test SSH connection to an environment.
 
 ```bash
 chibby env test staging
+```
+
+#### `chibby env vars`
+
+Set, get, list, and delete non-secret variables for an environment. Pass `--local` to write to `environments.local.toml` instead of the committed file (auto-gitignored on save).
+
+```bash
+chibby env vars set production API_URL https://api.example.com
+chibby env vars set production DEBUG true --local
+chibby env vars list production
+chibby env vars get production API_URL
+chibby env vars delete production API_URL
+```
+
+#### `chibby env diff`
+
+Show variable + secret deltas between two environments. `+` only in destination, `-` only in source, `~` value differs.
+
+```bash
+chibby env diff production staging
+```
+
+#### `chibby env scan-leaks`
+
+Run the in-process leak scanner against `environments.toml`. Non-zero exit code on any hit — suitable for a pre-commit hook. Output is always redacted.
+
+```bash
+chibby env scan-leaks
+```
+
+### Audit & Doctor
+
+#### `chibby audit list`
+
+Per-project secret lifecycle summary: set/delete counts, last action, last provenance (cli / gui / import:vercel / …).
+
+```bash
+chibby audit list
+```
+
+#### `chibby audit show`
+
+Full audit snapshot for a single secret in a single environment.
+
+```bash
+chibby audit show STRIPE_KEY --env production
+```
+
+#### `chibby doctor`
+
+End-to-end project health check: config files present, SSH hosts reachable, every declared secret has a value in the keychain for every environment it applies to. Non-zero exit on any failure — wire it into CI before `chibby run --env production`.
+
+```bash
+chibby doctor
+chibby doctor -p ~/my-project
 ```
 
 ### Version Management

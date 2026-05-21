@@ -6,6 +6,7 @@ import AddProject from './components/AddProject';
 import RunDetail from './components/RunDetail';
 import Settings from './components/Settings';
 import Templates from './components/Templates';
+import CrashLog from './components/CrashLog';
 // TODO: Re-enable when Agent feature is complete (see private/plans)
 // import AgentChat from './components/AgentChat';
 
@@ -21,6 +22,7 @@ function App() {
           <Route path="run/:runId" element={<RunDetail />} />
           <Route path="templates" element={<Templates />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="crashes" element={<CrashLog />} />
         </Route>
       </Routes>
       {/* TODO: Re-enable Agent Chat when feature is complete (see private/plans) */}

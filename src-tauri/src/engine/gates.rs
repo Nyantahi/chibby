@@ -1,6 +1,8 @@
 use crate::engine::models::{
-    AuditFinding, AuditResult, CommitLintResult, CommitLintViolation, GateMode, GatesConfig,
-    GatesResult, SecretFinding, SecretScanResult, VulnSeverity,
+    AuditFinding, AuditResult, CommitLintResult, CommitLintViolation, ContainerFinding,
+    ContainerScanResult, GateMode, GatesConfig, GatesResult, IacFinding, IacScanResult,
+    LicenseCheckResult, LicenseFinding, SastFinding, SastResult, SecretFinding, SecretScanResult,
+    VulnSeverity,
 };
 use anyhow::{Context, Result};
 use std::path::Path;
@@ -64,19 +66,57 @@ pub fn run_gates(repo_path: &Path) -> Result<GatesResult> {
         None
     };
 
+    let sast = if config.sast != GateMode::Off {
+        Some(run_sast(repo_path, &config)?)
+    } else {
+        None
+    };
+
+    let container_scan = if config.container_scan != GateMode::Off {
+        Some(run_container_scan(repo_path, &config)?)
+    } else {
+        None
+    };
+
+    let iac_scan = if config.iac_scan != GateMode::Off {
+        Some(run_iac_scan(repo_path, &config)?)
+    } else {
+        None
+    };
+
+    let license_check = if config.license_check != GateMode::Off {
+        Some(run_license_check(repo_path, &config)?)
+    } else {
+        None
+    };
+
     // Determine overall pass/fail based on gate modes
     let passed = check_gate_passed(&config.secret_scanning, secret_scan.as_ref().map(|r| r.passed))
         && check_gate_passed(
             &config.dependency_scanning,
             dependency_audit.as_ref().map(|r| r.passed),
         )
-        && check_gate_passed(&config.commit_lint, commit_lint.as_ref().map(|r| r.passed));
+        && check_gate_passed(&config.commit_lint, commit_lint.as_ref().map(|r| r.passed))
+        && check_gate_passed(&config.sast, sast.as_ref().map(|r| r.passed))
+        && check_gate_passed(
+            &config.container_scan,
+            container_scan.as_ref().map(|r| r.passed),
+        )
+        && check_gate_passed(&config.iac_scan, iac_scan.as_ref().map(|r| r.passed))
+        && check_gate_passed(
+            &config.license_check,
+            license_check.as_ref().map(|r| r.passed),
+        );
 
     Ok(GatesResult {
         passed,
         secret_scan,
         dependency_audit,
         commit_lint,
+        sast,
+        container_scan,
+        iac_scan,
+        license_check,
     })
 }
 
@@ -1026,4 +1066,525 @@ fn command_exists(cmd: &str) -> bool {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
+}
+
+// ===========================================================================
+// Phase 2 gates: SAST, Container scan, IaC scan, License check
+// ===========================================================================
+//
+// Each gate wraps an external tool. If the tool isn't installed, the gate
+// returns a non-failing result with `scanner: "(missing)"` and a message
+// pointing at the install command — same friendly contract as the existing
+// dependency_audit module.
+
+fn meets_threshold(finding: &VulnSeverity, threshold: &str) -> bool {
+    let t = parse_severity(threshold);
+    finding >= &t
+}
+
+// ----- SAST (semgrep) ------------------------------------------------------
+
+/// Run semgrep across the repo. Falls back gracefully if semgrep isn't installed.
+pub fn run_sast(repo_path: &Path, config: &GatesConfig) -> Result<SastResult> {
+    if !command_exists("semgrep") {
+        return Ok(SastResult {
+            passed: true,
+            findings: Vec::new(),
+            scanner: "(missing)".into(),
+            message:
+                "semgrep not installed. Install with `pip install semgrep` or `brew install semgrep`."
+                    .into(),
+        });
+    }
+
+    let output = std::process::Command::new("semgrep")
+        .args(["--config=auto", "--json", "--quiet", "--no-error", "."])
+        .current_dir(repo_path)
+        .output()
+        .context("Failed to run semgrep")?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut findings = parse_semgrep_json(&stdout, config);
+    findings.retain(|f| !config.sast_allowlist.contains(&f.rule));
+
+    let blocking: usize = findings
+        .iter()
+        .filter(|f| meets_threshold(&f.severity, &config.sast_severity_threshold))
+        .count();
+    let passed = blocking == 0;
+    let message = format!(
+        "{} SAST finding(s) ({} at/above {})",
+        findings.len(),
+        blocking,
+        config.sast_severity_threshold
+    );
+
+    Ok(SastResult {
+        passed,
+        findings,
+        scanner: "semgrep".into(),
+        message,
+    })
+}
+
+fn parse_semgrep_json(json_str: &str, _config: &GatesConfig) -> Vec<SastFinding> {
+    let mut out = Vec::new();
+    let v: serde_json::Value = match serde_json::from_str(json_str) {
+        Ok(v) => v,
+        Err(_) => return out,
+    };
+    let Some(results) = v.get("results").and_then(|r| r.as_array()) else {
+        return out;
+    };
+    for r in results {
+        let file = r
+            .get("path")
+            .and_then(|p| p.as_str())
+            .unwrap_or("")
+            .to_string();
+        let line = r
+            .get("start")
+            .and_then(|s| s.get("line"))
+            .and_then(|l| l.as_u64())
+            .unwrap_or(0) as u32;
+        let rule = r
+            .get("check_id")
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .to_string();
+        let extra = r.get("extra");
+        let severity = extra
+            .and_then(|e| e.get("severity"))
+            .and_then(|s| s.as_str())
+            .map(|s| match s.to_uppercase().as_str() {
+                "ERROR" => VulnSeverity::High,
+                "WARNING" => VulnSeverity::Medium,
+                "INFO" => VulnSeverity::Low,
+                _ => VulnSeverity::Low,
+            })
+            .unwrap_or(VulnSeverity::Low);
+        let message = extra
+            .and_then(|e| e.get("message"))
+            .and_then(|m| m.as_str())
+            .unwrap_or("")
+            .to_string();
+        out.push(SastFinding {
+            file,
+            line,
+            rule,
+            severity,
+            message,
+        });
+    }
+    out
+}
+
+// ----- Container scan (trivy image) ----------------------------------------
+
+/// Scan container images for vulnerabilities. Image refs come from config;
+/// when empty, fall back to Dockerfiles detected in the repo (best-effort).
+pub fn run_container_scan(repo_path: &Path, config: &GatesConfig) -> Result<ContainerScanResult> {
+    if !command_exists("trivy") {
+        return Ok(ContainerScanResult {
+            passed: true,
+            findings: Vec::new(),
+            scanner: "(missing)".into(),
+            targets: Vec::new(),
+            message: "trivy not installed. Install with `brew install trivy`.".into(),
+        });
+    }
+
+    let mut targets: Vec<String> = config.container_images.clone();
+    if targets.is_empty() {
+        // Best-effort fallback: list Dockerfiles in the repo (top-level + 1 dir deep).
+        targets = discover_dockerfiles(repo_path);
+    }
+
+    if targets.is_empty() {
+        return Ok(ContainerScanResult {
+            passed: true,
+            findings: Vec::new(),
+            scanner: "trivy".into(),
+            targets,
+            message: "No images configured and no Dockerfiles detected — nothing to scan.".into(),
+        });
+    }
+
+    let mut findings = Vec::new();
+    for target in &targets {
+        // Only scan image refs (target looks like `repo:tag`, not a path).
+        // For Dockerfile paths, skip — `trivy image <Dockerfile>` is not the
+        // right command; trivy config covers Dockerfile misconfig already.
+        if target.starts_with('/') || target.contains("Dockerfile") {
+            continue;
+        }
+        let output = std::process::Command::new("trivy")
+            .args([
+                "image",
+                "--format",
+                "json",
+                "--severity",
+                &severity_filter(&config.container_severity_threshold),
+                "--quiet",
+                target,
+            ])
+            .current_dir(repo_path)
+            .output()
+            .context("Failed to run trivy image")?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        findings.extend(parse_trivy_image_json(&stdout, target));
+    }
+
+    let passed = findings.is_empty();
+    let message = format!(
+        "{} container vulnerability(ies) across {} target(s)",
+        findings.len(),
+        targets.len()
+    );
+
+    Ok(ContainerScanResult {
+        passed,
+        findings,
+        scanner: "trivy".into(),
+        targets,
+        message,
+    })
+}
+
+fn discover_dockerfiles(repo_path: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let top = repo_path.join("Dockerfile");
+    if top.exists() {
+        out.push(top.to_string_lossy().to_string());
+    }
+    if let Ok(entries) = std::fs::read_dir(repo_path) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                let candidate = p.join("Dockerfile");
+                if candidate.exists() {
+                    out.push(candidate.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+    out
+}
+
+fn severity_filter(threshold: &str) -> String {
+    match parse_severity(threshold) {
+        VulnSeverity::Critical => "CRITICAL".into(),
+        VulnSeverity::High => "HIGH,CRITICAL".into(),
+        VulnSeverity::Medium => "MEDIUM,HIGH,CRITICAL".into(),
+        VulnSeverity::Low => "LOW,MEDIUM,HIGH,CRITICAL".into(),
+    }
+}
+
+fn parse_trivy_image_json(json_str: &str, target: &str) -> Vec<ContainerFinding> {
+    let mut out = Vec::new();
+    let v: serde_json::Value = match serde_json::from_str(json_str) {
+        Ok(v) => v,
+        Err(_) => return out,
+    };
+    let Some(results) = v.get("Results").and_then(|r| r.as_array()) else {
+        return out;
+    };
+    for r in results {
+        let Some(vulns) = r.get("Vulnerabilities").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for vuln in vulns {
+            let package = vuln
+                .get("PkgName")
+                .and_then(|p| p.as_str())
+                .unwrap_or("")
+                .to_string();
+            let installed_version = vuln
+                .get("InstalledVersion")
+                .and_then(|p| p.as_str())
+                .unwrap_or("")
+                .to_string();
+            let fixed_version = vuln
+                .get("FixedVersion")
+                .and_then(|p| p.as_str())
+                .map(|s| s.to_string());
+            let advisory_id = vuln
+                .get("VulnerabilityID")
+                .and_then(|p| p.as_str())
+                .unwrap_or("")
+                .to_string();
+            let severity = vuln
+                .get("Severity")
+                .and_then(|p| p.as_str())
+                .map(parse_severity)
+                .unwrap_or(VulnSeverity::Low);
+            let description = vuln
+                .get("Title")
+                .or_else(|| vuln.get("Description"))
+                .and_then(|p| p.as_str())
+                .unwrap_or("")
+                .to_string();
+            out.push(ContainerFinding {
+                target: target.to_string(),
+                package,
+                installed_version,
+                fixed_version,
+                advisory_id,
+                severity,
+                description,
+            });
+        }
+    }
+    out
+}
+
+// ----- IaC scan (trivy config) ---------------------------------------------
+
+/// Scan Dockerfile/Compose/K8s/Terraform for misconfigurations.
+pub fn run_iac_scan(repo_path: &Path, config: &GatesConfig) -> Result<IacScanResult> {
+    if !command_exists("trivy") {
+        return Ok(IacScanResult {
+            passed: true,
+            findings: Vec::new(),
+            scanner: "(missing)".into(),
+            message: "trivy not installed. Install with `brew install trivy`.".into(),
+        });
+    }
+
+    let output = std::process::Command::new("trivy")
+        .args([
+            "config",
+            "--format",
+            "json",
+            "--severity",
+            &severity_filter(&config.iac_severity_threshold),
+            "--quiet",
+            ".",
+        ])
+        .current_dir(repo_path)
+        .output()
+        .context("Failed to run trivy config")?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let findings = parse_trivy_config_json(&stdout);
+    let passed = findings.is_empty();
+    let message = format!("{} IaC misconfiguration(s)", findings.len());
+
+    Ok(IacScanResult {
+        passed,
+        findings,
+        scanner: "trivy".into(),
+        message,
+    })
+}
+
+fn parse_trivy_config_json(json_str: &str) -> Vec<IacFinding> {
+    let mut out = Vec::new();
+    let v: serde_json::Value = match serde_json::from_str(json_str) {
+        Ok(v) => v,
+        Err(_) => return out,
+    };
+    let Some(results) = v.get("Results").and_then(|r| r.as_array()) else {
+        return out;
+    };
+    for r in results {
+        let file = r
+            .get("Target")
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string();
+        let Some(misconfigs) = r.get("Misconfigurations").and_then(|m| m.as_array()) else {
+            continue;
+        };
+        for m in misconfigs {
+            let line = m
+                .get("CauseMetadata")
+                .and_then(|c| c.get("StartLine"))
+                .and_then(|l| l.as_u64())
+                .map(|l| l as u32);
+            let rule = m
+                .get("ID")
+                .or_else(|| m.get("AVDID"))
+                .and_then(|i| i.as_str())
+                .unwrap_or("")
+                .to_string();
+            let severity = m
+                .get("Severity")
+                .and_then(|s| s.as_str())
+                .map(parse_severity)
+                .unwrap_or(VulnSeverity::Low);
+            let message = m
+                .get("Title")
+                .or_else(|| m.get("Description"))
+                .and_then(|m| m.as_str())
+                .unwrap_or("")
+                .to_string();
+            let resolution = m
+                .get("Resolution")
+                .and_then(|r| r.as_str())
+                .map(|s| s.to_string());
+            out.push(IacFinding {
+                file: file.clone(),
+                line,
+                rule,
+                severity,
+                message,
+                resolution,
+            });
+        }
+    }
+    out
+}
+
+// ----- License check (cargo-license + license-checker) ---------------------
+
+/// Check dependency licenses across detected languages. Cargo and npm only
+/// (Python licensing is harder to enumerate accurately and is left for later).
+pub fn run_license_check(repo_path: &Path, config: &GatesConfig) -> Result<LicenseCheckResult> {
+    let mut findings: Vec<LicenseFinding> = Vec::new();
+    let mut scanners: Vec<&str> = Vec::new();
+    let mut missing: Vec<String> = Vec::new();
+
+    // Cargo
+    if repo_path.join("Cargo.toml").exists() {
+        if command_exists("cargo-license") {
+            findings.extend(run_cargo_license(repo_path, config)?);
+            scanners.push("cargo-license");
+        } else {
+            missing.push("cargo-license (install: cargo install cargo-license)".into());
+        }
+    }
+
+    // npm — detected via the presence of a package-lock or package.json at root
+    if repo_path.join("package.json").exists() {
+        if command_exists("license-checker") {
+            findings.extend(run_license_checker(repo_path, config)?);
+            scanners.push("license-checker");
+        } else {
+            missing.push("license-checker (install: npm i -g license-checker)".into());
+        }
+    }
+
+    let passed = findings.is_empty();
+    let scanner_str = if scanners.is_empty() {
+        "(missing)".into()
+    } else {
+        scanners.join(", ")
+    };
+    let mut message = if scanners.is_empty() && missing.is_empty() {
+        "No Cargo.toml or package.json at repo root — nothing to scan.".into()
+    } else {
+        format!(
+            "{} license violation(s) across {} scanner(s)",
+            findings.len(),
+            scanners.len()
+        )
+    };
+    if !missing.is_empty() {
+        message.push_str(" — missing: ");
+        message.push_str(&missing.join("; "));
+    }
+
+    Ok(LicenseCheckResult {
+        passed,
+        findings,
+        scanner: scanner_str,
+        message,
+    })
+}
+
+fn run_cargo_license(repo_path: &Path, config: &GatesConfig) -> Result<Vec<LicenseFinding>> {
+    let output = std::process::Command::new("cargo")
+        .args(["license", "--json"])
+        .current_dir(repo_path)
+        .output()
+        .context("Failed to run cargo license")?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap_or(serde_json::Value::Null);
+    let arr = v.as_array().cloned().unwrap_or_default();
+    let mut out = Vec::new();
+    for entry in arr {
+        let name = entry
+            .get("name")
+            .and_then(|n| n.as_str())
+            .unwrap_or("")
+            .to_string();
+        if config.license_allowlist.contains(&name) {
+            continue;
+        }
+        let version = entry
+            .get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let license = entry
+            .get("license")
+            .and_then(|l| l.as_str())
+            .unwrap_or("")
+            .to_string();
+        if let Some(reason) = license_finding_reason(&license, &config.license_denylist) {
+            out.push(LicenseFinding {
+                package: name,
+                version,
+                license,
+                reason,
+            });
+        }
+    }
+    Ok(out)
+}
+
+fn run_license_checker(repo_path: &Path, config: &GatesConfig) -> Result<Vec<LicenseFinding>> {
+    let output = std::process::Command::new("license-checker")
+        .args(["--production", "--json"])
+        .current_dir(repo_path)
+        .output()
+        .context("Failed to run license-checker")?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap_or(serde_json::Value::Null);
+    let Some(map) = v.as_object() else {
+        return Ok(Vec::new());
+    };
+    let mut out = Vec::new();
+    for (pkg_at_version, entry) in map {
+        // package-name@version
+        let (name, version) = match pkg_at_version.rsplit_once('@') {
+            Some((n, v)) => (n.to_string(), v.to_string()),
+            None => (pkg_at_version.clone(), String::new()),
+        };
+        if config.license_allowlist.contains(&name) {
+            continue;
+        }
+        let license = entry
+            .get("licenses")
+            .and_then(|l| l.as_str())
+            .unwrap_or("")
+            .to_string();
+        if let Some(reason) = license_finding_reason(&license, &config.license_denylist) {
+            out.push(LicenseFinding {
+                package: name,
+                version,
+                license,
+                reason,
+            });
+        }
+    }
+    Ok(out)
+}
+
+fn license_finding_reason(license: &str, denylist: &[String]) -> Option<String> {
+    if license.is_empty() || license.eq_ignore_ascii_case("UNKNOWN") {
+        return Some("unknown-license".into());
+    }
+    // Naive match — license fields are usually SPDX ids but sometimes compound
+    // like "(MIT OR Apache-2.0)". Substring match is conservative.
+    for forbidden in denylist {
+        if license
+            .to_lowercase()
+            .contains(&forbidden.to_lowercase())
+        {
+            return Some(format!("denylisted: {}", forbidden));
+        }
+    }
+    None
 }

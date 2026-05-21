@@ -5,7 +5,7 @@
 
 use chibby_lib::engine::executor;
 use chibby_lib::engine::models::{
-    Environment, PipelineRun, RunKind, RunStatus as EngineRunStatus, SecretRef,
+    Environment, PipelineRun, Project, RunKind, RunStatus as EngineRunStatus, SecretRef,
     StageStatus as EngineStageStatus,
 };
 use chibby_lib::engine::bootstrap::{self, ApplyMode, Classification};
@@ -14,7 +14,7 @@ use chibby_lib::engine::importers::{
     vercel::VercelImporter, ApplyOptions, ImportContext, ImportReport, Importer,
 };
 use chibby_lib::engine::secret_audit::{self as secret_audit_engine, Provenance};
-use chibby_lib::engine::{persistence, pipeline, preflight, run_support, secrets as secrets_engine};
+use chibby_lib::engine::{gates, persistence, pipeline, preflight, run_support, secrets as secrets_engine};
 use clap::{Parser, Subcommand};
 use owo_colors::OwoColorize;
 use std::path::{Path, PathBuf};
@@ -656,6 +656,30 @@ enum ScanCmd {
         #[arg(long)]
         since: Option<String>,
     },
+    /// Static analysis (semgrep)
+    Sast {
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Container image scan (trivy image)
+    Container {
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Infrastructure-as-Code scan (trivy config)
+    Iac {
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// License compliance check
+    License {
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -964,35 +988,64 @@ async fn cancel_pipeline(printer: &Printer, _project: Option<&PathBuf>) -> anyho
     Ok(())
 }
 
+fn run_status_to_cli(status: Option<&EngineRunStatus>) -> Option<StageStatus> {
+    status.map(|s| match s {
+        EngineRunStatus::Pending => StageStatus::Pending,
+        EngineRunStatus::Running => StageStatus::Running,
+        EngineRunStatus::Success => StageStatus::Success,
+        EngineRunStatus::Failed => StageStatus::Failed,
+        EngineRunStatus::Cancelled => StageStatus::Cancelled,
+    })
+}
+
+fn find_project_by_ref<'a>(projects: &'a [Project], project_ref: &str) -> Option<&'a Project> {
+    projects.iter().find(|p| {
+        p.id == project_ref
+            || p.name == project_ref
+            || p.path == project_ref
+            || Path::new(&p.path) == Path::new(project_ref)
+    })
+}
+
 async fn handle_projects(printer: &Printer, cmd: &ProjectsCmd) -> anyhow::Result<()> {
     match cmd {
         ProjectsCmd::List => {
             printer.header(&format!("{} Projects", icons::FOLDER));
-
-            // TODO: Load actual projects from persistence
-            printer.project_with_status("my-app", "~/projects/my-app", Some(StageStatus::Success));
-            printer.project_with_status(
-                "website",
-                "~/DevProjects/website",
-                Some(StageStatus::Success),
-            );
-            printer.project_with_status("api", "~/DevProjects/api", Some(StageStatus::Failed));
-            printer.project_with_status("mobile-app", "~/DevProjects/mobile", None);
+            let projects = persistence::load_projects()?;
+            if projects.is_empty() {
+                printer.info("No projects tracked yet. Add one with `chibby projects add <path>`.");
+                return Ok(());
+            }
+            for p in &projects {
+                printer.project_with_status(
+                    &p.name,
+                    &p.path,
+                    run_status_to_cli(p.last_run_status.as_ref()),
+                );
+            }
             printer.newline();
-
-            printer.stats("projects", 4, StageStatus::Pending);
+            printer.stats("projects", projects.len(), StageStatus::Pending);
         }
         ProjectsCmd::Add { path, name } => {
-            let spin = cli::spinner("Adding project...");
-            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-            spin.finish_and_clear();
-
-            let display_name = name.as_deref().unwrap_or_else(|| {
-                path.file_name()
+            let abs_path = path.canonicalize().unwrap_or_else(|_| path.clone());
+            if !abs_path.exists() {
+                anyhow::bail!("Path does not exist: {}", abs_path.display());
+            }
+            let path_str = abs_path.to_string_lossy().to_string();
+            let display_name = name.clone().unwrap_or_else(|| {
+                abs_path
+                    .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("project")
+                    .to_string()
             });
-
+            let existing = persistence::load_projects()?;
+            if existing.iter().any(|p| p.path == path_str) {
+                printer.warn(&format!("Already tracking {}", path_str));
+                return Ok(());
+            }
+            let project = Project::new(&display_name, &path_str);
+            persistence::add_project(project)?;
             printer.success(&format!("Added {}", display_name));
             printer.info(&format!(
                 "Run {} to generate pipeline",
@@ -1000,17 +1053,50 @@ async fn handle_projects(printer: &Printer, cmd: &ProjectsCmd) -> anyhow::Result
             ));
         }
         ProjectsCmd::Remove { project } => {
-            printer.warn(&format!("Removing {}...", project));
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            let projects = persistence::load_projects()?;
+            let target = find_project_by_ref(&projects, project)
+                .ok_or_else(|| anyhow::anyhow!("Project not found: {}", project))?;
+            let id = target.id.clone();
+            let name = target.name.clone();
+            printer.warn(&format!("Removing {}...", name));
+            persistence::remove_project(&id)?;
             printer.success("Project removed");
         }
-        ProjectsCmd::Info { project: _ } => {
+        ProjectsCmd::Info { project } => {
+            let projects = persistence::load_projects()?;
+            let target_ref = match project {
+                Some(p) => p.as_str(),
+                None => {
+                    // Default: pick the project whose path matches CWD if any
+                    let cwd = std::env::current_dir().ok();
+                    let matched = cwd.as_ref().and_then(|c| {
+                        projects.iter().find(|p| Path::new(&p.path) == c.as_path())
+                    });
+                    match matched {
+                        Some(p) => &p.id,
+                        None => {
+                            anyhow::bail!(
+                                "No project specified and current directory is not tracked"
+                            );
+                        }
+                    }
+                }
+            };
+            let p = find_project_by_ref(&projects, target_ref)
+                .ok_or_else(|| anyhow::anyhow!("Project not found: {}", target_ref))?;
             printer.header(&format!("{} Project Info", icons::INFO));
-            printer.kv("Name", "my-app");
-            printer.kv("Path", "~/projects/my-app");
-            printer.kv("Pipeline", "Yes");
-            printer.kv("Environments", "staging, production");
-            printer.kv("Last Deploy", "2 hours ago");
+            printer.kv("Name", &p.name);
+            printer.kv("Path", &p.path);
+            printer.kv("ID", &p.id);
+            printer.kv("Added", &p.added_at.to_rfc3339());
+            if let Some(at) = &p.last_run_at {
+                printer.kv("Last run", &at.to_rfc3339());
+            }
+            if let Some(status) = &p.last_run_status {
+                printer.kv("Last status", &format!("{:?}", status));
+            }
+            let has_pipeline = Path::new(&p.path).join(".chibby/pipeline.toml").exists();
+            printer.kv("Pipeline", if has_pipeline { "Yes" } else { "No" });
         }
     }
     Ok(())
@@ -2193,51 +2279,271 @@ async fn handle_artifact(printer: &Printer, cmd: &ArtifactCmd) -> anyhow::Result
     Ok(())
 }
 
+fn resolve_project_path(project: Option<&PathBuf>) -> anyhow::Result<PathBuf> {
+    let p = project
+        .cloned()
+        .unwrap_or_else(|| std::env::current_dir().unwrap());
+    let abs = p.canonicalize().unwrap_or(p);
+    Ok(abs)
+}
+
 async fn handle_scan(printer: &Printer, cmd: &ScanCmd) -> anyhow::Result<()> {
     match cmd {
-        ScanCmd::Secrets {
-            project: _,
-            baseline,
-        } => {
+        ScanCmd::Secrets { project, baseline } => {
+            let repo = resolve_project_path(project.as_ref())?;
             printer.header(&format!("{} Secret Scan", icons::SCAN));
-
-            let spin = cli::spinner("Scanning for leaked secrets...");
-            tokio::time::sleep(std::time::Duration::from_millis(800)).await;
-            spin.finish_and_clear();
+            printer.kv("Project", &repo.display().to_string());
+            printer.newline();
 
             if *baseline {
-                printer.info("Creating baseline from current findings...");
+                let spin = cli::spinner("Creating baseline...");
+                let msg = gates::create_secret_scan_baseline(&repo)?;
+                spin.finish_and_clear();
+                printer.success(&msg);
+                return Ok(());
             }
 
-            printer.success("No secrets found in repository");
+            let config = gates::load_gates_config(&repo).unwrap_or_default();
+            let spin = cli::spinner("Scanning for leaked secrets...");
+            let result = gates::run_secret_scan(&repo, &config)?;
+            spin.finish_and_clear();
+
+            printer.kv("Scanner", &result.scanner);
+            if result.passed && result.findings.is_empty() {
+                printer.success(&result.message);
+            } else {
+                printer.warn(&format!("{} finding(s)", result.findings.len()));
+                for f in result.findings.iter().take(50) {
+                    println!(
+                        "  {} {}:{} — {} ({})",
+                        icons::WARN.yellow(),
+                        f.file.bright_black(),
+                        f.line,
+                        f.rule.red(),
+                        f.preview.bright_black()
+                    );
+                }
+                if result.findings.len() > 50 {
+                    printer.info(&format!("+ {} more", result.findings.len() - 50));
+                }
+                if !result.passed {
+                    std::process::exit(1);
+                }
+            }
         }
-        ScanCmd::Deps {
-            project: _,
-            severity,
-        } => {
+        ScanCmd::Deps { project, severity } => {
+            let repo = resolve_project_path(project.as_ref())?;
             printer.header(&format!("{} Dependency Scan", icons::BUG));
+            printer.kv("Project", &repo.display().to_string());
             printer.kv("Severity threshold", severity);
             printer.newline();
 
+            let mut config = gates::load_gates_config(&repo).unwrap_or_default();
+            config.audit_severity_threshold = severity.clone();
+
             let spin = cli::spinner("Scanning dependencies...");
-            tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+            let result = gates::run_dependency_audit(&repo, &config)?;
             spin.finish_and_clear();
 
-            printer.success("No vulnerabilities found");
+            printer.kv("Scanner", &result.scanner);
+            if result.passed && result.findings.is_empty() {
+                printer.success(&result.message);
+            } else {
+                printer.warn(&format!("{} vulnerability(ies)", result.findings.len()));
+                for f in result.findings.iter().take(50) {
+                    println!(
+                        "  {} {} {} — {} ({})",
+                        icons::WARN.yellow(),
+                        f.package.bright_white(),
+                        f.installed_version.bright_black(),
+                        f.advisory_id.red(),
+                        format!("{:?}", f.severity).to_lowercase()
+                    );
+                    if let Some(fixed) = &f.fixed_version {
+                        println!("      fixed in {}", fixed.green());
+                    }
+                }
+                if result.findings.len() > 50 {
+                    printer.info(&format!("+ {} more", result.findings.len() - 50));
+                }
+                if !result.passed {
+                    std::process::exit(1);
+                }
+            }
         }
-        ScanCmd::Commits { project: _, since } => {
+        ScanCmd::Commits { project, since } => {
+            let repo = resolve_project_path(project.as_ref())?;
             printer.header(&format!("{} Commit Lint", icons::CHECK));
-
+            printer.kv("Project", &repo.display().to_string());
             if let Some(s) = since {
                 printer.kv("Since", s);
             }
             printer.newline();
 
+            let config = gates::load_gates_config(&repo).unwrap_or_default();
             let spin = cli::spinner("Checking commit messages...");
-            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            let result = gates::run_commit_lint(&repo, &config)?;
             spin.finish_and_clear();
 
-            printer.success("All commits follow conventional format");
+            printer.kv("Commits checked", &result.commits_checked.to_string());
+            if result.passed {
+                printer.success(&result.message);
+            } else {
+                printer.warn(&format!("{} violation(s)", result.violations.len()));
+                for v in result.violations.iter().take(50) {
+                    println!(
+                        "  {} {} — {}",
+                        v.hash.bright_black(),
+                        v.subject.white(),
+                        v.rule.red()
+                    );
+                    println!("      expected: {}", v.expected.bright_black());
+                }
+                std::process::exit(1);
+            }
+        }
+        ScanCmd::Sast { project } => {
+            let repo = resolve_project_path(project.as_ref())?;
+            printer.header(&format!("{} SAST (semgrep)", icons::SCAN));
+            printer.kv("Project", &repo.display().to_string());
+            printer.newline();
+
+            let config = gates::load_gates_config(&repo).unwrap_or_default();
+            let spin = cli::spinner("Running semgrep...");
+            let result = gates::run_sast(&repo, &config)?;
+            spin.finish_and_clear();
+
+            printer.kv("Scanner", &result.scanner);
+            if result.passed && result.findings.is_empty() {
+                printer.success(&result.message);
+            } else {
+                printer.warn(&result.message);
+                for f in result.findings.iter().take(50) {
+                    println!(
+                        "  {} {}:{} — {} {}",
+                        icons::WARN.yellow(),
+                        f.file.bright_black(),
+                        f.line,
+                        f.rule.red(),
+                        format!("[{:?}]", f.severity).bright_black()
+                    );
+                    if !f.message.is_empty() {
+                        println!("      {}", f.message.bright_black());
+                    }
+                }
+                if result.findings.len() > 50 {
+                    printer.info(&format!("+ {} more", result.findings.len() - 50));
+                }
+                if !result.passed {
+                    std::process::exit(1);
+                }
+            }
+        }
+        ScanCmd::Container { project } => {
+            let repo = resolve_project_path(project.as_ref())?;
+            printer.header(&format!("{} Container Scan (trivy)", icons::SCAN));
+            printer.kv("Project", &repo.display().to_string());
+            printer.newline();
+
+            let config = gates::load_gates_config(&repo).unwrap_or_default();
+            let spin = cli::spinner("Running trivy image...");
+            let result = gates::run_container_scan(&repo, &config)?;
+            spin.finish_and_clear();
+
+            printer.kv("Scanner", &result.scanner);
+            printer.kv("Targets", &result.targets.join(", "));
+            if result.passed && result.findings.is_empty() {
+                printer.success(&result.message);
+            } else {
+                printer.warn(&result.message);
+                for f in result.findings.iter().take(50) {
+                    println!(
+                        "  {} {} {} — {} [{:?}]",
+                        icons::WARN.yellow(),
+                        f.package.bright_white(),
+                        f.installed_version.bright_black(),
+                        f.advisory_id.red(),
+                        f.severity
+                    );
+                    if let Some(fixed) = &f.fixed_version {
+                        println!("      fixed in {}", fixed.green());
+                    }
+                }
+                if !result.passed {
+                    std::process::exit(1);
+                }
+            }
+        }
+        ScanCmd::Iac { project } => {
+            let repo = resolve_project_path(project.as_ref())?;
+            printer.header(&format!("{} IaC Scan (trivy config)", icons::SCAN));
+            printer.kv("Project", &repo.display().to_string());
+            printer.newline();
+
+            let config = gates::load_gates_config(&repo).unwrap_or_default();
+            let spin = cli::spinner("Running trivy config...");
+            let result = gates::run_iac_scan(&repo, &config)?;
+            spin.finish_and_clear();
+
+            printer.kv("Scanner", &result.scanner);
+            if result.passed && result.findings.is_empty() {
+                printer.success(&result.message);
+            } else {
+                printer.warn(&result.message);
+                for f in result.findings.iter().take(50) {
+                    let loc = match f.line {
+                        Some(l) => format!("{}:{}", f.file, l),
+                        None => f.file.clone(),
+                    };
+                    println!(
+                        "  {} {} — {} [{:?}]",
+                        icons::WARN.yellow(),
+                        loc.bright_black(),
+                        f.rule.red(),
+                        f.severity
+                    );
+                    if !f.message.is_empty() {
+                        println!("      {}", f.message.bright_black());
+                    }
+                    if let Some(r) = &f.resolution {
+                        println!("      fix: {}", r.green());
+                    }
+                }
+                if !result.passed {
+                    std::process::exit(1);
+                }
+            }
+        }
+        ScanCmd::License { project } => {
+            let repo = resolve_project_path(project.as_ref())?;
+            printer.header(&format!("{} License Check", icons::SCAN));
+            printer.kv("Project", &repo.display().to_string());
+            printer.newline();
+
+            let config = gates::load_gates_config(&repo).unwrap_or_default();
+            let spin = cli::spinner("Checking dependency licenses...");
+            let result = gates::run_license_check(&repo, &config)?;
+            spin.finish_and_clear();
+
+            printer.kv("Scanner", &result.scanner);
+            if result.passed && result.findings.is_empty() {
+                printer.success(&result.message);
+            } else {
+                printer.warn(&result.message);
+                for f in result.findings.iter().take(50) {
+                    println!(
+                        "  {} {} {} — {} ({})",
+                        icons::WARN.yellow(),
+                        f.package.bright_white(),
+                        f.version.bright_black(),
+                        f.license.red(),
+                        f.reason.bright_black()
+                    );
+                }
+                if !result.passed {
+                    std::process::exit(1);
+                }
+            }
         }
     }
     Ok(())

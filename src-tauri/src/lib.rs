@@ -181,6 +181,10 @@ pub fn run() {
             gate_commands::run_dependency_audit,
             gate_commands::run_commit_lint,
             gate_commands::create_secret_scan_baseline,
+            gate_commands::run_sast,
+            gate_commands::run_container_scan,
+            gate_commands::run_iac_scan,
+            gate_commands::run_license_check,
             // Template commands
             template_commands::get_templates,
             template_commands::get_template,

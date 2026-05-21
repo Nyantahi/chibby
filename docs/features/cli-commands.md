@@ -283,15 +283,40 @@ The GUI's Add Project wizard runs the same scan automatically, controlled by the
 ### Security Scans
 
 ```bash
-# Scan for leaked secrets
+# Scan for leaked secrets (gitleaks if installed; built-in regex fallback otherwise)
 chibby scan secrets
 
-# Scan dependencies
+# Scan dependencies for CVEs (auto-picks cargo audit / npm audit / pnpm audit / pip-audit)
 chibby scan deps
 
-# Lint commits
+# Lint commits against conventional-commits rules
 chibby scan commits
+
+# SAST — static analysis via semgrep
+chibby scan sast
+
+# Container image scan via trivy image (image refs from gates.toml, falls back to detected Dockerfiles)
+chibby scan container
+
+# Infrastructure-as-Code scan via trivy config (Dockerfile, docker-compose, k8s, terraform)
+chibby scan iac
+
+# License compliance — flags GPL/AGPL by default; configurable via gates.toml
+chibby scan license
+
+# Create a secret-scan baseline so existing findings stop blocking
+chibby scan secrets --baseline
 ```
+
+All gates load `.chibby/gates.toml` for allowlists, severity thresholds, and the
+`container_images` list. Each scanner is detected at runtime — if the tool isn't
+installed the gate returns a non-failing `"(missing)"` result with the install
+command (`brew install gitleaks trivy semgrep`, `cargo install cargo-audit`, etc.).
+Non-zero exit code on blocking findings — suitable for CI hooks.
+
+Run all enabled gates at once from the desktop app's **Quality** tab, or wire
+them into your pipeline by regenerating it after `gates.toml` exists — Chibby
+auto-appends one `security-*` stage per enabled gate.
 
 ### Initialize New Project
 

@@ -3,6 +3,7 @@ import { Outlet, NavLink } from 'react-router-dom';
 import { FolderGit2, PlusCircle, Settings, Layers } from 'lucide-react';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { getAppVersion } from '../services/api';
+import Toaster from './Toaster';
 
 function ChibbyLogo({ size = 22 }: { size?: number }) {
   return (
@@ -68,6 +69,8 @@ function Layout() {
       <main className="main-content">
         <Outlet />
       </main>
+
+      <Toaster />
     </div>
   );
 }

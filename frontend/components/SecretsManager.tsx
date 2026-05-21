@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Shield, Plus, Trash2, Check, AlertTriangle, X } from 'lucide-react';
+import { Shield, Plus, Trash2, Check, AlertTriangle, X, Clock } from 'lucide-react';
 import { saveSecretsConfig, checkSecretsStatus, setSecret, deleteSecret } from '../services/api';
 import type { SecretsConfig, SecretRef, SecretStatus, Environment } from '../types';
+import SecretAuditModal from './SecretAuditModal';
 
 interface Props {
   repoPath: string;
@@ -23,6 +24,7 @@ function SecretsManager({ repoPath, config, environments, onSaved }: Props) {
   const [secretValue, setSecretValue] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [auditing, setAuditing] = useState<{ name: string; env: string } | null>(null);
 
   useEffect(() => {
     loadStatuses();
@@ -249,6 +251,13 @@ function SecretsManager({ repoPath, config, environments, onSaved }: Props) {
                         >
                           <Shield size={12} />
                         </button>
+                        <button
+                          className="btn btn-icon btn-sm"
+                          title="Audit history"
+                          onClick={() => setAuditing({ name: secret.name, env: env.name })}
+                        >
+                          <Clock size={12} />
+                        </button>
                         {isSet && (
                           <button
                             className="btn btn-icon btn-sm btn-danger-icon"
@@ -265,6 +274,15 @@ function SecretsManager({ repoPath, config, environments, onSaved }: Props) {
             </div>
           ))}
         </div>
+      )}
+
+      {auditing && (
+        <SecretAuditModal
+          repoPath={repoPath}
+          envName={auditing.env}
+          secretName={auditing.name}
+          onClose={() => setAuditing(null)}
+        />
       )}
     </div>
   );

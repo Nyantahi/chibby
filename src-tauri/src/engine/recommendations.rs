@@ -438,6 +438,33 @@ fn add_universal_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommenda
         template_hint: Some("Include: Supported versions, Reporting process".to_string()),
     });
 
+    // High: Chibby security gates config
+    recs.push(FileRecommendation {
+        file_name: ".chibby/gates.toml".to_string(),
+        title: "Chibby Security Gates".to_string(),
+        description: "Enables Chibby's built-in scanners (secrets, dependency CVEs, SAST, container, IaC, license) and surfaces findings in the Quality tab. Without this file, security stages won't appear when the pipeline is regenerated.".to_string(),
+        priority: RecommendationPriority::High,
+        category: RecommendationCategory::Security,
+        docs_url: None,
+        exists: repo_path.join(".chibby").join("gates.toml").exists(),
+        template_hint: Some("Run `chibby gates init` or open the Quality tab in the desktop app".to_string()),
+    });
+
+    // High: Dedicated security workflow (gitleaks + npm audit, etc.)
+    let has_security_workflow = ["security.yml", "security.yaml", "codeql.yml", "codeql.yaml"]
+        .iter()
+        .any(|name| repo_path.join(".github/workflows").join(name).exists());
+    recs.push(FileRecommendation {
+        file_name: ".github/workflows/security.yml".to_string(),
+        title: "Security Scans Workflow".to_string(),
+        description: "Dedicated workflow that runs gitleaks (secret scanning), npm audit / pip-audit / cargo audit (dependency CVEs), and (optionally) CodeQL or Semgrep on every push and weekly schedule.".to_string(),
+        priority: RecommendationPriority::High,
+        category: RecommendationCategory::Security,
+        docs_url: Some("https://github.com/gitleaks/gitleaks-action".to_string()),
+        exists: has_security_workflow,
+        template_hint: Some("Include: gitleaks, npm audit, dependency-review-action".to_string()),
+    });
+
     // Medium: Issue Templates
     let has_issue_templates = repo_path.join(".github/ISSUE_TEMPLATE").exists()
         || repo_path.join(".github/ISSUE_TEMPLATE.md").exists();

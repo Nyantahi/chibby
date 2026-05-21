@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Security gates (Phase 2 of the gates epic)
+
+- **Four new gates** alongside the existing secret / dependency / commit-lint trio:
+  - **`sast`** — wraps `semgrep --config=auto`. Catches SQLi, XSS, command injection, insecure crypto, dangerous subprocess use.
+  - **`container_scan`** — wraps `trivy image`. Scans image refs from `gates.toml`'s `container_images` list; falls back to Dockerfiles auto-detected in the repo (top-level + 1 dir deep).
+  - **`iac_scan`** — wraps `trivy config`. Catches Dockerfile / docker-compose / Kubernetes / Terraform / CloudFormation misconfigurations.
+  - **`license_check`** — wraps `cargo-license` + `license-checker`. Flags GPL/AGPL by default; configurable via `license_denylist` + `license_allowlist`.
+- **Graceful scanner-missing handling** — every gate detects its CLI at runtime and returns a non-failing `"(missing)"` result with the install command when the tool isn't installed. No more crashes on "semgrep not found."
+- **Auto-appended pipeline stages** — when `.chibby/gates.toml` exists, `chibby pipeline generate` (and the GUI's Regenerate button) append one `security-<gate>` stage per enabled gate to the produced `pipeline.toml`. Off-mode gates are skipped.
+- **Default `gates.toml` on project add** — `auto_bootstrap_for_project` now seeds a sensible default (`warn` mode everywhere, baseline mode on, test fixtures allowlisted) so the Quality tab is populated from day one. Won't overwrite an existing file.
+- **New CLI subcommands** — `chibby scan sast`, `chibby scan container`, `chibby scan iac`, `chibby scan license`. Same shape as the existing `secrets`/`deps`/`commits`; non-zero exit on blocking findings.
+- **Recommendations panel entries** — `.chibby/gates.toml` and `.github/workflows/security.yml` are now flagged when missing (High priority, Security category).
+- **`GatesConfig` schema extended** with new mode fields (`sast`, `container_scan`, `iac_scan`, `license_check`), severity thresholds (`sast_severity_threshold`, `container_severity_threshold`, `iac_severity_threshold`), allowlists (`sast_allowlist`, `license_allowlist`), `container_images`, and `license_denylist`.
+- **`GatesResult` schema extended** with `sast`, `container_scan`, `iac_scan`, `license_check` optional fields.
+- **`GatesCard` (Quality tab)** — surfaces all seven gate-mode selectors, three severity threshold inputs, the `container_images` textarea, and four new Run buttons.
+- **New docs** — [`docs/features/security-gates.md`](../features/security-gates.md) covers all seven gates, config keys, scanner install hints, and pipeline auto-append behaviour. Cross-linked from cli-commands.md and user-guide.md.
+
+### Fixed
+
+- **`chibby projects list/add/remove/info` were stubs** that printed hardcoded demo data (`my-app/website/api/mobile-app`). They now read/write `<data_dir>/projects.json` via the same `persistence` layer the GUI uses. `add` validates the path exists; `remove` resolves by id/name/path/abs-path; `info` defaults to the project whose path matches CWD.
+- **`chibby scan secrets/deps/commits` were stubs** that slept and printed "no findings". They now call `gates::run_secret_scan/run_dependency_audit/run_commit_lint` and exit non-zero on blocking findings.
+- **`bootstrap.rs` test imports** — re-added `EnvironmentsConfig`/`SecretsConfig` to the test module after the earlier prod-side import cleanup.
+
+### Added
+
+- **Project Detail is now 5 tabs** — Pipeline, History, **Environments**, **Release**, **Quality**. Every Tauri command in the backend now has a UI entry point; "Project Settings" is gone in favour of the three focused tabs.
+- **Environments tab** — promotes the existing `EnvironmentEditor` and `SecretsManager` out of the collapsed Settings section and adds:
+  - **Bootstrap button** — opens a modal that runs `scan_bootstrap`, shows every detected name with classification + provenance, and applies in Safe or Merge mode.
+  - **Import button** — modal driver for `dotenv`, `vercel`, `railway`, and `fly` importers with a vendor-CLI presence check and report summary.
+  - **Export .env button** — save-dialog-driven `export_dotenv` for a chosen environment.
+  - **Inline leak warnings** in `EnvironmentEditor` — banner listing every `EnvLeakHit` from `scan_environments_for_leaks` (redacted previews).
+  - **Committed / Local / Layered toggle** in `EnvironmentEditor` — switches between editing `environments.toml`, `environments.local.toml`, and the read-only merged view.
+  - **Per-secret audit modal** in `SecretsManager` — clock icon on each row opens `get_secret_audit` (last set/deleted, counts, provenance).
+- **Auto-bootstrap on Add Project** — the wizard finish step now calls `auto_bootstrap_for_project`. In `confirm` mode the review modal appears before navigation; in `silent` mode the apply happens and a toast confirms; in `off` mode nothing runs.
+- **Release tab** — surfaces all of Phase 5 with one card each:
+  - `VersionCard` — `detect_versions`, semver bump (patch/minor/major) with optional git tag, `generate_changelog` with copy-to-clipboard.
+  - `ArtifactsCard` — artifact config form, `collect_artifacts`, manifest list with "Reveal output dir", inline Signing sub-section + per-artifact `sign_artifact`.
+  - `UpdaterCard` — updater config, key management (generate / rotate / delete / import), `updater_preflight`, `generate_latest_json`, dry-run / live `publish_update`.
+  - `NotifyCard` — notification targets editor and `send_test_notification`.
+- **Quality tab** — `GatesCard` (config + run all gates / individual scans / create baseline), `CleanupCard` (config + dry-run / live `run_cleanup`), `DeploymentHistoryCard` (per-environment `get_deployment_history` table).
+- **Crash log page** — new `/crashes` route reading `get_crash_log` with Reveal-in-Finder and Clear buttons; linked from Settings → About.
+- **Quick Links sidebar card** on Project Detail — reveal `.chibby/`, reveal app data dir, open repo folder.
+- **Plugin-shell wiring** — `services/openExternal.ts` wraps `@tauri-apps/plugin-shell` for OS-native opens. Recommendations panel doc links, Run Detail's new "Reveal" button (opens `<data_dir>/runs/<run_id>/`), Settings' "Open data directory", and every "Reveal in Finder" affordance route through this helper.
+- **In-app toaster** — `services/notify.ts` + `Toaster` component mounted in `Layout`. Replaces the previous mix of `alert()` and silent failures with non-blocking toasts.
+- **Bootstrap mode setting** in Settings → About — `confirm` / `silent` / `off` picker, persisted to `AppSettings.bootstrap_mode`.
+
+### Fixed
+
+- **sha2 0.11 hash formatting** — `Sha256::finalize()` now returns a `hybrid_array::Array` that no longer implements `LowerHex`; replaced `format!("{:x}", hash)` with explicit per-byte hex in `engine/artifacts.rs`.
+- **Unused imports in `engine/bootstrap.rs`** — dropped `EnvironmentsConfig` and `SecretsConfig` from the model imports.
+
+### Changed
+
+- `AppSettings` TypeScript interface now includes `bootstrap_mode: BootstrapMode` to match the Rust struct.
+- `ProjectDetail` legacy router-state `tab: 'settings'` deep-links are silently rewritten to `tab: 'environments'` to keep old links working.
+
 ## [0.1.34] - 2026-05-08
 
 ### Fixed

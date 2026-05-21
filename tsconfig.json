@@ -18,7 +18,8 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./frontend/*"]
-    }
+    },
+    "ignoreDeprecations": "6.0"
   },
   "include": ["frontend"],
   "references": [{ "path": "./tsconfig.node.json" }]

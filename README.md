@@ -21,15 +21,22 @@ Chibby helps developers turn existing scripts into visual, repeatable pipelines 
 - **Pipeline Generation** — Auto-generate pipelines from detected commands (heuristic + LLM-assisted)
 - **Local Execution** — Run stages as local processes with live log streaming
 - **SSH Execution** — Deploy over SSH with direct commands or Docker Compose
-- **Environments & Secrets** — Per-environment config with OS keychain integration
+- **Environments & Secrets** — Per-environment config, OS keychain values, per-developer `environments.local.toml` overrides, and a layered read-only view ([Env/Secrets docs](docs/features/env-secrets.md))
+- **Bootstrap wizard** — Scans `.env*`, `docker-compose*.yml`, `.github/workflows/`, and JS/Python/Rust source for env/secret references and writes populated `environments.toml` + `secrets.toml` in Safe or Merge mode
+- **Importers** — Pull names (and optionally values) from `.env` files, Vercel, Railway, and Fly.io; vendor CLI presence is auto-checked
+- **Export .env** — Resolve variables + secret values for an environment to a flat `.env` file
+- **Leak scanner** — Per-save scan of `environments.toml` for hardcoded GitHub/GitLab/Stripe/Slack/OpenAI/AWS/Twilio/DB-URL/private-key shapes, with redacted previews
+- **Secret audit** — Per-secret history (last set/deleted, counts, provenance — `cli`, `gui`, `import:vercel`, etc.) visible from the GUI's clock icon
+- **Env diff & Doctor** — `chibby env diff <a> <b>` shows `+ / - / ~` deltas between two environments; `chibby doctor` validates configs, SSH reachability, and keychain values end-to-end (CI-friendly exit codes)
 - **Versioning** — Semver bumping across config files with automatic git tagging, configurable bump level (patch/minor/major)
 - **Code Signing** — macOS notarization, Windows Authenticode, Linux GPG
-- **Artifacts** — Consistent naming, SHA256 checksums, configurable retention
-- **Tauri Updater** — Generate `latest.json`, sign update bundles, publish to hosting
-- **Security Gates** — Secret scanning (gitleaks), CVE scanning, commit linting
-- **Run History** — Full history with retry from failure and explicit rollback
-- **Notifications** — Desktop OS notifications and webhooks (Slack, Discord, HTTP)
-- **App Settings** — Configurable notification and retention defaults that apply across all projects
+- **Artifacts** — Consistent naming, SHA256 checksums, configurable retention, reveal-in-Finder
+- **Tauri Updater** — Generate `latest.json`, sign update bundles, manage signing keys, dry-run/live publish to GitHub Releases / S3 / SCP / local
+- **Security Gates** — Seven built-in gates: secret scanning (gitleaks), CVE scanning, commit linting, SAST (semgrep), container image scan (trivy image), IaC scan (trivy config), license compliance (cargo-license + license-checker). Per-gate quick actions, baseline creation, and configurable severity thresholds from the Quality tab. Auto-appended as pipeline stages when `.chibby/gates.toml` exists. ([Security gates docs](docs/features/security-gates.md))
+- **Run History** — Full history with retry from failure, explicit rollback, and reveal-run-folder
+- **Notifications** — Desktop OS notifications and webhooks (Slack, Discord, HTTP) with one-click test send
+- **Crash log viewer** — Inspect, reveal, and clear `<data_dir>/crash.log` from the app
+- **App Settings** — Configurable notification, retention, and bootstrap-mode defaults that apply across all projects
 - **Cross-Platform** — Works on macOS, Linux, and Windows
 
 ## Why Chibby?
@@ -144,13 +151,15 @@ chibby/
 
 - **Pipeline config**: `.chibby/pipeline.toml` (in repo, version controlled)
 - **Environment config**: `.chibby/environments.toml` (in repo)
+- **Per-developer overrides**: `.chibby/environments.local.toml` (auto-gitignored)
 - **Secret references**: `.chibby/secrets.toml` (names only, no values)
 - **Project templates**: `.chibby/templates/` (in repo, shareable with team)
 - **User templates**: `~/.chibby/templates/` (global, personal collection)
-- **Run history & settings**: Platform app data directory
+- **Run history, settings & secret audit**: Platform app data directory
   - macOS: `~/Library/Application Support/Chibby/`
   - Linux: `~/.local/share/chibby/`
   - Windows: `%APPDATA%\Chibby\`
+  - Audit metadata lives under `<data_dir>/secret_audit/<sha256[:16]>.json` (per-project, owner-only on Unix)
 
 ## Development
 

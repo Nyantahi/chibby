@@ -14,6 +14,7 @@ import type {
   RecommendationPriority,
   RecommendationCategory,
 } from '../types';
+import { openUrl } from '../services/openExternal';
 
 interface RecommendationsPanelProps {
   recommendations: ProjectRecommendations | null;
@@ -82,14 +83,13 @@ function RecommendationItem({ recommendation }: { recommendation: FileRecommenda
       <div className="recommendation-meta">
         <span className="recommendation-category">{formatCategory(recommendation.category)}</span>
         {recommendation.docs_url && (
-          <a
-            href={recommendation.docs_url}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            type="button"
             className="recommendation-docs-link"
+            onClick={() => openUrl(recommendation.docs_url!)}
           >
             Learn more <ExternalLink size={12} />
-          </a>
+          </button>
         )}
       </div>
     </li>

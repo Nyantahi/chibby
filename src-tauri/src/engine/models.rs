@@ -1103,6 +1103,22 @@ pub struct GatesConfig {
     #[serde(default)]
     pub commit_lint: GateMode,
 
+    /// SAST (semgrep) mode.
+    #[serde(default)]
+    pub sast: GateMode,
+
+    /// Container image scanning (trivy image) mode.
+    #[serde(default)]
+    pub container_scan: GateMode,
+
+    /// Infrastructure-as-Code scanning (trivy config) mode.
+    #[serde(default)]
+    pub iac_scan: GateMode,
+
+    /// License compliance mode.
+    #[serde(default)]
+    pub license_check: GateMode,
+
     /// Paths to exclude from secret scanning (glob patterns).
     #[serde(default)]
     pub secret_scan_allowlist: Vec<String>,
@@ -1120,6 +1136,36 @@ pub struct GatesConfig {
     #[serde(default)]
     pub secret_scan_baseline: bool,
 
+    /// SAST severity threshold: block on this level and above.
+    #[serde(default = "default_severity_threshold")]
+    pub sast_severity_threshold: String,
+
+    /// SAST rule IDs to ignore (e.g. `python.lang.security.audit.dangerous-subprocess-use`).
+    #[serde(default)]
+    pub sast_allowlist: Vec<String>,
+
+    /// Container scan severity threshold.
+    #[serde(default = "default_severity_threshold")]
+    pub container_severity_threshold: String,
+
+    /// Explicit image refs to scan (e.g. `ghcr.io/org/app:tag`).
+    /// When empty, the scanner falls back to detected Dockerfiles in the repo.
+    #[serde(default)]
+    pub container_images: Vec<String>,
+
+    /// IaC scan severity threshold.
+    #[serde(default = "default_severity_threshold")]
+    pub iac_severity_threshold: String,
+
+    /// SPDX license identifiers that are forbidden (e.g. `GPL-3.0`, `AGPL-3.0`).
+    /// Default forbids the most viral copyleft licenses.
+    #[serde(default = "default_license_denylist")]
+    pub license_denylist: Vec<String>,
+
+    /// Package names exempt from license enforcement (escape hatch).
+    #[serde(default)]
+    pub license_allowlist: Vec<String>,
+
     /// Commit lint: allowed commit types.
     #[serde(default = "default_commit_types")]
     pub commit_types: Vec<String>,
@@ -1131,6 +1177,15 @@ pub struct GatesConfig {
     /// Commit lint: require a scope.
     #[serde(default)]
     pub commit_require_scope: bool,
+}
+
+fn default_license_denylist() -> Vec<String> {
+    vec![
+        "GPL-3.0".into(),
+        "GPL-2.0".into(),
+        "AGPL-3.0".into(),
+        "AGPL-1.0".into(),
+    ]
 }
 
 fn default_severity_threshold() -> String {
@@ -1162,10 +1217,21 @@ impl Default for GatesConfig {
             secret_scanning: GateMode::Off,
             dependency_scanning: GateMode::Off,
             commit_lint: GateMode::Off,
+            sast: GateMode::Off,
+            container_scan: GateMode::Off,
+            iac_scan: GateMode::Off,
+            license_check: GateMode::Off,
             secret_scan_allowlist: Vec::new(),
             audit_allowlist: Vec::new(),
             audit_severity_threshold: default_severity_threshold(),
             secret_scan_baseline: false,
+            sast_severity_threshold: default_severity_threshold(),
+            sast_allowlist: Vec::new(),
+            container_severity_threshold: default_severity_threshold(),
+            container_images: Vec::new(),
+            iac_severity_threshold: default_severity_threshold(),
+            license_denylist: default_license_denylist(),
+            license_allowlist: Vec::new(),
             commit_types: default_commit_types(),
             commit_max_subject_length: default_max_subject_len(),
             commit_require_scope: false,
@@ -1267,6 +1333,98 @@ pub struct CommitLintResult {
     pub message: String,
 }
 
+/// A single SAST finding (semgrep / generic linter).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SastFinding {
+    /// File path relative to repo root.
+    pub file: String,
+    /// 1-based line number.
+    pub line: u32,
+    /// Rule identifier (e.g. `python.lang.security.audit.dangerous-subprocess-use`).
+    pub rule: String,
+    /// Severity bucket.
+    pub severity: VulnSeverity,
+    /// Short description / message from the scanner.
+    pub message: String,
+}
+
+/// Result of running SAST.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SastResult {
+    pub passed: bool,
+    pub findings: Vec<SastFinding>,
+    /// Scanner used (e.g. "semgrep").
+    pub scanner: String,
+    pub message: String,
+}
+
+/// A single container scan finding.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContainerFinding {
+    /// Image scanned (e.g. `ghcr.io/org/app:tag` or `Dockerfile`).
+    pub target: String,
+    /// Package name (OS package or app dependency).
+    pub package: String,
+    pub installed_version: String,
+    pub fixed_version: Option<String>,
+    pub advisory_id: String,
+    pub severity: VulnSeverity,
+    pub description: String,
+}
+
+/// Result of container scanning.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContainerScanResult {
+    pub passed: bool,
+    pub findings: Vec<ContainerFinding>,
+    pub scanner: String,
+    /// What was scanned (image refs, or detected Dockerfiles).
+    pub targets: Vec<String>,
+    pub message: String,
+}
+
+/// A single IaC misconfiguration finding.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IacFinding {
+    pub file: String,
+    pub line: Option<u32>,
+    /// Rule / check ID (e.g. `DS002`, `AVD-DS-0002`).
+    pub rule: String,
+    pub severity: VulnSeverity,
+    pub message: String,
+    /// Suggested remediation, if the scanner provided one.
+    pub resolution: Option<String>,
+}
+
+/// Result of IaC scanning.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IacScanResult {
+    pub passed: bool,
+    pub findings: Vec<IacFinding>,
+    pub scanner: String,
+    pub message: String,
+}
+
+/// A single license-compliance finding.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LicenseFinding {
+    pub package: String,
+    pub version: String,
+    /// SPDX identifier or raw license string from the manifest.
+    pub license: String,
+    /// Reason this was flagged ("denylisted", "unknown-license", etc.).
+    pub reason: String,
+}
+
+/// Result of license-compliance check.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LicenseCheckResult {
+    pub passed: bool,
+    pub findings: Vec<LicenseFinding>,
+    pub scanner: String,
+    pub message: String,
+}
+
 /// Combined result of running all enabled gates.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatesResult {
@@ -1278,6 +1436,18 @@ pub struct GatesResult {
     pub dependency_audit: Option<AuditResult>,
     /// Commit lint result (None if gate is off).
     pub commit_lint: Option<CommitLintResult>,
+    /// SAST result (None if gate is off).
+    #[serde(default)]
+    pub sast: Option<SastResult>,
+    /// Container scan result (None if gate is off).
+    #[serde(default)]
+    pub container_scan: Option<ContainerScanResult>,
+    /// IaC scan result (None if gate is off).
+    #[serde(default)]
+    pub iac_scan: Option<IacScanResult>,
+    /// License check result (None if gate is off).
+    #[serde(default)]
+    pub license_check: Option<LicenseCheckResult>,
 }
 
 // ---------------------------------------------------------------------------

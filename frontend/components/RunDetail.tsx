@@ -14,8 +14,10 @@ import {
   Server,
   Undo2,
   Square,
+  FolderOpen,
 } from 'lucide-react';
-import { getRun, retryRun, rollbackToRun, cancelPipeline } from '../services/api';
+import { getAppDataDir, getRun, retryRun, rollbackToRun, cancelPipeline } from '../services/api';
+import { openPath } from '../services/openExternal';
 import { formatDate, formatDuration, statusClass, capitalize } from '../utils/format';
 import type { PipelineRun, StageResult } from '../types';
 import LogViewer from './LogViewer';
@@ -305,6 +307,17 @@ function RunDetail() {
               Rollback to This
             </button>
           )}
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={async () => {
+              const dir = await getAppDataDir();
+              openPath(`${dir}/runs/${run.id}`);
+            }}
+            title="Reveal run folder in Finder"
+          >
+            <FolderOpen size={14} />
+            Reveal
+          </button>
         </div>
       </header>
 

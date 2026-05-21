@@ -50,11 +50,6 @@ function TemplateBrowser({ repoPath, filterType, onApply, onEdit }: Props) {
   // Expanded template detail
   const [expandedTemplate, setExpandedTemplate] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadTemplates();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repoPath]);
-
   async function loadTemplates() {
     try {
       setLoading(true);
@@ -67,6 +62,12 @@ function TemplateBrowser({ repoPath, filterType, onApply, onEdit }: Props) {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadTemplates();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repoPath]);
 
   const filtered = useMemo(() => {
     return templates.filter((t) => {

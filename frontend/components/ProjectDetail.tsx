@@ -28,6 +28,12 @@ import {
   RotateCcw,
   Undo2,
   Trophy,
+  Rocket,
+  FolderOpen,
+  ExternalLink,
+  Wand2,
+  Download,
+  Upload,
 } from 'lucide-react';
 import {
   listProjects,
@@ -71,6 +77,18 @@ import SecretsManager from './SecretsManager';
 import RecommendationsPanel from './RecommendationsPanel';
 import LogViewer from './LogViewer';
 import { FileTypeIcon } from './FileTypeIcon';
+import BootstrapWizardModal from './BootstrapWizardModal';
+import ImporterModal from './ImporterModal';
+import ExportDotenvModal from './ExportDotenvModal';
+import VersionCard from './VersionCard';
+import ArtifactsCard from './ArtifactsCard';
+import UpdaterCard from './UpdaterCard';
+import NotifyCard from './NotifyCard';
+import GatesCard from './GatesCard';
+import CleanupCard from './CleanupCard';
+import DeploymentHistoryCard from './DeploymentHistoryCard';
+import { openPath } from '../services/openExternal';
+import { getAppDataDir } from '../services/api';
 import { listen } from '@tauri-apps/api/event';
 
 /** Strip ANSI escape sequences from a string. */
@@ -80,13 +98,15 @@ function stripAnsi(text: string): string {
   return text.replace(ANSI_RE, '');
 }
 
-type TabId = 'pipeline' | 'history' | 'settings';
+type TabId = 'pipeline' | 'history' | 'environments' | 'release' | 'quality';
 
 function ProjectDetail() {
   const { projectId } = useParams<{ projectId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  const initialTab = (location.state as { tab?: TabId })?.tab;
+  const incomingTab = (location.state as { tab?: TabId | 'settings' })?.tab;
+  const initialTab: TabId | undefined =
+    incomingTab === 'settings' ? 'environments' : (incomingTab as TabId | undefined);
 
   const [project, setProject] = useState<ProjectInfo | null>(null);
   const [pipeline, setPipeline] = useState<Pipeline | null>(null);
@@ -152,8 +172,13 @@ function ProjectDetail() {
   const cmdStatusRef = useRef<Record<string, CmdStatus>>({});
 
   // Collapsible sections
-  const [showEnvSection, setShowEnvSection] = useState(false);
-  const [showSecretsSection, setShowSecretsSection] = useState(false);
+  const [showEnvSection, setShowEnvSection] = useState(true);
+  const [showSecretsSection, setShowSecretsSection] = useState(true);
+
+  // Environments tab modals
+  const [showBootstrap, setShowBootstrap] = useState(false);
+  const [showImporter, setShowImporter] = useState(false);
+  const [showExportDotenv, setShowExportDotenv] = useState(false);
 
   const [activeTab, setActiveTab] = useState<TabId>(initialTab ?? 'pipeline');
 
@@ -734,11 +759,28 @@ function ProjectDetail() {
             {runs.length > 0 && <span className="badge badge-neutral">{runs.length}</span>}
           </button>
           <button
-            className={`project-tab ${activeTab === 'settings' ? 'project-tab-active' : ''}`}
-            onClick={() => setActiveTab('settings')}
+            className={`project-tab ${activeTab === 'environments' ? 'project-tab-active' : ''}`}
+            onClick={() => setActiveTab('environments')}
           >
-            <Settings size={16} />
-            Project Settings
+            <Server size={16} />
+            Environments
+            {envsConfig?.environments?.length ? (
+              <span className="badge badge-neutral">{envsConfig.environments.length}</span>
+            ) : null}
+          </button>
+          <button
+            className={`project-tab ${activeTab === 'release' ? 'project-tab-active' : ''}`}
+            onClick={() => setActiveTab('release')}
+          >
+            <Rocket size={16} />
+            Release
+          </button>
+          <button
+            className={`project-tab ${activeTab === 'quality' ? 'project-tab-active' : ''}`}
+            onClick={() => setActiveTab('quality')}
+          >
+            <Shield size={16} />
+            Quality
           </button>
         </div>
 
@@ -1174,9 +1216,55 @@ function ProjectDetail() {
             </section>
           )}
 
-          {/* Settings Tab */}
-          {activeTab === 'settings' && (
+          {/* Environments Tab — env + secrets + bootstrap + importers + leaks + audit + export */}
+          {activeTab === 'environments' && (
             <>
+              <section className="section">
+                <div
+                  className="section-toggle"
+                  style={{ justifyContent: 'space-between', cursor: 'default' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Server size={16} />
+                    <strong>Bootstrap & Import</strong>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      className="btn btn-sm btn-secondary"
+                      onClick={() => setShowBootstrap(true)}
+                    >
+                      <Wand2 size={14} />
+                      Bootstrap
+                    </button>
+                    <button
+                      className="btn btn-sm btn-secondary"
+                      onClick={() => setShowImporter(true)}
+                    >
+                      <Download size={14} />
+                      Import…
+                    </button>
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => setShowExportDotenv(true)}
+                      disabled={!envsConfig.environments.length}
+                    >
+                      <Upload size={14} />
+                      Export .env
+                    </button>
+                  </div>
+                </div>
+                <p
+                  className="text-muted"
+                  style={{
+                    fontSize: 'var(--font-size-xs)',
+                    padding: '0 var(--space-md) var(--space-sm)',
+                  }}
+                >
+                  Scan the repo for env / secret references, or pull from Vercel / Railway / Fly / a
+                  .env file.
+                </p>
+              </section>
+
               {/* Environments section */}
               <section className="section">
                 <button
@@ -1218,6 +1306,28 @@ function ProjectDetail() {
                 )}
               </section>
             </>
+          )}
+
+          {/* Release Tab */}
+          {activeTab === 'release' && (
+            <div className="cards-stack">
+              <VersionCard repoPath={project.project.path} />
+              <ArtifactsCard repoPath={project.project.path} />
+              <UpdaterCard repoPath={project.project.path} />
+              <NotifyCard repoPath={project.project.path} />
+            </div>
+          )}
+
+          {/* Quality Tab */}
+          {activeTab === 'quality' && (
+            <div className="cards-stack">
+              <GatesCard repoPath={project.project.path} />
+              <CleanupCard repoPath={project.project.path} />
+              <DeploymentHistoryCard
+                repoPath={project.project.path}
+                environments={envsConfig.environments}
+              />
+            </div>
           )}
         </div>
       </div>
@@ -1264,6 +1374,39 @@ function ProjectDetail() {
           </div>
         </div>
 
+        {/* Quick Links */}
+        <div className="project-sidebar-card">
+          <h4 className="project-sidebar-title">
+            <ExternalLink size={14} />
+            Quick Links
+          </h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={() => openPath(`${project.project.path}/.chibby`)}
+            >
+              <FolderOpen size={12} /> Reveal .chibby/
+            </button>
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={async () => {
+                const dir = await getAppDataDir();
+                openPath(dir);
+              }}
+            >
+              <FolderOpen size={12} /> Reveal data dir
+            </button>
+            {gitInfo?.branch && (
+              <button
+                className="btn btn-sm btn-ghost"
+                onClick={() => openPath(project.project.path)}
+              >
+                <FolderOpen size={12} /> Open repo folder
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* CI/CD Recommendations */}
         <RecommendationsPanel recommendations={recommendations} loading={loadingRecommendations} />
 
@@ -1291,6 +1434,32 @@ function ProjectDetail() {
           )}
         </div>
       </aside>
+
+      {showBootstrap && (
+        <BootstrapWizardModal
+          repoPath={project.project.path}
+          onClose={() => setShowBootstrap(false)}
+          onApplied={() => {
+            setShowBootstrap(false);
+            loadData();
+          }}
+        />
+      )}
+      {showImporter && (
+        <ImporterModal
+          repoPath={project.project.path}
+          environments={envsConfig.environments.map((e) => e.name)}
+          onClose={() => setShowImporter(false)}
+          onDone={loadData}
+        />
+      )}
+      {showExportDotenv && (
+        <ExportDotenvModal
+          repoPath={project.project.path}
+          environments={envsConfig.environments}
+          onClose={() => setShowExportDotenv(false)}
+        />
+      )}
     </div>
   );
 }

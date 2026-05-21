@@ -116,6 +116,14 @@ chibby secrets rotate STRIPE_KEY --env production
 
 This re-prompts for the value and overwrites the existing keychain entry. Other developers' keychains are not affected — they rotate independently.
 
+### Comparing two environments
+
+```bash
+chibby env diff production staging
+```
+
+`+` lines exist only in the destination, `-` lines only in the source, `~` lines have a different value. Identical entries are summarised as "identical" — the output stays compact even on large configs.
+
 ### Running a deploy that uses everything
 
 ```bash
@@ -257,7 +265,44 @@ Run `chibby doctor` to validate everything end-to-end:
 
 Non-zero exit code on any failure — wire it into CI before `chibby run --env production` to fail fast on a misconfigured deploy machine.
 
+## Desktop GUI
+
+Everything described above is also reachable from the desktop app. Open a project, switch to the **Environments** tab, and you get the same surface area as the CLI.
+
+### Bootstrap & Import bar
+
+A three-button toolbar at the top of the tab:
+
+| Button | Action |
+|--------|--------|
+| **Bootstrap** | Opens the wizard — runs `scan_bootstrap`, lists every detected name with its classification and source files, then applies in Safe (default) or Merge mode. |
+| **Import…** | Opens the importer modal for `.env`, Vercel, Railway, or Fly.io. The modal probes the vendor CLI first and reports presence/absence before you run. |
+| **Export .env** | Opens a save dialog; writes the resolved variables and secret values for the chosen environment to a flat `.env` file. |
+
+The Bootstrap wizard also runs automatically right after **Add Project** when `bootstrap_mode = "confirm"` (the default). Set the mode from Settings → About.
+
+### Environments card
+
+The editor has three modes:
+
+| Mode | What it edits |
+|------|---------------|
+| **Committed** | `.chibby/environments.toml` — the file that ships with the repo |
+| **Local overrides** | `.chibby/environments.local.toml` — per-developer file (auto-gitignored on save) |
+| **Layered (read-only)** | The merged view that a run with `--env <name>` actually sees |
+
+A red **Leak warning banner** appears above the editor whenever `scan_environments_for_leaks` finds token-shaped strings inside `environments.toml`. Each hit lists env, variable, rule name, and a redacted preview. The scan re-runs on every save.
+
+### Secrets card
+
+Per-environment Set / Delete with one addition: a **clock icon** on every row opens the **Secret audit modal** with the same data CLI's `chibby audit show` displays — `last_set`, `last_deleted`, `set_count`, `delete_count`, and `last_provenance`.
+
+### Bootstrap mode in Settings
+
+Settings → About has a **Bootstrap mode (new projects)** selector that maps directly to the values described in [App setting: `bootstrap_mode`](#app-setting-bootstrap_mode). `confirm` / `silent` / `off`.
+
 ## See also
 
 - [CLI reference](cli-commands.md) — full subcommand list with examples
 - [Templates](templates.md) — using secret refs in built-in deploy templates
+- [User guide — Environments tab](../guides/user-guide.md#environments-tab) — step-by-step walkthroughs of the GUI

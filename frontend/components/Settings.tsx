@@ -1,5 +1,17 @@
 import { useEffect, useState } from 'react';
-import { Key, Bell, Archive, Info, Eye, EyeOff, Check, Bot } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import {
+  Key,
+  Bell,
+  Archive,
+  Info,
+  Eye,
+  EyeOff,
+  Check,
+  Bot,
+  AlertTriangle,
+  FolderOpen,
+} from 'lucide-react';
 import {
   loadAppSettings,
   saveAppSettings,
@@ -11,7 +23,8 @@ import {
   getAgentStatus,
   rebuildAgent,
 } from '../services/api';
-import type { AppSettings, AgentSystemStatus } from '../types';
+import { openPath } from '../services/openExternal';
+import type { AppSettings, AgentSystemStatus, BootstrapMode } from '../types';
 
 /** Flip to `true` once AI integration is ready. */
 const SHOW_AGENT_SETTINGS = false;
@@ -41,10 +54,6 @@ function Settings() {
   const [appVersion, setAppVersion] = useState('');
   const [dataDir, setDataDir] = useState('');
 
-  useEffect(() => {
-    loadAll();
-  }, []);
-
   async function loadAll() {
     try {
       setLoading(true);
@@ -73,6 +82,11 @@ function Settings() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadAll();
+  }, []);
 
   async function handleSaveSettings() {
     if (!settings) return;
@@ -312,6 +326,32 @@ function Settings() {
         <div className="settings-info-row">
           <span className="settings-info-label">Data directory</span>
           <span className="settings-info-value mono">{dataDir}</span>
+          <button
+            className="btn btn-xs btn-ghost"
+            onClick={() => dataDir && openPath(dataDir)}
+            disabled={!dataDir}
+            title="Open in Finder"
+          >
+            <FolderOpen size={12} />
+          </button>
+        </div>
+        <div className="settings-info-row">
+          <span className="settings-info-label">Bootstrap mode (new projects)</span>
+          <select
+            className="input input-sm"
+            value={settings?.bootstrap_mode ?? 'confirm'}
+            onChange={(e) => updateSetting('bootstrap_mode', e.target.value as BootstrapMode)}
+            style={{ maxWidth: 160 }}
+          >
+            <option value="confirm">Confirm</option>
+            <option value="silent">Silent</option>
+            <option value="off">Off</option>
+          </select>
+        </div>
+        <div className="settings-info-row">
+          <Link to="/crashes" className="btn btn-xs btn-ghost">
+            <AlertTriangle size={12} /> View crash log
+          </Link>
         </div>
       </section>
     </div>

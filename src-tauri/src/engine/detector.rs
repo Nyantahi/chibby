@@ -1048,9 +1048,61 @@ pub fn generate_draft_pipeline(
         stages.push(local_stage("build", vec!["echo 'Add your build commands here'"]));
     }
 
+    // ── Security gates ────────────────────────────────────────────
+    // Append one stage per enabled gate when .chibby/gates.toml exists.
+    // Stages call back into the chibby CLI so allowlists / thresholds /
+    // baselines defined in gates.toml are respected at run time.
+    append_security_gate_stages(repo_path, &mut stages);
+
     Pipeline {
         name: format!("{} Pipeline", repo_name),
         stages,
+    }
+}
+
+/// Append a `security-*` stage per enabled gate when `.chibby/gates.toml`
+/// exists. Off-mode gates are skipped. Runs `chibby scan <gate>` (which loads
+/// the same gates.toml the GUI's Quality tab uses).
+fn append_security_gate_stages(repo_path: &Path, stages: &mut Vec<Stage>) {
+    use crate::engine::gates;
+    use crate::engine::models::GateMode;
+
+    let gates_path = repo_path.join(".chibby").join("gates.toml");
+    if !gates_path.exists() {
+        return;
+    }
+    let config = match gates::load_gates_config(repo_path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let push = |stages: &mut Vec<Stage>, name: &str, sub: &str| {
+        stages.push(local_stage(
+            &format!("security-{}", name),
+            vec![&format!("chibby scan {}", sub)],
+        ));
+    };
+
+    if config.secret_scanning != GateMode::Off {
+        push(stages, "secrets", "secrets");
+    }
+    if config.dependency_scanning != GateMode::Off {
+        push(stages, "deps", "deps");
+    }
+    if config.sast != GateMode::Off {
+        push(stages, "sast", "sast");
+    }
+    if config.container_scan != GateMode::Off {
+        push(stages, "container", "container");
+    }
+    if config.iac_scan != GateMode::Off {
+        push(stages, "iac", "iac");
+    }
+    if config.license_check != GateMode::Off {
+        push(stages, "license", "license");
+    }
+    if config.commit_lint != GateMode::Off {
+        push(stages, "commit-lint", "commits");
     }
 }
 
