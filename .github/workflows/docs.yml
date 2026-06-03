@@ -1,0 +1,31 @@
+name: Docs
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - '**/*.md'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - '**/*.md'
+      - '.github/workflows/docs.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  link-check:
+    name: Docs link check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check doc links resolve
+        uses: lycheeverse/lychee-action@v2
+        with:
+          # Offline: verify local file + image links resolve; skip external
+          # URLs to keep the check deterministic (no network flakiness).
+          args: --offline --no-progress --verbose 'README.md' 'docs/**/*.md'
+          fail: true

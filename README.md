@@ -119,7 +119,7 @@ backend = "ssh"
 fail_fast = true
 ```
 
-See [examples/](examples/) for pipelines covering Node.js, Rust, Django, Docker
+See [examples/](docs/examples/) for pipelines covering Node.js, Rust, Django, Docker
 Compose, Tauri desktop apps, and static sites.
 
 ## Tech Stack

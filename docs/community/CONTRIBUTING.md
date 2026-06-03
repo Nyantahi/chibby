@@ -54,6 +54,10 @@ npm run test:run       # Vitest
 cd src-tauri && cargo test  # Rust tests
 ```
 
+> CI also runs a docs link check (lychee, offline) on any markdown change — a
+> broken relative link or image reference in `README.md` or `docs/**` will fail
+> the build. Keep doc cross-links pointing at real files.
+
 1. Commit with a descriptive message (we use [Conventional Commits](https://www.conventionalcommits.org/))
 2. Open a pull request against `main`
 

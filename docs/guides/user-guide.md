@@ -1219,9 +1219,9 @@ Projects, run history, and settings are accessible from both interfaces.
 
 ### Getting Help
 
-- Check the [README](../README.md) for setup instructions
-- Review [pipeline examples](../../docs/phase-0-audit.md) for common patterns
-- See the [changelog](../../CHANGELOG.md) for feature history
+- Check the [README](../../README.md) for setup instructions
+- Review [pipeline examples](../examples/) for common patterns
+- See the [changelog](../community/CHANGELOG.md) for feature history
 
 ### Reset Chibby Data
 
@@ -1260,4 +1260,4 @@ Pipeline configurations remain in each project's `.chibby/` folder.
 
 ## What's Next
 
-See the [changelog](../../CHANGELOG.md) for completed features and recent changes.
+See the [changelog](../community/CHANGELOG.md) for completed features and recent changes.

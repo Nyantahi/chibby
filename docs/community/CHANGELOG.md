@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Docs link check CI** — new `.github/workflows/docs.yml` runs lychee in offline mode on every markdown change. It verifies every relative link and image reference across `README.md` + `docs/**` resolves to a real file and fails the build otherwise. Offline mode skips external URLs, so the check stays deterministic (no network flakiness / false failures).
+
+### Fixed
+
+- **Project Detail header & tabs overlapped the sidebar on narrow windows** — neither the header action row (pipeline/target selectors + Run/Delete buttons) nor the tab strip (Pipeline / History / Environments / Release / Quality) could shrink, so once the window narrowed they overflowed `.page-main` and the right-hand sidebar painted over the "CI" selector and the Release/Quality tabs. The header actions now wrap, and the tab strip scrolls horizontally instead of overflowing.
+- **CI workflow never triggered** — `.github/workflows/ci.yml` assumed a nested `chibby/` subdirectory (`paths: 'chibby/**'`, `working-directory: chibby`, `chibby/`-prefixed action inputs) that no longer matches the repo layout — the repo root *is* `chibby/`. The path filter never matched, so the lint / test / build jobs were silently skipped. Stripped the `chibby/` prefix throughout to match the root-path convention already used by `security.yml`.
+- **Broken documentation links** — fixed five dangling relative links surfaced by the new link check: `README.md`'s examples link (`examples/` → `docs/examples/`), and four in `docs/guides/user-guide.md` (`../README.md` → `../../README.md`, a stale link into the gitignored `private/audits/` redirected to `../examples/`, and two changelog links → `../community/CHANGELOG.md`).
+
 ## [0.1.36] - 2026-05-21
 
 ### Added — Security gates (Phase 2 of the gates epic)
