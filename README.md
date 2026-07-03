@@ -1,6 +1,6 @@
 # Chibby
 
-Local-first, open-source CI/CD and deployment tool for solo developers and tiny teams.
+Local-first, open-source CI/CD and deployment tool for solo developers and small teams.
 
 ## Overview
 
