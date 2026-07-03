@@ -80,7 +80,16 @@ function RunDetail() {
   }
 
   function setupLogListener() {
-    return listen<{ stage: string; type: string; message: string }>('pipeline:log', (event) => {
+    const repoPath = run?.repo_path;
+    return listen<{
+      run_id: string;
+      repo_path: string;
+      stage: string;
+      type: string;
+      message: string;
+    }>('pipeline:log', (event) => {
+      // Only react to this project's run — other projects may run concurrently.
+      if (repoPath && event.payload.repo_path !== repoPath) return;
       const { stage, type: logType, message } = event.payload;
 
       if (logType === 'info' && message.startsWith('--- Starting stage:')) {

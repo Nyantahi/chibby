@@ -3,7 +3,9 @@ import { Outlet, NavLink } from 'react-router-dom';
 import { FolderGit2, PlusCircle, Settings, Layers } from 'lucide-react';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { getAppVersion } from '../services/api';
+import { initRunStore } from '../services/runStore';
 import Toaster from './Toaster';
+import RunningRunsBadge from './RunningRunsBadge';
 
 function ChibbyLogo({ size = 22 }: { size?: number }) {
   return (
@@ -29,6 +31,8 @@ function Layout() {
   const [version, setVersion] = useState<string>('');
 
   useEffect(() => {
+    // Register the single global pipeline:log listener that feeds the run store.
+    initRunStore();
     getAppVersion()
       .then(setVersion)
       .catch(() => setVersion('unknown'));
@@ -56,6 +60,8 @@ function Layout() {
             <span>Templates</span>
           </NavLink>
         </nav>
+
+        <RunningRunsBadge />
 
         <div className="sidebar-footer">
           <NavLink to="/settings" className="nav-link">

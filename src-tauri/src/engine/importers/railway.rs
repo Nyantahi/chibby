@@ -27,8 +27,7 @@ impl Importer for RailwayImporter {
 
     fn run(&self, ctx: &ImportContext) -> Result<ImportReport> {
         self.detect_cli()?;
-        let stdout =
-            super::vercel::run_cli("railway", &["variables", "--json"], &ctx.repo_path)?;
+        let stdout = super::vercel::run_cli("railway", &["variables", "--json"], &ctx.repo_path)?;
         let raw: serde_json::Value =
             serde_json::from_str(&stdout).context("Failed to parse `railway variables --json`")?;
 

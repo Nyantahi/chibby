@@ -12,8 +12,7 @@ pub fn save_signing_config(repo_path: &Path, config: &SigningConfig) -> Result<(
     let chibby_dir = repo_path.join(".chibby");
     std::fs::create_dir_all(&chibby_dir)?;
 
-    let toml_str = toml::to_string_pretty(config)
-        .context("Failed to serialize signing config")?;
+    let toml_str = toml::to_string_pretty(config).context("Failed to serialize signing config")?;
 
     let file_path = chibby_dir.join("signing.toml");
     std::fs::write(&file_path, &toml_str)
@@ -54,10 +53,7 @@ pub fn detect_platform() -> SigningPlatform {
 }
 
 /// Sign an artifact using the appropriate platform tool.
-pub fn sign_artifact(
-    artifact_path: &Path,
-    config: &SigningConfig,
-) -> Result<SigningResult> {
+pub fn sign_artifact(artifact_path: &Path, config: &SigningConfig) -> Result<SigningResult> {
     if !config.enabled {
         return Ok(SigningResult {
             success: true,
@@ -87,8 +83,10 @@ fn sign_macos(artifact_path: &Path, config: &SigningConfig) -> Result<SigningRes
     let output = Command::new("codesign")
         .args([
             "--force",
-            "--options", "runtime",
-            "--sign", identity,
+            "--options",
+            "runtime",
+            "--sign",
+            identity,
             &artifact_path.display().to_string(),
         ])
         .output()
@@ -150,7 +148,9 @@ fn notarize_macos(artifact_path: &Path, config: &SigningConfig) -> Result<()> {
         let zip_path = artifact_path.with_extension("zip");
         let output = Command::new("ditto")
             .args([
-                "-c", "-k", "--keepParent",
+                "-c",
+                "-k",
+                "--keepParent",
                 &artifact_path.display().to_string(),
                 &zip_path.display().to_string(),
             ])
@@ -199,10 +199,14 @@ fn sign_windows(artifact_path: &Path, config: &SigningConfig) -> Result<SigningR
     let output = Command::new("signtool")
         .args([
             "sign",
-            "/f", cert_path,
-            "/fd", "SHA256",
-            "/tr", "http://timestamp.digicert.com",
-            "/td", "SHA256",
+            "/f",
+            cert_path,
+            "/fd",
+            "SHA256",
+            "/tr",
+            "http://timestamp.digicert.com",
+            "/td",
+            "SHA256",
             &artifact_path.display().to_string(),
         ])
         .output()
@@ -239,7 +243,8 @@ fn sign_linux(artifact_path: &Path, config: &SigningConfig) -> Result<SigningRes
         .args([
             "--detach-sign",
             "--armor",
-            "--local-user", key_id,
+            "--local-user",
+            key_id,
             &artifact_path.display().to_string(),
         ])
         .output()
@@ -261,10 +266,7 @@ fn sign_linux(artifact_path: &Path, config: &SigningConfig) -> Result<SigningRes
         platform: SigningPlatform::Linux,
         artifact_path: artifact_path.display().to_string(),
         notarized: false,
-        message: format!(
-            "GPG signed — signature at {}.asc",
-            artifact_path.display()
-        ),
+        message: format!("GPG signed — signature at {}.asc", artifact_path.display()),
     })
 }
 

@@ -14,8 +14,8 @@ pub fn save_notify_config(repo_path: &Path, config: &NotifyConfig) -> Result<()>
     let chibby_dir = repo_path.join(".chibby");
     std::fs::create_dir_all(&chibby_dir)?;
 
-    let toml_str = toml::to_string_pretty(config)
-        .context("Failed to serialize notification config")?;
+    let toml_str =
+        toml::to_string_pretty(config).context("Failed to serialize notification config")?;
 
     let file_path = chibby_dir.join("notify.toml");
     std::fs::write(&file_path, &toml_str)?;
@@ -202,12 +202,12 @@ async fn send_webhook(url: &str, payload: &NotifyPayload) -> Result<()> {
         _ => "🔄",
     };
 
-    let mut text = format!(
-        "{status_emoji} *{}* {}",
-        payload.project, payload.message
-    );
+    let mut text = format!("{status_emoji} *{}* {}", payload.project, payload.message);
     if let Some(ref version) = payload.version {
-        text = format!("{status_emoji} *{}* v{version} — {}", payload.project, payload.message);
+        text = format!(
+            "{status_emoji} *{}* v{version} — {}",
+            payload.project, payload.message
+        );
     }
     if let Some(ref env) = payload.environment {
         text.push_str(&format!(" (env: {env})"));

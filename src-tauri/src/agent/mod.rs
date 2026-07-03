@@ -172,7 +172,10 @@ impl ChibbyAgent {
             None => "Analyze the current project state.".to_string(),
         };
 
-        let response = self.provider.complete(&system_prompt, &user_message).await?;
+        let response = self
+            .provider
+            .complete(&system_prompt, &user_message)
+            .await?;
         Ok(parse_analysis_response(&response, skill))
     }
 
@@ -216,7 +219,10 @@ impl ChibbyAgent {
             format, project_path, project_info
         );
 
-        let response = self.provider.complete(&system_prompt, &user_message).await?;
+        let response = self
+            .provider
+            .complete(&system_prompt, &user_message)
+            .await?;
         let (content, explanation) = parse_generated_pipeline(&response);
 
         let file_path = match format {
@@ -300,14 +306,11 @@ fn extract_findings(response: &str) -> Vec<Finding> {
                 .to_string();
 
             // Look for a suggested command in backticks
-            let suggested_command = detail
-                .lines()
-                .find(|l| l.contains('`'))
-                .and_then(|l| {
-                    let start = l.find('`')? + 1;
-                    let end = l[start..].find('`')? + start;
-                    Some(l[start..end].to_string())
-                });
+            let suggested_command = detail.lines().find(|l| l.contains('`')).and_then(|l| {
+                let start = l.find('`')? + 1;
+                let end = l[start..].find('`')? + start;
+                Some(l[start..end].to_string())
+            });
 
             findings.push(Finding {
                 severity: sev,
@@ -352,7 +355,9 @@ fn extract_actions(response: &str) -> Vec<String> {
                 continue;
             }
             let action = trimmed
-                .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == '-' || c == '*' || c == ' ')
+                .trim_start_matches(|c: char| {
+                    c.is_ascii_digit() || c == '.' || c == '-' || c == '*' || c == ' '
+                })
                 .trim()
                 .to_string();
             if !action.is_empty() {

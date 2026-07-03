@@ -34,10 +34,14 @@ impl Importer for FlyImporter {
 
     fn run(&self, ctx: &ImportContext) -> Result<ImportReport> {
         self.detect_cli()?;
-        let bin = if cli_present("flyctl") { "flyctl" } else { "fly" };
+        let bin = if cli_present("flyctl") {
+            "flyctl"
+        } else {
+            "fly"
+        };
         let stdout = super::vercel::run_cli(bin, &["secrets", "list", "--json"], &ctx.repo_path)?;
-        let raw: Vec<FlySecret> =
-            serde_json::from_str(&stdout).context("Failed to parse `flyctl secrets list --json`")?;
+        let raw: Vec<FlySecret> = serde_json::from_str(&stdout)
+            .context("Failed to parse `flyctl secrets list --json`")?;
 
         // Fly's `secrets list` is names-only by design (digests, not values).
         // Ignore `include_values` and never emit values for this source.

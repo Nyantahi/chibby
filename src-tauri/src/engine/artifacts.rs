@@ -13,8 +13,7 @@ pub fn save_artifact_config(repo_path: &Path, config: &ArtifactConfig) -> Result
     let chibby_dir = repo_path.join(".chibby");
     std::fs::create_dir_all(&chibby_dir)?;
 
-    let toml_str = toml::to_string_pretty(config)
-        .context("Failed to serialize artifact config")?;
+    let toml_str = toml::to_string_pretty(config).context("Failed to serialize artifact config")?;
 
     let file_path = chibby_dir.join("artifacts.toml");
     std::fs::write(&file_path, &toml_str)?;
@@ -50,28 +49,25 @@ pub fn collect_artifacts(
     version: &str,
 ) -> Result<ArtifactManifest> {
     let output_dir = repo_path.join(&config.output_dir).join(version);
-    std::fs::create_dir_all(&output_dir)
-        .with_context(|| format!("Failed to create artifact directory {}", output_dir.display()))?;
+    std::fs::create_dir_all(&output_dir).with_context(|| {
+        format!(
+            "Failed to create artifact directory {}",
+            output_dir.display()
+        )
+    })?;
 
     let mut artifacts = Vec::new();
 
     for pattern in &config.patterns {
         let full_pattern = repo_path.join(pattern);
-        let pattern_str = full_pattern
-            .to_str()
-            .context("Invalid pattern path")?;
+        let pattern_str = full_pattern.to_str().context("Invalid pattern path")?;
 
-        let matches = glob::glob(pattern_str)
-            .with_context(|| format!("Invalid glob pattern: {pattern}"))?;
+        let matches =
+            glob::glob(pattern_str).with_context(|| format!("Invalid glob pattern: {pattern}"))?;
 
         for entry in matches.flatten() {
             if entry.is_file() {
-                let artifact = collect_single_artifact(
-                    &entry,
-                    &output_dir,
-                    project_name,
-                    version,
-                )?;
+                let artifact = collect_single_artifact(&entry, &output_dir, project_name, version)?;
                 artifacts.push(artifact);
             }
         }
@@ -92,8 +88,8 @@ pub fn collect_artifacts(
 
     // Write the manifest
     let manifest_path = output_dir.join("manifest.json");
-    let manifest_json = serde_json::to_string_pretty(&manifest)
-        .context("Failed to serialize artifact manifest")?;
+    let manifest_json =
+        serde_json::to_string_pretty(&manifest).context("Failed to serialize artifact manifest")?;
     std::fs::write(&manifest_path, &manifest_json)?;
 
     // Also write checksums file
@@ -124,8 +120,13 @@ fn collect_single_artifact(
     let dest_path = output_dir.join(&canonical_name);
 
     // Copy the file
-    std::fs::copy(source_path, &dest_path)
-        .with_context(|| format!("Failed to copy {} to {}", source_path.display(), dest_path.display()))?;
+    std::fs::copy(source_path, &dest_path).with_context(|| {
+        format!(
+            "Failed to copy {} to {}",
+            source_path.display(),
+            dest_path.display()
+        )
+    })?;
 
     // Compute SHA256
     let sha256 = compute_sha256(&dest_path)?;
@@ -177,8 +178,8 @@ fn current_arch() -> &'static str {
 
 /// Compute SHA256 checksum of a file.
 pub fn compute_sha256(path: &Path) -> Result<String> {
-    let bytes = std::fs::read(path)
-        .with_context(|| format!("Failed to read {}", path.display()))?;
+    let bytes =
+        std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))?;
 
     let mut hasher = Sha256::new();
     hasher.update(&bytes);
@@ -190,7 +191,10 @@ pub fn compute_sha256(path: &Path) -> Result<String> {
 fn write_checksums_file(output_dir: &Path, manifest: &ArtifactManifest) -> Result<()> {
     let mut content = String::new();
     for artifact in &manifest.artifacts {
-        content.push_str(&format!("{}  {}\n", artifact.sha256, artifact.canonical_name));
+        content.push_str(&format!(
+            "{}  {}\n",
+            artifact.sha256, artifact.canonical_name
+        ));
     }
     let path = output_dir.join("SHA256SUMS");
     std::fs::write(&path, &content)?;
@@ -202,7 +206,10 @@ fn write_checksums_file(output_dir: &Path, manifest: &ArtifactManifest) -> Resul
 // ---------------------------------------------------------------------------
 
 /// List all artifact manifests for a project.
-pub fn list_artifact_manifests(repo_path: &Path, config: &ArtifactConfig) -> Result<Vec<ArtifactManifest>> {
+pub fn list_artifact_manifests(
+    repo_path: &Path,
+    config: &ArtifactConfig,
+) -> Result<Vec<ArtifactManifest>> {
     let artifacts_dir = repo_path.join(&config.output_dir);
     if !artifacts_dir.exists() {
         return Ok(Vec::new());
@@ -242,7 +249,8 @@ pub fn get_artifact_dirs_sorted(repo_path: &Path, config: &ArtifactConfig) -> Re
 
     for entry in std::fs::read_dir(&artifacts_dir)?.flatten() {
         if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
-            let modified = entry.metadata()
+            let modified = entry
+                .metadata()
                 .and_then(|m| m.modified())
                 .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
             dirs.push((entry.path(), modified));

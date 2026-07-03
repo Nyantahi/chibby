@@ -17,10 +17,7 @@ pub fn get_templates(repo_path: Option<String>) -> Result<Vec<PipelineTemplate>,
 
 /// Get a single template by name.
 #[tauri::command]
-pub fn get_template(
-    name: String,
-    repo_path: Option<String>,
-) -> Result<PipelineTemplate, String> {
+pub fn get_template(name: String, repo_path: Option<String>) -> Result<PipelineTemplate, String> {
     let rp = repo_path.as_deref().map(Path::new);
     templates::get_template_by_name(&name, rp)
         .ok_or_else(|| format!("Template '{}' not found", name))
@@ -70,7 +67,10 @@ pub fn save_custom_template(
                 .ok_or("repo_path required for project-scoped templates")?;
             templates::save_repo_template(Path::new(rp), &template)
         }
-        _ => Err(format!("Invalid scope '{}', expected 'user' or 'project'", scope)),
+        _ => Err(format!(
+            "Invalid scope '{}', expected 'user' or 'project'",
+            scope
+        )),
     }
 }
 
@@ -89,7 +89,10 @@ pub fn delete_custom_template(
                 .ok_or("repo_path required for project-scoped templates")?;
             templates::delete_repo_template(Path::new(rp), &name)
         }
-        _ => Err(format!("Invalid scope '{}', expected 'user' or 'project'", scope)),
+        _ => Err(format!(
+            "Invalid scope '{}', expected 'user' or 'project'",
+            scope
+        )),
     }
 }
 
@@ -99,10 +102,7 @@ pub fn delete_custom_template(
 
 /// Export a template as a TOML string for sharing.
 #[tauri::command]
-pub fn export_template(
-    name: String,
-    repo_path: Option<String>,
-) -> Result<String, String> {
+pub fn export_template(name: String, repo_path: Option<String>) -> Result<String, String> {
     let rp = repo_path.as_deref().map(Path::new);
     templates::export_template(&name, rp)
 }
@@ -117,7 +117,12 @@ pub fn import_template(
     let source = match scope.as_str() {
         "user" => TemplateSource::User,
         "project" => TemplateSource::Project,
-        _ => return Err(format!("Invalid scope '{}', expected 'user' or 'project'", scope)),
+        _ => {
+            return Err(format!(
+                "Invalid scope '{}', expected 'user' or 'project'",
+                scope
+            ))
+        }
     };
     let template = templates::import_template(&toml_content, source)?;
 

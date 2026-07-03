@@ -5,12 +5,15 @@ use crate::state::SharedPipelineState;
 use std::future::Future;
 use std::path::Path;
 use tauri::{AppHandle, Emitter, State};
+use uuid::Uuid;
 
-fn build_log_callback(app: AppHandle) -> executor::LogCallback {
+fn build_log_callback(app: AppHandle, run_id: String, repo_path: String) -> executor::LogCallback {
     Box::new(move |stage: &str, log_type: &str, msg: &str| {
         let _ = app.emit(
             "pipeline:log",
             serde_json::json!({
+                "run_id": run_id,
+                "repo_path": repo_path,
                 "stage": stage,
                 "type": log_type,
                 "message": msg,
@@ -67,6 +70,8 @@ pub async fn run_pipeline(
 ) -> Result<PipelineRun, String> {
     let path = Path::new(&repo_path);
     let cancel_state = (*pipeline_state).clone();
+    let run_id = Uuid::new_v4().to_string();
+    let log_repo_path = repo_path.clone();
     let run = with_pipeline_tracking(cancel_state.clone(), &repo_path, async move {
         let p = run_support::load_selected_pipeline(path, pipeline_file.as_deref())
             .map_err(|e| e.to_string())?;
@@ -79,10 +84,11 @@ pub async fn run_pipeline(
             path,
             env_ref.as_ref(),
             env_vars,
-            Some(build_log_callback(app)),
+            Some(build_log_callback(app, run_id.clone(), log_repo_path)),
             stages.as_deref(),
             Some(cancel_state.clone()),
             Some(build_stage_callback()),
+            &run_id,
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -185,6 +191,8 @@ pub async fn retry_run(
     let retry_number = existing_retries + 1;
 
     let cancel_state = (*pipeline_state).clone();
+    let new_run_id = Uuid::new_v4().to_string();
+    let log_repo_path = repo_path.clone();
     let mut run = with_pipeline_tracking(cancel_state.clone(), &repo_path, async move {
         let (env_ref, env_vars) =
             run_support::resolve_execution_context(path, original.environment.as_deref())
@@ -195,10 +203,11 @@ pub async fn retry_run(
             path,
             env_ref.as_ref(),
             env_vars,
-            Some(build_log_callback(app)),
+            Some(build_log_callback(app, new_run_id.clone(), log_repo_path)),
             Some(&stages_to_run),
             Some(cancel_state.clone()),
             Some(build_stage_callback()),
+            &new_run_id,
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -248,6 +257,8 @@ pub async fn rollback_to_run(
     let p = run_support::pipeline_snapshot_for_run(&target).map_err(|e| e.to_string())?;
 
     let cancel_state = (*pipeline_state).clone();
+    let new_run_id = Uuid::new_v4().to_string();
+    let log_repo_path = repo_path.clone();
     let mut run = with_pipeline_tracking(cancel_state.clone(), &repo_path, async move {
         let (env_ref, env_vars) =
             run_support::resolve_execution_context(path, target.environment.as_deref())
@@ -258,10 +269,11 @@ pub async fn rollback_to_run(
             path,
             env_ref.as_ref(),
             env_vars,
-            Some(build_log_callback(app)),
+            Some(build_log_callback(app, new_run_id.clone(), log_repo_path)),
             None,
             Some(cancel_state.clone()),
             Some(build_stage_callback()),
+            &new_run_id,
         )
         .await
         .map_err(|e| e.to_string())?;

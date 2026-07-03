@@ -76,11 +76,8 @@ impl Importer for VercelImporter {
         )?;
         let parsed: VercelEnvList = serde_json::from_str(&stdout)
             .with_context(|| "Failed to parse `vercel env ls --json` output")?;
-        let mut map: BTreeMap<String, Option<String>> = parsed
-            .envs
-            .into_iter()
-            .map(|e| (e.key, None))
-            .collect();
+        let mut map: BTreeMap<String, Option<String>> =
+            parsed.envs.into_iter().map(|e| (e.key, None)).collect();
 
         // Values via `vercel env pull` if requested
         if ctx.include_values {

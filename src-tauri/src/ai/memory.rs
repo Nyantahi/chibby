@@ -105,9 +105,16 @@ impl MemoryStore {
         // Sanitize project_id for filesystem safety
         let safe_id: String = project_id
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
-        self.base_dir.join(format!("projects/{}/memory.json", safe_id))
+        self.base_dir
+            .join(format!("projects/{}/memory.json", safe_id))
     }
 }
 
@@ -183,8 +190,7 @@ fn save_memories_to_file(path: &Path, memories: &[MemoryEntry]) -> Result<()> {
             .with_context(|| format!("Failed to create memory directory: {}", parent.display()))?;
     }
 
-    let content = serde_json::to_string_pretty(memories)
-        .context("Failed to serialize memories")?;
+    let content = serde_json::to_string_pretty(memories).context("Failed to serialize memories")?;
 
     std::fs::write(path, content)
         .with_context(|| format!("Failed to write memory file: {}", path.display()))?;

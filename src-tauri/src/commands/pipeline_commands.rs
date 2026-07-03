@@ -1,5 +1,7 @@
 use crate::engine::detector;
-use crate::engine::models::{Pipeline, PipelineValidation, ProjectRecommendations, Stage, DeploymentMethod, DeploymentConfig};
+use crate::engine::models::{
+    DeploymentConfig, DeploymentMethod, Pipeline, PipelineValidation, ProjectRecommendations, Stage,
+};
 use crate::engine::pipeline;
 use crate::engine::recommendations;
 use serde::Serialize;
@@ -62,7 +64,9 @@ pub fn generate_pipeline(repo_path: String, repo_name: String) -> Result<Pipelin
 
     // For fullstack Docker projects, also generate and save a deploy pipeline
     if detector::is_fullstack_docker_project(path) {
-        if let Some(deploy_pipeline) = detector::generate_deploy_pipeline(&repo_name, &scripts, path) {
+        if let Some(deploy_pipeline) =
+            detector::generate_deploy_pipeline(&repo_name, &scripts, path)
+        {
             // Save the deploy pipeline to deploy.toml
             if let Err(e) = pipeline::save_pipeline_by_name(path, "deploy", &deploy_pipeline) {
                 log::warn!("Failed to save deploy pipeline: {}", e);
@@ -231,7 +235,9 @@ pub fn generate_pipeline_with_deploy(
     // Generate and save deploy pipeline if requested
     if let Some(ref config) = deploy_config {
         if config.method != DeploymentMethod::Skip {
-            if let Some(deploy_pipeline) = detector::generate_deployment_pipeline(&repo_name, config, path) {
+            if let Some(deploy_pipeline) =
+                detector::generate_deployment_pipeline(&repo_name, config, path)
+            {
                 if let Err(e) = pipeline::save_pipeline_by_name(path, "deploy", &deploy_pipeline) {
                     log::warn!("Failed to save deploy pipeline: {}", e);
                 }
@@ -249,7 +255,9 @@ pub fn generate_pipeline_with_deploy(
     } else {
         // For fullstack Docker projects, auto-generate deploy pipeline if no config provided
         if detector::is_fullstack_docker_project(path) {
-            if let Some(deploy_pipeline) = detector::generate_deploy_pipeline(&repo_name, &scripts, path) {
+            if let Some(deploy_pipeline) =
+                detector::generate_deploy_pipeline(&repo_name, &scripts, path)
+            {
                 if let Err(e) = pipeline::save_pipeline_by_name(path, "deploy", &deploy_pipeline) {
                     log::warn!("Failed to save deploy pipeline: {}", e);
                 }

@@ -445,12 +445,7 @@ fn env_name_from_compose_filename(fname: &str) -> Option<String> {
 
 // --- Directory walker ---
 
-fn visit_dir(
-    root: &Path,
-    current: &Path,
-    depth: usize,
-    on_file: &mut dyn FnMut(&Path),
-) {
+fn visit_dir(root: &Path, current: &Path, depth: usize, on_file: &mut dyn FnMut(&Path)) {
     if depth > MAX_DEPTH {
         return;
     }
@@ -847,7 +842,11 @@ let _ = env::var_os("XDG_CONFIG_HOME");
         assert!(wrote);
 
         let envs = pipeline::load_environments(temp.path()).unwrap();
-        let prod = envs.environments.iter().find(|e| e.name == "production").unwrap();
+        let prod = envs
+            .environments
+            .iter()
+            .find(|e| e.name == "production")
+            .unwrap();
         // EXISTING_VAR preserved, NEW_VAR added with empty default
         assert_eq!(prod.variables.get("EXISTING_VAR").unwrap(), "value");
         assert!(prod.variables.contains_key("NEW_VAR"));

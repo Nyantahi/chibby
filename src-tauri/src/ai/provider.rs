@@ -33,7 +33,8 @@ impl RateLimiter {
     fn try_acquire(&mut self) -> Result<()> {
         let now = std::time::Instant::now();
         // Remove timestamps outside the window
-        self.call_times.retain(|t| now.duration_since(*t) < self.window);
+        self.call_times
+            .retain(|t| now.duration_since(*t) < self.window);
         if self.call_times.len() >= self.max_calls as usize {
             anyhow::bail!(
                 "Rate limit exceeded: max {} AI API calls per {} seconds. Please wait before trying again.",

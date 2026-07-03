@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-03
+
+### Added — Concurrent multi-project runs
+
+- **Run pipelines for multiple projects at the same time** — starting a run is now fire-and-forget: you can kick off another project's pipeline, or navigate away, while the first keeps running. Backend execution was already isolated per repo; the blocker was a single-run frontend, now removed.
+- **Per-run live state via a run store** — new `frontend/services/runStore.ts` (a lightweight module store consumed via `useSyncExternalStore`) holds each project's live stage/command status and log tail, keyed by repo path, and survives route navigation. A single global `pipeline:log` listener feeds it.
+- **Tagged log events** — `pipeline:log` now carries `run_id` + `repo_path`, so concurrent runs are demultiplexed to the right project instead of interleaving into one stream.
+- **At-a-glance running status** — the Projects list shows a live **"Running"** status (replacing the stale last-run summary) with a spinner while a pipeline is in flight, plus a sidebar list of every in-progress run. Each card settles back to Success / Failed / Cancelled on completion.
+- **Same-project double-run guard** — the Run button is disabled while that project is already running. Cross-project concurrency is unaffected.
+
+### Changed
+
+- **Atomic `projects.json` writes** — the per-project run-summary update now serializes its read-modify-write behind a process lock (`persistence::mutate_projects`), so simultaneous run completions can no longer clobber each other's `last_run_status`.
+
+### Added
+
+- **Docs link check CI** — new `.github/workflows/docs.yml` runs lychee in offline mode on every markdown change. It verifies every relative link and image reference across `README.md` + `docs/**` resolves to a real file and fails the build otherwise. Offline mode skips external URLs, so the check stays deterministic (no network flakiness / false failures).
+
+### Fixed
+
+- **Project Detail header & tabs overlapped the sidebar on narrow windows** — neither the header action row (pipeline/target selectors + Run/Delete buttons) nor the tab strip (Pipeline / History / Environments / Release / Quality) could shrink, so once the window narrowed they overflowed `.page-main` and the right-hand sidebar painted over the "CI" selector and the Release/Quality tabs. The header actions now wrap, and the tab strip scrolls horizontally instead of overflowing.
+- **CI workflow never triggered** — `.github/workflows/ci.yml` assumed a nested `chibby/` subdirectory (`paths: 'chibby/**'`, `working-directory: chibby`, `chibby/`-prefixed action inputs) that no longer matches the repo layout — the repo root *is* `chibby/`. The path filter never matched, so the lint / test / build jobs were silently skipped. Stripped the `chibby/` prefix throughout to match the root-path convention already used by `security.yml`.
+- **Broken documentation links** — fixed five dangling relative links surfaced by the new link check: `README.md`'s examples link (`examples/` → `docs/examples/`), and four in `docs/guides/user-guide.md` (`../README.md` → `../../README.md`, a stale link into the gitignored `private/audits/` redirected to `../examples/`, and two changelog links → `../community/CHANGELOG.md`).
+
 ## [0.1.36] - 2026-05-21
 
 ### Added — Security gates (Phase 2 of the gates epic)

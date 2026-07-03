@@ -53,12 +53,8 @@ fn check_code_signing_identity() {
             Ok(result) if result.status.success() => {
                 let stdout = String::from_utf8_lossy(&result.stdout);
                 if stdout.contains("0 valid identities found") {
-                    common::warn(
-                        "No code signing identities found. The app will be unsigned.",
-                    );
-                    common::warn(
-                        "For distribution, you'll need an Apple Developer certificate.",
-                    );
+                    common::warn("No code signing identities found. The app will be unsigned.");
+                    common::warn("For distribution, you'll need an Apple Developer certificate.");
                 }
             }
             _ => {

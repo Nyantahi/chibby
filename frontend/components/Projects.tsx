@@ -1,7 +1,8 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { FolderGit2, CircleCheck, CircleX, Circle } from 'lucide-react';
+import { FolderGit2, CircleCheck, CircleX, Circle, Loader2 } from 'lucide-react';
 import { listProjects, getAllRuns } from '../services/api';
+import { useActiveRuns } from '../services/runStore';
 import { formatDate, statusClass, capitalize } from '../utils/format';
 import type { ProjectInfo, PipelineRun } from '../types';
 
@@ -20,6 +21,12 @@ function Projects() {
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const activeRuns = useActiveRuns();
+  const runningPaths = useMemo(
+    () => new Set(activeRuns.filter((r) => r.status === 'running').map((r) => r.repoPath)),
+    [activeRuns]
+  );
 
   async function loadData() {
     try {
@@ -132,35 +139,39 @@ function Projects() {
         </div>
       ) : (
         <div className="project-grid">
-          {projects.map(({ project, has_pipeline }) => (
-            <Link key={project.id} to={`/project/${project.id}`} className="project-card">
-              <div className="project-card-header">
-                <FolderGit2 size={18} />
-                <h3 className="project-name">{project.name}</h3>
-              </div>
-              <p className="project-path">{project.path}</p>
-              <div className="project-card-footer">
-                <span className={`badge badge-${has_pipeline ? 'success' : 'neutral'}`}>
-                  {has_pipeline ? 'Pipeline configured' : 'No pipeline'}
-                </span>
-                {project.last_run_status && (
-                  <div className="project-last-run">
-                    <span className="project-run-status">
-                      {statusIcon(project.last_run_status)}
-                      <span
-                        className={`status-text status-${statusClass(project.last_run_status)}`}
-                      >
-                        {capitalize(project.last_run_status)}
+          {projects.map(({ project, has_pipeline }) => {
+            const isRunning = runningPaths.has(project.path);
+            // While running, show live "Running" instead of the stale last-run summary.
+            const displayStatus = isRunning ? 'running' : project.last_run_status;
+            return (
+              <Link key={project.id} to={`/project/${project.id}`} className="project-card">
+                <div className="project-card-header">
+                  <FolderGit2 size={18} />
+                  <h3 className="project-name">{project.name}</h3>
+                  {isRunning && <Loader2 size={14} className="spin status-running" />}
+                </div>
+                <p className="project-path">{project.path}</p>
+                <div className="project-card-footer">
+                  <span className={`badge badge-${has_pipeline ? 'success' : 'neutral'}`}>
+                    {has_pipeline ? 'Pipeline configured' : 'No pipeline'}
+                  </span>
+                  {displayStatus && (
+                    <div className="project-last-run">
+                      <span className="project-run-status">
+                        {statusIcon(displayStatus)}
+                        <span className={`status-text status-${statusClass(displayStatus)}`}>
+                          {isRunning ? 'Running' : capitalize(displayStatus)}
+                        </span>
                       </span>
-                    </span>
-                    {project.last_run_at && (
-                      <span className="run-date">{formatDate(project.last_run_at)}</span>
-                    )}
-                  </div>
-                )}
-              </div>
-            </Link>
-          ))}
+                      {!isRunning && project.last_run_at && (
+                        <span className="run-date">{formatDate(project.last_run_at)}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </Link>
+            );
+          })}
         </div>
       )}
     </div>
