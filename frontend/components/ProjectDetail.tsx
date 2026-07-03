@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Play,
@@ -40,7 +40,6 @@ import {
   loadPipeline,
   listPipelines,
   loadPipelineByName,
-  runPipeline,
   cancelPipeline,
   getRunHistory,
   removeProject,
@@ -55,7 +54,6 @@ import {
   getRecommendations,
   getLastSuccessfulRun,
   clearRunHistory,
-  isPipelineRunning,
 } from '../services/api';
 import { formatDate, formatDuration, statusClass, capitalize } from '../utils/format';
 import type {
@@ -89,14 +87,13 @@ import CleanupCard from './CleanupCard';
 import DeploymentHistoryCard from './DeploymentHistoryCard';
 import { openPath } from '../services/openExternal';
 import { getAppDataDir } from '../services/api';
-import { listen } from '@tauri-apps/api/event';
+import { useActiveRun, startRun, isRepoRunning, clearRun } from '../services/runStore';
+import type { StageStatus, CmdStatus } from '../services/runStore';
 
-/** Strip ANSI escape sequences from a string. */
-// eslint-disable-next-line no-control-regex
-const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]|\x1b\].*?\x07/g;
-function stripAnsi(text: string): string {
-  return text.replace(ANSI_RE, '');
-}
+// Stable empty references so store-less renders don't churn identity each pass.
+const EMPTY_STAGE_STATUSES: Record<string, StageStatus> = {};
+const EMPTY_CMD_STATUSES: Record<string, CmdStatus> = {};
+const EMPTY_LIVE_OUTPUT: Record<string, string[]> = {};
 
 type TabId = 'pipeline' | 'history' | 'environments' | 'release' | 'quality';
 
@@ -113,7 +110,6 @@ function ProjectDetail() {
   const [pipelineNames, setPipelineNames] = useState<string[]>([]);
   const [selectedPipeline, setSelectedPipeline] = useState<string>('pipeline');
   const [runs, setRuns] = useState<PipelineRun[]>([]);
-  const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Environment & secrets state
@@ -161,15 +157,13 @@ function ProjectDetail() {
     return { label: `${executed.length} of ${total} stages`, isPartial: true };
   }
 
-  // Stage execution tracking
-  type StageStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped';
-  const [stageStatuses, setStageStatuses] = useState<Record<string, StageStatus>>({});
-  const [runningStageName, setRunningStageName] = useState<string | null>(null);
-
-  // Per-command status tracking: "stageName:cmdIndex" -> status
-  type CmdStatus = 'pending' | 'running' | 'done' | 'failed';
-  const [cmdStatuses, setCmdStatuses] = useState<Record<string, CmdStatus>>({});
-  const cmdStatusRef = useRef<Record<string, CmdStatus>>({});
+  // Live run state comes from the global run store (survives navigation and
+  // supports concurrent runs of different projects). See services/runStore.ts.
+  const activeRun = useActiveRun(project?.project.path);
+  const running = activeRun?.status === 'running';
+  const stageStatuses = activeRun?.stageStatuses ?? EMPTY_STAGE_STATUSES;
+  const cmdStatuses = activeRun?.cmdStatuses ?? EMPTY_CMD_STATUSES;
+  const liveOutput = activeRun?.liveOutput ?? EMPTY_LIVE_OUTPUT;
 
   // Collapsible sections
   const [showEnvSection, setShowEnvSection] = useState(true);
@@ -184,10 +178,6 @@ function ProjectDetail() {
 
   // Selected stage result for inline viewing
   const [selectedStageResult, setSelectedStageResult] = useState<StageResult | null>(null);
-
-  // Live output lines for running stages (last 5 lines)
-  const [liveOutput, setLiveOutput] = useState<Record<string, string[]>>({});
-  const liveOutputRef = useRef<Record<string, string[]>>({});
 
   useEffect(() => {
     loadData();
@@ -248,25 +238,6 @@ function ProjectDetail() {
           .then((recs) => setRecommendations(recs))
           .catch(() => setRecommendations(null))
           .finally(() => setLoadingRecommendations(false));
-
-        // Check if a pipeline is already running (e.g. retry from RunDetail)
-        isPipelineRunning(p.project.path)
-          .then((isRunning) => {
-            if (isRunning && !running) {
-              setRunning(true);
-              // Poll until the pipeline finishes
-              const interval = setInterval(async () => {
-                const stillRunning = await isPipelineRunning(p.project.path).catch(() => false);
-                if (!stillRunning) {
-                  clearInterval(interval);
-                  setRunning(false);
-                  // Refresh data to show new run results
-                  loadData();
-                }
-              }, 2000);
-            }
-          })
-          .catch(() => {});
       }
     } catch (err) {
       setError(String(err));
@@ -277,12 +248,8 @@ function ProjectDetail() {
     if (!project) return;
     try {
       setSelectedPipeline(name);
-      setStageStatuses({});
-      setCmdStatuses({});
-      cmdStatusRef.current = {};
+      if (!running) clearRun(project.project.path);
       setSelectedStageResult(null);
-      setLiveOutput({});
-      liveOutputRef.current = {};
       const pl =
         name === 'pipeline'
           ? await loadPipeline(project.project.path)
@@ -300,168 +267,38 @@ function ProjectDetail() {
     }
   }
 
-  async function handleRun(stages?: string[]) {
+  function handleRun(stages?: string[]) {
     if (!project || !pipeline) return;
-    try {
-      setRunning(true);
-      setError(null);
-      setPreflightResult(null);
-      setSelectedStageResult(null);
-      setLiveOutput({});
-      liveOutputRef.current = {};
+    // Guard: don't start a second concurrent run for the same project.
+    if (isRepoRunning(project.project.path)) return;
 
-      // Initialize stage statuses
-      const stagesToRun = stages ?? pipeline.stages.map((s) => s.name);
-      const initialStatuses: Record<string, StageStatus> = {};
-      pipeline.stages.forEach((s) => {
-        if (stagesToRun.includes(s.name)) {
-          initialStatuses[s.name] = 'pending';
-        }
-      });
-      setStageStatuses(initialStatuses);
+    setError(null);
+    setPreflightResult(null);
+    setSelectedStageResult(null);
 
-      // Initialize per-command statuses
-      const initialCmds: Record<string, CmdStatus> = {};
-      pipeline.stages.forEach((s) => {
-        if (stagesToRun.includes(s.name)) {
-          s.commands.forEach((_, ci) => {
-            initialCmds[`${s.name}:${ci}`] = 'pending';
-          });
-        }
-      });
-      setCmdStatuses(initialCmds);
-      cmdStatusRef.current = { ...initialCmds };
-
-      // Track which command index we're on per stage
-      const stageCmdIdx: Record<string, number> = {};
-
-      // Listen for real-time pipeline log events
-      const unlisten = await listen<{ stage: string; type: string; message: string }>(
-        'pipeline:log',
-        (event) => {
-          const { stage, type: logType, message } = event.payload;
-
-          if (logType === 'info' && message.startsWith('--- Starting stage:')) {
-            // Stage is starting
-            setRunningStageName(stage);
-            setStageStatuses((prev) => {
-              const updated = { ...prev, [stage]: 'running' as StageStatus };
-              // Mark previous running stages as success (they completed if we moved on)
-              // and finalize their command statuses
-              for (const key of Object.keys(updated)) {
-                if (key !== stage && updated[key] === 'running') {
-                  updated[key] = 'success';
-                  // Mark all commands for the completed stage as done
-                  const completedStage = pipeline?.stages.find((s) => s.name === key);
-                  if (completedStage) {
-                    completedStage.commands.forEach((_, ci) => {
-                      const cmdKey = `${key}:${ci}`;
-                      if (
-                        cmdStatusRef.current[cmdKey] === 'running' ||
-                        cmdStatusRef.current[cmdKey] === 'pending'
-                      ) {
-                        cmdStatusRef.current[cmdKey] = 'done';
-                      }
-                    });
-                    setCmdStatuses({ ...cmdStatusRef.current });
-                  }
-                }
-              }
-              return updated;
-            });
-            stageCmdIdx[stage] = 0;
-          } else if (logType === 'cmd') {
-            // A command is about to run — mark it as running
-            const idx = stageCmdIdx[stage] ?? 0;
-            const key = `${stage}:${idx}`;
-
-            // Mark previous command as done if there was one
-            if (idx > 0) {
-              const prevKey = `${stage}:${idx - 1}`;
-              cmdStatusRef.current[prevKey] = 'done';
-            }
-            cmdStatusRef.current[key] = 'running';
-            setCmdStatuses({ ...cmdStatusRef.current });
-
-            stageCmdIdx[stage] = idx + 1;
-          } else if (logType === 'error') {
-            // Command failed
-            const idx = (stageCmdIdx[stage] ?? 1) - 1;
-            const key = `${stage}:${idx}`;
-            cmdStatusRef.current[key] = 'failed';
-            setCmdStatuses({ ...cmdStatusRef.current });
-          } else if (logType === 'stdout' || logType === 'stderr') {
-            // Capture live output lines (keep last MAX_LIVE_LINES), strip ANSI
-            const clean = stripAnsi(message);
-            const currentLines = liveOutputRef.current[stage] || [];
-            const newLines = [...currentLines, clean].slice(-50);
-            liveOutputRef.current[stage] = newLines;
-            setLiveOutput({ ...liveOutputRef.current });
-          }
-        }
-      );
-
-      // Run the pipeline
-      await runPipeline(
-        project.project.path,
-        selectedEnv || undefined,
-        stages,
-        selectedPipeline !== 'pipeline' ? selectedPipeline : undefined
-      );
-
-      // Clean up listener
-      unlisten();
-
-      // After completion, fetch results and update statuses
-      const history = await getRunHistory(project.project.path);
-      setRuns(history);
-
-      // Get latest run to check stage results and finalize command statuses
-      if (history.length > 0) {
-        const latestRun = history[0];
-        const finalStatuses: Record<string, StageStatus> = {};
-        const finalCmds = { ...cmdStatusRef.current };
-        latestRun.stage_results?.forEach((result) => {
-          finalStatuses[result.stage_name] = result.status as StageStatus;
-          // Finalize command statuses for this stage
-          const stageObj = pipeline.stages.find((s) => s.name === result.stage_name);
-          if (stageObj) {
-            stageObj.commands.forEach((_, ci) => {
-              const key = `${result.stage_name}:${ci}`;
-              if (result.status === 'success') {
-                finalCmds[key] = 'done';
-              } else if (result.status === 'skipped') {
-                finalCmds[key] = 'pending';
-              }
-              // 'failed' commands keep their status from the event stream
-            });
-          }
-        });
-        setStageStatuses(finalStatuses);
-        setCmdStatuses(finalCmds);
-        cmdStatusRef.current = finalCmds;
-
-        // Auto-expand the failed stage so the user can immediately see what went wrong
-        const failedResult = latestRun.stage_results?.find((r) => r.status === 'failed');
-        if (failedResult) {
-          setSelectedStageResult(failedResult);
-        }
-      }
-
-      setRunningStageName(null);
-      await loadData();
-    } catch (err) {
-      setError(String(err));
-      // Mark currently running stage as failed
-      if (runningStageName) {
-        setStageStatuses((prev) => ({ ...prev, [runningStageName]: 'failed' }));
-      }
-      setRunningStageName(null);
-    } finally {
-      setRunning(false);
-      // Keep stage statuses visible - they'll be cleared on next run or regenerate
-    }
+    // Fire-and-forget: the run store owns live progress and keeps running even
+    // if we navigate away. Completion is reconciled via the effect below.
+    startRun({
+      repoPath: project.project.path,
+      pipeline,
+      projectId: project.project.id,
+      projectName: project.project.name,
+      environment: selectedEnv || undefined,
+      stages,
+      pipelineFile: selectedPipeline !== 'pipeline' ? selectedPipeline : undefined,
+    });
   }
+
+  // When the active run finishes, refresh history and surface any failed stage.
+  const finishedRunId = activeRun?.finishedRun?.id;
+  useEffect(() => {
+    if (!finishedRunId) return;
+    const failed = activeRun?.finishedRun?.stage_results?.find((r) => r.status === 'failed');
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (failed) setSelectedStageResult(failed);
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finishedRunId]);
 
   function handleBannerRetry(fromStage?: string) {
     if (!pipeline) return;
@@ -517,9 +354,7 @@ function ProjectDetail() {
     try {
       setError(null);
       // Clear pipeline run statuses when regenerating
-      setStageStatuses({});
-      setCmdStatuses({});
-      cmdStatusRef.current = {};
+      if (!running) clearRun(project.project.path);
       setSelectedStageResult(null);
       const newPipeline = await generatePipeline(project.project.path, project.project.name);
       await savePipeline(project.project.path, newPipeline);

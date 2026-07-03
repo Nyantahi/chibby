@@ -86,13 +86,15 @@ pub fn stages_to_run_from_stage(pipeline: &Pipeline, retry_stage: &str) -> Resul
 pub fn persist_completed_run(run: &PipelineRun) -> Result<()> {
     persistence::save_run(run)?;
 
-    if let Ok(mut projects) = persistence::load_projects() {
+    // Best-effort summary update: the run is already saved, so a projects.json
+    // hiccup must never fail a completed run. The atomic helper serializes the
+    // read-modify-write against concurrent completions.
+    let _ = persistence::mutate_projects(|projects| {
         if let Some(proj) = projects.iter_mut().find(|p| p.path == run.repo_path) {
             proj.last_run_at = Some(run.started_at);
             proj.last_run_status = Some(run.status.clone());
-            persistence::save_projects(&projects)?;
         }
-    }
+    });
 
     Ok(())
 }

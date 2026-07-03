@@ -179,6 +179,58 @@ a:hover {
   color: var(--color-text-dim);
 }
 
+/* Running-runs surface (concurrent pipelines) */
+.running-runs {
+  padding: var(--space-sm) var(--space-md);
+  margin: 0 var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.running-runs-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-xs);
+}
+
+.running-runs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.running-runs-link {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-2xs) var(--space-xs);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.running-runs-link:hover {
+  background: var(--color-surface-hover);
+  text-decoration: none;
+}
+
+.running-runs-name {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+
+.running-runs-stage {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-dim);
+}
+
 /* Main content */
 .main-content {
   flex: 1;

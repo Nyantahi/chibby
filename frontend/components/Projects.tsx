@@ -1,7 +1,8 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { FolderGit2, CircleCheck, CircleX, Circle } from 'lucide-react';
+import { FolderGit2, CircleCheck, CircleX, Circle, Loader2 } from 'lucide-react';
 import { listProjects, getAllRuns } from '../services/api';
+import { useActiveRuns } from '../services/runStore';
 import { formatDate, statusClass, capitalize } from '../utils/format';
 import type { ProjectInfo, PipelineRun } from '../types';
 
@@ -20,6 +21,12 @@ function Projects() {
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const activeRuns = useActiveRuns();
+  const runningPaths = useMemo(
+    () => new Set(activeRuns.filter((r) => r.status === 'running').map((r) => r.repoPath)),
+    [activeRuns]
+  );
 
   async function loadData() {
     try {
@@ -137,6 +144,9 @@ function Projects() {
               <div className="project-card-header">
                 <FolderGit2 size={18} />
                 <h3 className="project-name">{project.name}</h3>
+                {runningPaths.has(project.path) && (
+                  <Loader2 size={14} className="spin status-running" />
+                )}
               </div>
               <p className="project-path">{project.path}</p>
               <div className="project-card-footer">

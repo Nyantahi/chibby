@@ -1,6 +1,12 @@
 use crate::engine::models::{DeploymentRecord, PipelineRun, Project, RunStatus};
 use anyhow::{Context, Result};
 use std::path::PathBuf;
+use std::sync::Mutex;
+
+/// Process-wide lock serializing read-modify-write of `projects.json`.
+/// Concurrent run completions (and add/remove) must not clobber each other's
+/// updates to the shared index.
+static PROJECTS_LOCK: Mutex<()> = Mutex::new(());
 
 /// Get the Chibby application data directory.
 ///
@@ -69,22 +75,33 @@ pub fn save_projects(projects: &[Project]) -> Result<()> {
     Ok(())
 }
 
+/// Atomically load, mutate, and persist the projects list under the
+/// process-wide lock, so concurrent callers can't lose each other's updates.
+pub fn mutate_projects<F, R>(f: F) -> Result<R>
+where
+    F: FnOnce(&mut Vec<Project>) -> R,
+{
+    let _guard = PROJECTS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut projects = load_projects()?;
+    let result = f(&mut projects);
+    save_projects(&projects)?;
+    Ok(result)
+}
+
 /// Add a project to the index.
 pub fn add_project(project: Project) -> Result<()> {
-    let mut projects = load_projects()?;
-    // Avoid duplicates by path.
-    if projects.iter().any(|p| p.path == project.path) {
-        return Ok(());
-    }
-    projects.push(project);
-    save_projects(&projects)
+    mutate_projects(move |projects| {
+        // Avoid duplicates by path.
+        if projects.iter().any(|p| p.path == project.path) {
+            return;
+        }
+        projects.push(project);
+    })
 }
 
 /// Remove a project by id.
 pub fn remove_project(id: &str) -> Result<()> {
-    let mut projects = load_projects()?;
-    projects.retain(|p| p.id != id);
-    save_projects(&projects)
+    mutate_projects(|projects| projects.retain(|p| p.id != id))
 }
 
 // ---------------------------------------------------------------------------
@@ -127,7 +144,10 @@ pub fn load_runs() -> Result<Vec<PipelineRun>> {
 /// Load runs for a specific project path.
 pub fn load_runs_for_project(repo_path: &str) -> Result<Vec<PipelineRun>> {
     let all = load_runs()?;
-    Ok(all.into_iter().filter(|r| r.repo_path == repo_path).collect())
+    Ok(all
+        .into_iter()
+        .filter(|r| r.repo_path == repo_path)
+        .collect())
 }
 
 /// Load a single run by ID.
@@ -172,22 +192,17 @@ pub fn last_successful_run(
     environment: Option<&str>,
 ) -> Result<Option<PipelineRun>> {
     let runs = load_runs_for_project(repo_path)?;
-    Ok(runs
-        .into_iter()
-        .find(|r| {
-            r.status == RunStatus::Success
-                && match environment {
-                    Some(env) => r.environment.as_deref() == Some(env),
-                    None => true,
-                }
-        }))
+    Ok(runs.into_iter().find(|r| {
+        r.status == RunStatus::Success
+            && match environment {
+                Some(env) => r.environment.as_deref() == Some(env),
+                None => true,
+            }
+    }))
 }
 
 /// Get deployment history for a project filtered by environment, newest first.
-pub fn deployment_history(
-    repo_path: &str,
-    environment: &str,
-) -> Result<Vec<DeploymentRecord>> {
+pub fn deployment_history(repo_path: &str, environment: &str) -> Result<Vec<DeploymentRecord>> {
     let runs = load_runs_for_project(repo_path)?;
     Ok(runs
         .into_iter()
@@ -244,7 +259,8 @@ pub fn recover_interrupted_runs() -> Result<u32> {
                         );
                         log::info!(
                             "Recovered interrupted run {}: crashed during stage '{}'",
-                            run.id, stage.stage_name
+                            run.id,
+                            stage.stage_name
                         );
                     }
                 }

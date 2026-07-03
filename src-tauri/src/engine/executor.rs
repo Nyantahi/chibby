@@ -30,9 +30,15 @@ pub async fn run_pipeline(
     stage_filter: Option<&[String]>,
     cancel_state: Option<SharedPipelineState>,
     on_stage_complete: Option<StageCallback>,
+    run_id: &str,
 ) -> Result<PipelineRun> {
     let env_name = environment.map(|e| e.name.clone());
-    let mut run = PipelineRun::new(&pipeline.name, &repo_path.to_string_lossy(), env_name);
+    let mut run = PipelineRun::new_with_id(
+        run_id,
+        &pipeline.name,
+        &repo_path.to_string_lossy(),
+        env_name,
+    );
     run.status = RunStatus::Running;
     let mut had_failures = false;
 
@@ -151,7 +157,8 @@ pub async fn run_pipeline(
                         Err(e) => {
                             log::error!(
                                 "[executor] stage='{}' failed to spawn command: {}",
-                                stage.name, e
+                                stage.name,
+                                e
                             );
                             if let Some(ref cb) = on_log {
                                 cb(&stage.name, "error", &format!("Failed to spawn: {}", e));
@@ -168,7 +175,8 @@ pub async fn run_pipeline(
                         Err(e) => {
                             log::error!(
                                 "[executor] stage='{}' SSH command error: {}",
-                                stage.name, e
+                                stage.name,
+                                e
                             );
                             if let Some(ref cb) = on_log {
                                 cb(&stage.name, "error", &format!("SSH error: {}", e));
@@ -323,14 +331,14 @@ pub async fn run_pipeline(
                 return Ok(run);
             }
 
-            log::info!("[executor] stage='{}' I/O complete, waiting for exit", stage.name);
+            log::info!(
+                "[executor] stage='{}' I/O complete, waiting for exit",
+                stage.name
+            );
             let output = match child.wait().await {
                 Ok(status) => status,
                 Err(e) => {
-                    log::error!(
-                        "[executor] stage='{}' wait() failed: {}",
-                        stage.name, e
-                    );
+                    log::error!("[executor] stage='{}' wait() failed: {}", stage.name, e);
                     if let Some(ref cb) = on_log {
                         cb(&stage.name, "error", &format!("Process wait failed: {}", e));
                     }
@@ -531,7 +539,10 @@ fn build_ssh_command(
 
     // Validate SSH host to prevent option injection (e.g. "-o ProxyCommand=...")
     if host.starts_with('-') || host.contains(' ') || host.contains('\n') {
-        anyhow::bail!("Invalid ssh_host value '{}': must not start with '-' or contain spaces", host);
+        anyhow::bail!(
+            "Invalid ssh_host value '{}': must not start with '-' or contain spaces",
+            host
+        );
     }
 
     // Build the remote command string with env exports and cd.
@@ -844,6 +855,7 @@ mod tests {
             None,
             None,
             None,
+            "test-run",
         )
         .await
         .unwrap();

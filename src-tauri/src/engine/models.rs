@@ -406,10 +406,28 @@ pub struct PipelineRun {
 }
 
 impl PipelineRun {
-    /// Create a new pending run.
+    /// Create a new pending run with a freshly generated id.
     pub fn new(pipeline_name: &str, repo_path: &str, environment: Option<String>) -> Self {
+        Self::new_with_id(
+            &Uuid::new_v4().to_string(),
+            pipeline_name,
+            repo_path,
+            environment,
+        )
+    }
+
+    /// Create a new pending run with a caller-supplied id.
+    ///
+    /// Lets the command layer know the run id up front so log events can be
+    /// tagged with it before execution starts.
+    pub fn new_with_id(
+        id: &str,
+        pipeline_name: &str,
+        repo_path: &str,
+        environment: Option<String>,
+    ) -> Self {
         Self {
-            id: Uuid::new_v4().to_string(),
+            id: id.to_string(),
             pipeline_name: pipeline_name.to_string(),
             repo_path: repo_path.to_string(),
             environment,
