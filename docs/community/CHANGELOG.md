@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-03
+
+### Added — Concurrent multi-project runs
+
+- **Run pipelines for multiple projects at the same time** — starting a run is now fire-and-forget: you can kick off another project's pipeline, or navigate away, while the first keeps running. Backend execution was already isolated per repo; the blocker was a single-run frontend, now removed.
+- **Per-run live state via a run store** — new `frontend/services/runStore.ts` (a lightweight module store consumed via `useSyncExternalStore`) holds each project's live stage/command status and log tail, keyed by repo path, and survives route navigation. A single global `pipeline:log` listener feeds it.
+- **Tagged log events** — `pipeline:log` now carries `run_id` + `repo_path`, so concurrent runs are demultiplexed to the right project instead of interleaving into one stream.
+- **At-a-glance running status** — the Projects list shows a live **"Running"** status (replacing the stale last-run summary) with a spinner while a pipeline is in flight, plus a sidebar list of every in-progress run. Each card settles back to Success / Failed / Cancelled on completion.
+- **Same-project double-run guard** — the Run button is disabled while that project is already running. Cross-project concurrency is unaffected.
+
+### Changed
+
+- **Atomic `projects.json` writes** — the per-project run-summary update now serializes its read-modify-write behind a process lock (`persistence::mutate_projects`), so simultaneous run completions can no longer clobber each other's `last_run_status`.
+
 ### Added
 
 - **Docs link check CI** — new `.github/workflows/docs.yml` runs lychee in offline mode on every markdown change. It verifies every relative link and image reference across `README.md` + `docs/**` resolves to a real file and fails the build otherwise. Offline mode skips external URLs, so the check stays deterministic (no network flakiness / false failures).

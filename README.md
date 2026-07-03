@@ -21,6 +21,7 @@ Chibby helps developers turn existing scripts into visual, repeatable pipelines 
 - **Pipeline Generation** — Auto-generate pipelines from detected commands (heuristic + LLM-assisted)
 - **Local Execution** — Run stages as local processes with live log streaming
 - **SSH Execution** — Deploy over SSH with direct commands or Docker Compose
+- **Concurrent multi-project runs** — Run pipelines for several projects at the same time; each run's live logs and stage/command progress are tracked independently, with a "Running" indicator on each project card and a sidebar list of in-progress runs
 - **Environments & Secrets** — Per-environment config, OS keychain values, per-developer `environments.local.toml` overrides, and a layered read-only view ([Env/Secrets docs](docs/features/env-secrets.md))
 - **Bootstrap wizard** — Scans `.env*`, `docker-compose*.yml`, `.github/workflows/`, and JS/Python/Rust source for env/secret references and writes populated `environments.toml` + `secrets.toml` in Safe or Merge mode
 - **Importers** — Pull names (and optionally values) from `.env` files, Vercel, Railway, and Fly.io; vendor CLI presence is auto-checked
