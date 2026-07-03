@@ -13,8 +13,7 @@ pub fn save_cleanup_config(repo_path: &Path, config: &CleanupConfig) -> Result<(
     let chibby_dir = repo_path.join(".chibby");
     std::fs::create_dir_all(&chibby_dir)?;
 
-    let toml_str = toml::to_string_pretty(config)
-        .context("Failed to serialize cleanup config")?;
+    let toml_str = toml::to_string_pretty(config).context("Failed to serialize cleanup config")?;
 
     let file_path = chibby_dir.join("cleanup.toml");
     std::fs::write(&file_path, &toml_str)?;
@@ -140,7 +139,9 @@ fn prune_artifacts(
         } else {
             std::fs::remove_dir_all(dir)
                 .with_context(|| format!("Failed to remove {}", dir.display()))?;
-            result.details.push(format!("Removed artifact version: {dir_name}"));
+            result
+                .details
+                .push(format!("Removed artifact version: {dir_name}"));
         }
 
         result.artifacts_removed += 1;
@@ -151,11 +152,7 @@ fn prune_artifacts(
 }
 
 /// Prune old run history entries beyond the retention limit.
-fn prune_run_history(
-    retention: u32,
-    dry_run: bool,
-    result: &mut CleanupResult,
-) -> Result<()> {
+fn prune_run_history(retention: u32, dry_run: bool, result: &mut CleanupResult) -> Result<()> {
     let runs = persistence::load_runs()?;
 
     if runs.len() <= retention as usize {
@@ -177,9 +174,7 @@ fn prune_run_history(
                 log::warn!("Failed to delete run {}: {e}", run.id);
                 continue;
             }
-            result
-                .details
-                .push(format!("Removed run: {}", run.id));
+            result.details.push(format!("Removed run: {}", run.id));
         }
 
         result.runs_removed += 1;

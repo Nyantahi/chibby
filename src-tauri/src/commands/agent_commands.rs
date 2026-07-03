@@ -3,10 +3,10 @@ use tauri::State;
 use tokio::sync::RwLock;
 
 use crate::agent::{
-    AgentAnalysis, AgentResponse, ChibbyAgent, GeneratedPipeline, PipelineFormat,
-    context::AnalysisContext,
+    context::AnalysisContext, AgentAnalysis, AgentResponse, ChibbyAgent, GeneratedPipeline,
+    PipelineFormat,
 };
-use crate::ai::identity_loader::{AgentIdentityRegistry, resolve_identity_path};
+use crate::ai::identity_loader::{resolve_identity_path, AgentIdentityRegistry};
 use crate::ai::memory::{self, MemoryEntry, MemoryStore};
 use crate::ai::provider;
 use crate::engine::{audit, persistence, pipeline};
@@ -157,7 +157,10 @@ pub async fn agent_chat(
         ));
     }
 
-    audit::log_event("agent_chat", &format!("project={:?} run={:?}", project_id, run_id));
+    audit::log_event(
+        "agent_chat",
+        &format!("project={:?} run={:?}", project_id, run_id),
+    );
 
     let mut agent_state = state.write().await;
     let is_first_run = agent_state.first_run;
@@ -258,8 +261,8 @@ pub fn save_generated_pipeline(
     let full_path = std::path::Path::new(&project_path).join(&file_path);
 
     // Ensure the resolved path is still within the project directory
-    let canonical_project = std::fs::canonicalize(&project_path)
-        .map_err(|e| format!("Invalid project path: {}", e))?;
+    let canonical_project =
+        std::fs::canonicalize(&project_path).map_err(|e| format!("Invalid project path: {}", e))?;
     // Create parent dirs first so canonicalize works on the target
     if let Some(parent) = full_path.parent() {
         std::fs::create_dir_all(parent)
@@ -267,7 +270,9 @@ pub fn save_generated_pipeline(
     }
     // For new files, check that the parent is within the project
     let canonical_parent = std::fs::canonicalize(
-        full_path.parent().unwrap_or(std::path::Path::new(&project_path)),
+        full_path
+            .parent()
+            .unwrap_or(std::path::Path::new(&project_path)),
     )
     .map_err(|e| format!("Failed to resolve path: {}", e))?;
     if !canonical_parent.starts_with(&canonical_project) {

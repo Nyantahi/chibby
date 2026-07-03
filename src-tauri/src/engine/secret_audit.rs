@@ -114,8 +114,7 @@ fn data_dir() -> Result<PathBuf> {
 /// Path to the per-project audit file. Creates parent directory on demand.
 fn audit_path(project_path: &str) -> Result<PathBuf> {
     let dir = data_dir()?.join("secret_audit");
-    std::fs::create_dir_all(&dir)
-        .with_context(|| format!("Failed to create {}", dir.display()))?;
+    std::fs::create_dir_all(&dir).with_context(|| format!("Failed to create {}", dir.display()))?;
     Ok(dir.join(format!("{}.json", project_hash(project_path))))
 }
 
@@ -154,12 +153,7 @@ fn save_for_project(project_path: &str, audit: &ProjectSecretAudit) -> Result<()
 }
 
 /// Record a `set` (or rotate) operation for a secret.
-pub fn record_set(
-    project_path: &str,
-    env: &str,
-    name: &str,
-    provenance: Provenance,
-) -> Result<()> {
+pub fn record_set(project_path: &str, env: &str, name: &str, provenance: Provenance) -> Result<()> {
     let mut audit = load_for_project(project_path)?;
     let entry = audit.entries.entry(entry_key(env, name)).or_default();
     entry.last_set = Some(Utc::now());
@@ -195,12 +189,7 @@ pub fn audit_filename_for_test(project_path: &str) -> String {
 }
 
 /// Best-effort recorder helpers — log warnings, never panic.
-pub fn record_set_quietly(
-    project_path: &str,
-    env: &str,
-    name: &str,
-    provenance: Provenance,
-) {
+pub fn record_set_quietly(project_path: &str, env: &str, name: &str, provenance: Provenance) {
     if let Err(e) = record_set(project_path, env, name, provenance) {
         log::warn!(
             "Failed to record secret-set audit for {}/{}: {}",
@@ -211,12 +200,7 @@ pub fn record_set_quietly(
     }
 }
 
-pub fn record_delete_quietly(
-    project_path: &str,
-    env: &str,
-    name: &str,
-    provenance: Provenance,
-) {
+pub fn record_delete_quietly(project_path: &str, env: &str, name: &str, provenance: Provenance) {
     if let Err(e) = record_delete(project_path, env, name, provenance) {
         log::warn!(
             "Failed to record secret-delete audit for {}/{}: {}",
@@ -262,7 +246,9 @@ mod tests {
     fn record_set_creates_entry_with_provenance() {
         with_data_dir(|| {
             record_set("/tmp/project_a", "production", "STRIPE", Provenance::Cli).unwrap();
-            let snap = get("/tmp/project_a", "production", "STRIPE").unwrap().unwrap();
+            let snap = get("/tmp/project_a", "production", "STRIPE")
+                .unwrap()
+                .unwrap();
             assert_eq!(snap.set_count, 1);
             assert!(snap.last_set.is_some());
             assert_eq!(snap.last_provenance.as_deref(), Some("cli"));

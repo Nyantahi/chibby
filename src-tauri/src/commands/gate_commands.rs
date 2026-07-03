@@ -1,8 +1,8 @@
+use crate::engine::gates;
 use crate::engine::models::{
     AuditResult, CommitLintResult, ContainerScanResult, GatesConfig, GatesResult, IacScanResult,
     LicenseCheckResult, SastResult, SecretScanResult,
 };
-use crate::engine::gates;
 use std::path::Path;
 use tokio::task;
 

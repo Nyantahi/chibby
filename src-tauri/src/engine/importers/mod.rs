@@ -150,12 +150,7 @@ pub fn apply_report(
                     } else {
                         String::new()
                     };
-                    pipeline::set_env_variable(
-                        repo_path,
-                        &report.env_name,
-                        &entry.name,
-                        &value,
-                    )?;
+                    pipeline::set_env_variable(repo_path, &report.env_name, &entry.name, &value)?;
                     out.variables_added += 1;
                     if !value.is_empty() {
                         out.variables_value_set += 1;
@@ -164,10 +159,7 @@ pub fn apply_report(
             }
             Classification::Secret => {
                 let secrets_config = pipeline::load_secrets_config(repo_path)?;
-                let already_declared = secrets_config
-                    .secrets
-                    .iter()
-                    .any(|s| s.name == entry.name);
+                let already_declared = secrets_config.secrets.iter().any(|s| s.name == entry.name);
                 if !already_declared {
                     pipeline::add_secret_ref(
                         repo_path,
@@ -391,8 +383,15 @@ mod tests {
         assert_eq!(out.variables_value_set, 1);
 
         let envs = pipeline::load_environments(temp.path()).unwrap();
-        let prod = envs.environments.iter().find(|e| e.name == "production").unwrap();
-        assert_eq!(prod.variables.get("API_URL").unwrap(), "https://api.example.com");
+        let prod = envs
+            .environments
+            .iter()
+            .find(|e| e.name == "production")
+            .unwrap();
+        assert_eq!(
+            prod.variables.get("API_URL").unwrap(),
+            "https://api.example.com"
+        );
     }
 
     #[test]
@@ -425,7 +424,11 @@ mod tests {
         let out = apply_report(&report, temp.path(), ApplyOptions::default()).unwrap();
         assert_eq!(out.variables_added, 0); // skipped — already present
         let envs = pipeline::load_environments(temp.path()).unwrap();
-        let prod = envs.environments.iter().find(|e| e.name == "production").unwrap();
+        let prod = envs
+            .environments
+            .iter()
+            .find(|e| e.name == "production")
+            .unwrap();
         assert_eq!(prod.variables.get("API_URL").unwrap(), "existing");
     }
 

@@ -91,22 +91,24 @@ pub fn run_gates(repo_path: &Path) -> Result<GatesResult> {
     };
 
     // Determine overall pass/fail based on gate modes
-    let passed = check_gate_passed(&config.secret_scanning, secret_scan.as_ref().map(|r| r.passed))
-        && check_gate_passed(
+    let passed =
+        check_gate_passed(
+            &config.secret_scanning,
+            secret_scan.as_ref().map(|r| r.passed),
+        ) && check_gate_passed(
             &config.dependency_scanning,
             dependency_audit.as_ref().map(|r| r.passed),
-        )
-        && check_gate_passed(&config.commit_lint, commit_lint.as_ref().map(|r| r.passed))
-        && check_gate_passed(&config.sast, sast.as_ref().map(|r| r.passed))
-        && check_gate_passed(
-            &config.container_scan,
-            container_scan.as_ref().map(|r| r.passed),
-        )
-        && check_gate_passed(&config.iac_scan, iac_scan.as_ref().map(|r| r.passed))
-        && check_gate_passed(
-            &config.license_check,
-            license_check.as_ref().map(|r| r.passed),
-        );
+        ) && check_gate_passed(&config.commit_lint, commit_lint.as_ref().map(|r| r.passed))
+            && check_gate_passed(&config.sast, sast.as_ref().map(|r| r.passed))
+            && check_gate_passed(
+                &config.container_scan,
+                container_scan.as_ref().map(|r| r.passed),
+            )
+            && check_gate_passed(&config.iac_scan, iac_scan.as_ref().map(|r| r.passed))
+            && check_gate_passed(
+                &config.license_check,
+                license_check.as_ref().map(|r| r.passed),
+            );
 
     Ok(GatesResult {
         passed,
@@ -136,14 +138,29 @@ fn check_gate_passed(mode: &GateMode, scan_passed: Option<bool>) -> bool {
 const SECRET_PATTERNS: &[(&str, &str)] = &[
     // AWS
     (r"(?i)AKIA[0-9A-Z]{16}", "aws-access-key-id"),
-    (r"(?i)aws[_\-]?secret[_\-]?access[_\-]?key\s*[=:]\s*[A-Za-z0-9/+=]{40}", "aws-secret-access-key"),
+    (
+        r"(?i)aws[_\-]?secret[_\-]?access[_\-]?key\s*[=:]\s*[A-Za-z0-9/+=]{40}",
+        "aws-secret-access-key",
+    ),
     // Generic API keys / tokens
-    (r#"(?i)(?:api[_\-]?key|apikey|api[_\-]?token)\s*[=:]\s*['"][A-Za-z0-9\-_.]{16,}['"]"#, "generic-api-key"),
-    (r#"(?i)(?:secret|token|password|passwd|pwd)\s*[=:]\s*['"][^\s'"]{8,}['"]"#, "generic-secret"),
+    (
+        r#"(?i)(?:api[_\-]?key|apikey|api[_\-]?token)\s*[=:]\s*['"][A-Za-z0-9\-_.]{16,}['"]"#,
+        "generic-api-key",
+    ),
+    (
+        r#"(?i)(?:secret|token|password|passwd|pwd)\s*[=:]\s*['"][^\s'"]{8,}['"]"#,
+        "generic-secret",
+    ),
     // Private keys
-    (r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----", "private-key"),
+    (
+        r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----",
+        "private-key",
+    ),
     // Database URLs with credentials
-    (r"(?i)(?:postgres|mysql|mongodb|redis)://[^:\s]+:[^@\s]+@", "database-url-with-credentials"),
+    (
+        r"(?i)(?:postgres|mysql|mongodb|redis)://[^:\s]+:[^@\s]+@",
+        "database-url-with-credentials",
+    ),
     // GitHub / GitLab tokens
     (r"(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,}", "github-token"),
     (r"glpat-[A-Za-z0-9\-_]{20,}", "gitlab-token"),
@@ -152,15 +169,27 @@ const SECRET_PATTERNS: &[(&str, &str)] = &[
     // Stripe
     (r"(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{24,}", "stripe-key"),
     // SendGrid
-    (r"SG\.[A-Za-z0-9\-_]{22}\.[A-Za-z0-9\-_]{43}", "sendgrid-api-key"),
+    (
+        r"SG\.[A-Za-z0-9\-_]{22}\.[A-Za-z0-9\-_]{43}",
+        "sendgrid-api-key",
+    ),
     // Twilio
     (r"SK[a-f0-9]{32}", "twilio-api-key"),
     // GCP
-    (r#"(?i)"type"\s*:\s*"service_account""#, "gcp-service-account"),
+    (
+        r#"(?i)"type"\s*:\s*"service_account""#,
+        "gcp-service-account",
+    ),
     // Azure
-    (r"(?i)(?:azure[_\-]?(?:storage|account)[_\-]?key)\s*[=:]\s*[A-Za-z0-9+/=]{44,}", "azure-storage-key"),
+    (
+        r"(?i)(?:azure[_\-]?(?:storage|account)[_\-]?key)\s*[=:]\s*[A-Za-z0-9+/=]{44,}",
+        "azure-storage-key",
+    ),
     // .env file values that look like secrets
-    (r"(?i)^[A-Z_]*(?:SECRET|TOKEN|PASSWORD|KEY|CREDENTIAL)[A-Z_]*\s*=\s*\S{8,}$", "env-secret-assignment"),
+    (
+        r"(?i)^[A-Z_]*(?:SECRET|TOKEN|PASSWORD|KEY|CREDENTIAL)[A-Z_]*\s*=\s*\S{8,}$",
+        "env-secret-assignment",
+    ),
 ];
 
 /// Default file patterns to exclude from secret scanning.
@@ -220,10 +249,7 @@ fn run_gitleaks(repo_path: &Path, config: &GatesConfig) -> Result<SecretScanResu
     // Custom config if present
     let custom_config = repo_path.join(".chibby").join("gitleaks.toml");
     if custom_config.exists() {
-        cmd.args([
-            "--config",
-            custom_config.to_str().unwrap_or_default(),
-        ]);
+        cmd.args(["--config", custom_config.to_str().unwrap_or_default()]);
     }
 
     cmd.current_dir(repo_path);
@@ -273,9 +299,10 @@ fn parse_gitleaks_json(json_str: &str, allowlist: &[String]) -> Vec<SecretFindin
             let preview = redact_secret(secret);
 
             // Check allowlist
-            if allowlist.iter().any(|pattern| {
-                file.contains(pattern) || rule == *pattern
-            }) {
+            if allowlist
+                .iter()
+                .any(|pattern| file.contains(pattern) || rule == *pattern)
+            {
                 return None;
             }
 
@@ -296,9 +323,7 @@ fn run_builtin_secret_scan(repo_path: &Path, config: &GatesConfig) -> Result<Sec
     // Compile patterns
     let compiled: Vec<(regex::Regex, &str)> = SECRET_PATTERNS
         .iter()
-        .filter_map(|(pattern, rule)| {
-            regex::Regex::new(pattern).ok().map(|re| (re, *rule))
-        })
+        .filter_map(|(pattern, rule)| regex::Regex::new(pattern).ok().map(|re| (re, *rule)))
         .collect();
 
     // Walk the repo
@@ -453,7 +478,9 @@ pub fn create_secret_scan_baseline(repo_path: &Path) -> Result<String> {
         cmd.args(["--report-path", baseline_path.to_str().unwrap_or_default()]);
         cmd.current_dir(repo_path);
 
-        let _ = cmd.output().context("Failed to run gitleaks for baseline")?;
+        let _ = cmd
+            .output()
+            .context("Failed to run gitleaks for baseline")?;
 
         log::info!("Created gitleaks baseline at {}", baseline_path.display());
         Ok(baseline_path.display().to_string())
@@ -473,11 +500,11 @@ pub fn run_dependency_audit(repo_path: &Path, config: &GatesConfig) -> Result<Au
     // Detect project type and run the appropriate scanner
     let has_cargo = repo_path.join("Cargo.toml").exists()
         || repo_path.join("src-tauri").join("Cargo.toml").exists();
-    let has_npm = repo_path.join("package-lock.json").exists()
-        || repo_path.join("package.json").exists();
+    let has_npm =
+        repo_path.join("package-lock.json").exists() || repo_path.join("package.json").exists();
     let has_pnpm = repo_path.join("pnpm-lock.yaml").exists();
-    let has_pip = repo_path.join("requirements.txt").exists()
-        || repo_path.join("pyproject.toml").exists();
+    let has_pip =
+        repo_path.join("requirements.txt").exists() || repo_path.join("pyproject.toml").exists();
     let has_go = repo_path.join("go.sum").exists();
 
     let mut all_findings = Vec::new();
@@ -506,11 +533,7 @@ pub fn run_dependency_audit(repo_path: &Path, config: &GatesConfig) -> Result<Au
             }
             Err(e) => {
                 log::warn!("{tool} audit unavailable: {e}");
-                scanners_missing.push(if has_pnpm {
-                    "pnpm audit"
-                } else {
-                    "npm audit"
-                });
+                scanners_missing.push(if has_pnpm { "pnpm audit" } else { "npm audit" });
             }
         }
     }
@@ -536,7 +559,9 @@ pub fn run_dependency_audit(repo_path: &Path, config: &GatesConfig) -> Result<Au
             }
             Err(e) => {
                 log::warn!("govulncheck unavailable: {e}");
-                scanners_missing.push("govulncheck (install: go install golang.org/x/vuln/cmd/govulncheck@latest)");
+                scanners_missing.push(
+                    "govulncheck (install: go install golang.org/x/vuln/cmd/govulncheck@latest)",
+                );
             }
         }
     }
@@ -676,11 +701,7 @@ fn parse_cargo_audit_json(json_str: &str) -> Result<Vec<AuditFinding>> {
 }
 
 /// Run `npm audit` or `pnpm audit` and parse results.
-fn run_npm_audit(
-    repo_path: &Path,
-    tool: &str,
-    _config: &GatesConfig,
-) -> Result<Vec<AuditFinding>> {
+fn run_npm_audit(repo_path: &Path, tool: &str, _config: &GatesConfig) -> Result<Vec<AuditFinding>> {
     if !command_exists(tool) {
         anyhow::bail!("{tool} not installed");
     }
@@ -826,8 +847,7 @@ fn parse_pip_audit_json(json_str: &str) -> Result<Vec<AuditFinding>> {
                     advisory_id,
                     severity: VulnSeverity::High,
                     description,
-                    upgrade_command: fixed
-                        .map(|v| format!("pip install {}=={}", package, v)),
+                    upgrade_command: fixed.map(|v| format!("pip install {}=={}", package, v)),
                 });
             }
         }
@@ -1019,10 +1039,7 @@ fn lint_commit_message(
 
     // Extract the type
     let type_re = regex::Regex::new(r"^([a-z]+)").ok()?;
-    let commit_type = type_re
-        .captures(subject)?
-        .get(1)?
-        .as_str();
+    let commit_type = type_re.captures(subject)?.get(1)?.as_str();
 
     // Check if type is allowed
     if !config.commit_types.iter().any(|t| t == commit_type) {
@@ -1579,10 +1596,7 @@ fn license_finding_reason(license: &str, denylist: &[String]) -> Option<String> 
     // Naive match — license fields are usually SPDX ids but sometimes compound
     // like "(MIT OR Apache-2.0)". Substring match is conservative.
     for forbidden in denylist {
-        if license
-            .to_lowercase()
-            .contains(&forbidden.to_lowercase())
-        {
+        if license.to_lowercase().contains(&forbidden.to_lowercase()) {
             return Some(format!("denylisted: {}", forbidden));
         }
     }

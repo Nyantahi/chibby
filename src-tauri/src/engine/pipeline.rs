@@ -7,11 +7,15 @@ use std::path::Path;
 /// Serialize a Pipeline to TOML and write it to .chibby/pipeline.toml.
 pub fn save_pipeline(repo_path: &Path, pipeline: &Pipeline) -> Result<()> {
     let chibby_dir = repo_path.join(".chibby");
-    std::fs::create_dir_all(&chibby_dir)
-        .with_context(|| format!("Failed to create .chibby directory in {}", repo_path.display()))?;
+    std::fs::create_dir_all(&chibby_dir).with_context(|| {
+        format!(
+            "Failed to create .chibby directory in {}",
+            repo_path.display()
+        )
+    })?;
 
-    let toml_str = toml::to_string_pretty(pipeline)
-        .context("Failed to serialize pipeline to TOML")?;
+    let toml_str =
+        toml::to_string_pretty(pipeline).context("Failed to serialize pipeline to TOML")?;
 
     let file_path = chibby_dir.join("pipeline.toml");
     std::fs::write(&file_path, &toml_str)
@@ -63,9 +67,13 @@ pub fn list_pipelines(repo_path: &Path) -> Vec<String> {
     }
     // Sort with "pipeline" first, then alphabetically
     names.sort_by(|a, b| {
-        if a == "pipeline" { std::cmp::Ordering::Less }
-        else if b == "pipeline" { std::cmp::Ordering::Greater }
-        else { a.cmp(b) }
+        if a == "pipeline" {
+            std::cmp::Ordering::Less
+        } else if b == "pipeline" {
+            std::cmp::Ordering::Greater
+        } else {
+            a.cmp(b)
+        }
     });
     names
 }
@@ -82,8 +90,13 @@ fn validate_pipeline_name(name: &str) -> Result<()> {
         anyhow::bail!("Pipeline name cannot start with '.' or '-'");
     }
     // Allow only alphanumeric, dash, underscore
-    if !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
-        anyhow::bail!("Pipeline name may only contain alphanumeric characters, dashes, and underscores");
+    if !name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
+        anyhow::bail!(
+            "Pipeline name may only contain alphanumeric characters, dashes, and underscores"
+        );
     }
     Ok(())
 }
@@ -103,10 +116,14 @@ pub fn load_pipeline_by_name(repo_path: &Path, name: &str) -> Result<Pipeline> {
 pub fn save_pipeline_by_name(repo_path: &Path, name: &str, pipeline: &Pipeline) -> Result<()> {
     validate_pipeline_name(name)?;
     let chibby_dir = repo_path.join(".chibby");
-    std::fs::create_dir_all(&chibby_dir)
-        .with_context(|| format!("Failed to create .chibby directory in {}", repo_path.display()))?;
-    let toml_str = toml::to_string_pretty(pipeline)
-        .context("Failed to serialize pipeline to TOML")?;
+    std::fs::create_dir_all(&chibby_dir).with_context(|| {
+        format!(
+            "Failed to create .chibby directory in {}",
+            repo_path.display()
+        )
+    })?;
+    let toml_str =
+        toml::to_string_pretty(pipeline).context("Failed to serialize pipeline to TOML")?;
     let file_path = chibby_dir.join(format!("{}.toml", name));
     std::fs::write(&file_path, &toml_str)
         .with_context(|| format!("Failed to write {}", file_path.display()))?;
@@ -121,11 +138,15 @@ pub fn save_pipeline_by_name(repo_path: &Path, name: &str, pipeline: &Pipeline) 
 /// Save environments config to .chibby/environments.toml.
 pub fn save_environments(repo_path: &Path, config: &EnvironmentsConfig) -> Result<()> {
     let chibby_dir = repo_path.join(".chibby");
-    std::fs::create_dir_all(&chibby_dir)
-        .with_context(|| format!("Failed to create .chibby directory in {}", repo_path.display()))?;
+    std::fs::create_dir_all(&chibby_dir).with_context(|| {
+        format!(
+            "Failed to create .chibby directory in {}",
+            repo_path.display()
+        )
+    })?;
 
-    let toml_str = toml::to_string_pretty(config)
-        .context("Failed to serialize environments to TOML")?;
+    let toml_str =
+        toml::to_string_pretty(config).context("Failed to serialize environments to TOML")?;
 
     // Pre-save warning: detect variable *values* that look like real
     // credentials. We never block the save — the leak might be intentional
@@ -213,18 +234,21 @@ pub fn load_environments_local(repo_path: &Path) -> Result<EnvironmentsConfig> {
     }
     let content = std::fs::read_to_string(&file_path)
         .with_context(|| format!("Failed to read {}", file_path.display()))?;
-    toml::from_str(&content)
-        .with_context(|| format!("Failed to parse {}", file_path.display()))
+    toml::from_str(&content).with_context(|| format!("Failed to parse {}", file_path.display()))
 }
 
 /// Save the per-developer override file `.chibby/environments.local.toml`.
 /// Ensures `.gitignore` is updated to keep this file out of git.
 pub fn save_environments_local(repo_path: &Path, config: &EnvironmentsConfig) -> Result<()> {
     let chibby_dir = repo_path.join(".chibby");
-    std::fs::create_dir_all(&chibby_dir)
-        .with_context(|| format!("Failed to create .chibby directory in {}", repo_path.display()))?;
-    let toml_str = toml::to_string_pretty(config)
-        .context("Failed to serialize environments.local to TOML")?;
+    std::fs::create_dir_all(&chibby_dir).with_context(|| {
+        format!(
+            "Failed to create .chibby directory in {}",
+            repo_path.display()
+        )
+    })?;
+    let toml_str =
+        toml::to_string_pretty(config).context("Failed to serialize environments.local to TOML")?;
     let file_path = chibby_dir.join("environments.local.toml");
     std::fs::write(&file_path, &toml_str)
         .with_context(|| format!("Failed to write {}", file_path.display()))?;
@@ -311,12 +335,7 @@ pub fn remove_environment(repo_path: &Path, name: &str) -> Result<()> {
 }
 
 /// Set a variable on an environment, creating the env if missing.
-pub fn set_env_variable(
-    repo_path: &Path,
-    env_name: &str,
-    key: &str,
-    value: &str,
-) -> Result<()> {
+pub fn set_env_variable(repo_path: &Path, env_name: &str, key: &str, value: &str) -> Result<()> {
     if !is_valid_env_var_name(key) {
         return Err(anyhow!(
             "Invalid variable name '{}': must match [A-Za-z_][A-Za-z0-9_]*",
@@ -368,11 +387,15 @@ fn is_valid_env_var_name(name: &str) -> bool {
 /// Save secrets config to .chibby/secrets.toml.
 pub fn save_secrets_config(repo_path: &Path, config: &SecretsConfig) -> Result<()> {
     let chibby_dir = repo_path.join(".chibby");
-    std::fs::create_dir_all(&chibby_dir)
-        .with_context(|| format!("Failed to create .chibby directory in {}", repo_path.display()))?;
+    std::fs::create_dir_all(&chibby_dir).with_context(|| {
+        format!(
+            "Failed to create .chibby directory in {}",
+            repo_path.display()
+        )
+    })?;
 
-    let toml_str = toml::to_string_pretty(config)
-        .context("Failed to serialize secrets config to TOML")?;
+    let toml_str =
+        toml::to_string_pretty(config).context("Failed to serialize secrets config to TOML")?;
 
     let file_path = chibby_dir.join("secrets.toml");
     std::fs::write(&file_path, &toml_str)
@@ -622,7 +645,10 @@ mod tests {
         let loaded = load_secrets_config(temp.path()).unwrap();
         assert_eq!(loaded.secrets.len(), 2);
         assert_eq!(loaded.secrets[0].name, "API_KEY");
-        assert_eq!(loaded.secrets[0].environments, vec!["production".to_string()]);
+        assert_eq!(
+            loaded.secrets[0].environments,
+            vec!["production".to_string()]
+        );
     }
 
     #[test]
@@ -775,7 +801,11 @@ mod tests {
         let temp = TempDir::new().unwrap();
         set_env_variable(temp.path(), "staging", "API_URL", "https://x").unwrap();
         let cfg = load_environments(temp.path()).unwrap();
-        let env = cfg.environments.iter().find(|e| e.name == "staging").unwrap();
+        let env = cfg
+            .environments
+            .iter()
+            .find(|e| e.name == "staging")
+            .unwrap();
         assert_eq!(env.variables.get("API_URL").unwrap(), "https://x");
     }
 
@@ -828,9 +858,7 @@ mod tests {
         ensure_gitignore_entries(temp.path()).unwrap();
         let content = std::fs::read_to_string(temp.path().join(".gitignore")).unwrap();
         // Should only add the missing one, not duplicate the existing entry
-        let env_count = content
-            .matches(".chibby/environments.local.toml")
-            .count();
+        let env_count = content.matches(".chibby/environments.local.toml").count();
         assert_eq!(env_count, 1);
         assert!(content.contains(".chibby/secrets.local.toml"));
         assert!(content.starts_with("node_modules/\n"));

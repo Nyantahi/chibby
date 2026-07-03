@@ -3,18 +3,23 @@
 //! A standalone CLI that shares the same engine as the desktop app.
 //! Designed for headless servers, scripting, and terminal-first workflows.
 
-use chibby_lib::engine::executor;
-use chibby_lib::engine::models::{
-    Environment, PipelineRun, Project, RunKind, RunStatus as EngineRunStatus, SecretRef,
-    StageStatus as EngineStageStatus,
-};
+use anyhow::Context;
 use chibby_lib::engine::bootstrap::{self, ApplyMode, Classification};
+use chibby_lib::engine::executor;
 use chibby_lib::engine::importers::{
     self, dotenv::DotEnvImporter, flyio::FlyImporter, railway::RailwayImporter,
     vercel::VercelImporter, ApplyOptions, ImportContext, ImportReport, Importer,
 };
+use chibby_lib::engine::models::{
+    Environment, Pipeline, PipelineRun, Project, RunKind, RunStatus as EngineRunStatus, SecretRef,
+    StageStatus as EngineStageStatus,
+};
 use chibby_lib::engine::secret_audit::{self as secret_audit_engine, Provenance};
-use chibby_lib::engine::{gates, persistence, pipeline, preflight, run_support, secrets as secrets_engine};
+use chibby_lib::engine::{
+    gates, persistence, pipeline, preflight, run_support, secrets as secrets_engine,
+};
+use chibby_lib::state::create_pipeline_state;
+use chrono::Utc;
 use clap::{Parser, Subcommand};
 use owo_colors::OwoColorize;
 use std::path::{Path, PathBuf};
@@ -853,9 +858,12 @@ async fn run_pipeline(
 ) -> anyhow::Result<()> {
     printer.banner();
 
-    let project_path = project
-        .cloned()
-        .unwrap_or_else(|| std::env::current_dir().unwrap());
+    // Canonicalize so runs are stored under the same path `projects`/`status`
+    // resolve to (e.g. /tmp vs /private/tmp on macOS).
+    let project_path = {
+        let p = project_path(project);
+        p.canonicalize().unwrap_or(p)
+    };
 
     printer.header(&format!("{} Running Pipeline", icons::ROCKET));
     printer.kv("Project", &project_path.display().to_string());
@@ -870,121 +878,260 @@ async fn run_pipeline(
     }
     printer.newline();
 
-    // Preflight checks
-    if !skip_preflight && !dry_run {
-        printer.subheader(&format!("{} Preflight Checks", icons::SHIELD));
+    // Load the real pipeline from .chibby/pipeline.toml on every run.
+    let pipeline = run_support::load_selected_pipeline(&project_path, None).with_context(|| {
+        format!(
+            "Failed to load pipeline from {}",
+            project_path.join(".chibby").join("pipeline.toml").display()
+        )
+    })?;
 
-        let checks = [
-            ("Pipeline config exists", true),
-            ("Git working tree clean", true),
-            ("Required secrets configured", true),
-        ];
-
-        for (check, passes) in checks {
-            let spin = cli::spinner(&format!("Checking {}...", check.to_lowercase()));
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            spin.finish_and_clear();
-
-            if passes {
-                printer.preflight_check(check, true, None);
-            } else {
-                printer.preflight_check(check, false, Some("Missing configuration"));
-                return Err(anyhow::anyhow!("Preflight check failed: {}", check));
-            }
+    // Validate any requested --stage names exist before doing anything.
+    for requested in stages {
+        if !pipeline.stages.iter().any(|s| &s.name == requested) {
+            let available = pipeline
+                .stages
+                .iter()
+                .map(|s| s.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            anyhow::bail!("Stage '{requested}' not found in pipeline. Available: {available}");
         }
-
-        if env.is_some() {
-            let spin = cli::spinner("Testing SSH connection...");
-            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-            spin.finish_and_clear();
-            printer.preflight_check("SSH connection", true, None);
-        }
-
-        printer.newline();
     }
 
-    // Pipeline execution
+    // Preflight checks against the real pipeline + environment.
+    if !skip_preflight && !dry_run {
+        check_preflight(printer, &project_path, &pipeline, env).await?;
+    }
+
     printer.subheader(&format!("{} Pipeline Stages", icons::GEAR));
 
-    // Example stages - in real impl, load from pipeline config
-    let example_stages = [
-        ("preflight", "Preflight"),
-        ("build", "Build"),
-        ("test", "Test"),
-        ("deploy", "Deploy"),
-    ];
+    let stage_filter: Option<&[String]> = if stages.is_empty() {
+        None
+    } else {
+        Some(stages)
+    };
 
-    let start_time = std::time::Instant::now();
-    let mut passed = 0;
-    let failed = false;
-
-    for (stage_type, stage_name) in &example_stages {
-        if dry_run {
-            printer.stage_typed(stage_type, stage_name, StageStatus::Pending);
-            continue;
-        }
-
-        // Show running state
-        printer.stage_typed(stage_type, stage_name, StageStatus::Running);
-
-        // Simulate execution
-        let spin = cli::spinner(&format!("Running {}...", stage_name.to_lowercase()));
-
-        // Simulate varying durations
-        let duration = match *stage_type {
-            "build" => 1200,
-            "test" => 800,
-            "deploy" => 600,
-            _ => 300,
-        };
-        tokio::time::sleep(std::time::Duration::from_millis(duration)).await;
-        spin.finish_and_clear();
-
-        // Show result - move up to overwrite running state
-        print!("\x1B[1A\x1B[2K"); // Move up and clear line
-        printer.stage_with_duration(stage_name, StageStatus::Success, Some(duration));
-        passed += 1;
-    }
-
-    // Summary
-    let elapsed = start_time.elapsed().as_millis() as u64;
-
+    // Dry run: list the real stages that would execute, then stop.
     if dry_run {
+        for stage in &pipeline.stages {
+            if stage_filter.is_some_and(|f| !f.contains(&stage.name)) {
+                continue;
+            }
+            printer.stage(&stage.name, StageStatus::Pending);
+        }
         printer.newline();
         printer.info("Dry run complete - no changes made");
-    } else if failed {
-        printer.run_summary("failed", elapsed, passed, example_stages.len());
-    } else {
-        printer.run_summary("success", elapsed, passed, example_stages.len());
+        return Ok(());
+    }
+
+    // Resolve environment variables and secrets for the run.
+    let (env_ref, env_vars) = run_support::resolve_execution_context(&project_path, env)?;
+
+    // Wire Ctrl-C to cancel the in-process run gracefully.
+    let repo_str = project_path.to_string_lossy().to_string();
+    let cancel_state = create_pipeline_state();
+    {
+        let mut state = cancel_state.write().await;
+        state.start(&repo_str);
+    }
+    let cancel_signal = cancel_state.clone();
+    let cancel_repo = repo_str.clone();
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            let mut state = cancel_signal.write().await;
+            state.cancel(&cancel_repo);
+        }
+    });
+
+    let mut run = executor::run_pipeline(
+        &pipeline,
+        &project_path,
+        env_ref.as_ref(),
+        env_vars,
+        Some(cli_log_callback()),
+        stage_filter,
+        Some(cancel_state.clone()),
+        None,
+        &uuid::Uuid::new_v4().to_string(),
+    )
+    .await?;
+
+    run_support::annotate_run(&mut run, &pipeline, None);
+    run_support::persist_completed_run(&run)?;
+    run_support::post_run_housekeeping(&repo_str, &run).await;
+
+    print_completed_run(printer, &run);
+
+    // Surface a real exit code so `chibby run` is usable in scripts/CI.
+    if run.status != EngineRunStatus::Success {
+        std::process::exit(1);
     }
 
     Ok(())
 }
 
-async fn show_status(printer: &Printer, _project: Option<&PathBuf>) -> anyhow::Result<()> {
+/// Whether the git working tree at `path` is clean.
+/// `Some(true)` clean, `Some(false)` dirty, `None` not a git repo / git unavailable.
+fn git_tree_clean(path: &Path) -> Option<bool> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(["status", "--porcelain"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(output.stdout.is_empty())
+}
+
+/// Human-readable preflight error for CLI display.
+fn format_preflight_error(err: &preflight::PreflightError) -> String {
+    use preflight::PreflightError::*;
+    match err {
+        MissingSecret { name, environment } => {
+            format!("Secret '{name}' not set for environment '{environment}'")
+        }
+        MissingSshHost { stage } => format!("Stage '{stage}' uses SSH but no host is configured"),
+        MissingEnvironment { name } => format!("Environment '{name}' is not defined"),
+        SshConnectivityFailed { host, error } => format!("SSH to {host} failed: {error}"),
+        SshNotAvailable => "ssh binary not found on PATH".to_string(),
+    }
+}
+
+/// Real preflight checks shared by `run` and the standalone `preflight` command.
+/// Hard failures return an error; a dirty git tree is a non-fatal warning.
+async fn check_preflight(
+    printer: &Printer,
+    project_path: &Path,
+    pipeline: &Pipeline,
+    env: Option<&str>,
+) -> anyhow::Result<()> {
+    printer.subheader(&format!("{} Preflight Checks", icons::SHIELD));
+
+    // Pipeline config exists (already loaded by the caller).
+    printer.preflight_check("Pipeline config exists", true, None);
+
+    // Git working tree state (warning only — never blocks a local run).
+    match git_tree_clean(project_path) {
+        Some(true) => printer.preflight_check("Git working tree clean", true, None),
+        Some(false) => printer.warn("Git working tree has uncommitted changes"),
+        None => printer.warn("Not a git repository"),
+    }
+
+    // Environment-specific validation (secrets, SSH hosts, connectivity).
+    if let Some(env_name) = env {
+        let environments = pipeline::load_environments_layered(project_path)?;
+        let secrets_config = pipeline::load_secrets_config(project_path)?;
+        let result = preflight::validate_preflight(
+            pipeline,
+            &project_path.to_string_lossy(),
+            env_name,
+            &environments,
+            &secrets_config,
+        )
+        .await?;
+
+        if result.passed {
+            printer.preflight_check(&format!("Environment '{env_name}' ready"), true, None);
+        }
+        for err in &result.errors {
+            printer.preflight_check(&format_preflight_error(err), false, None);
+        }
+        for warning in &result.warnings {
+            printer.warn(warning);
+        }
+        if !result.passed {
+            printer.newline();
+            anyhow::bail!("Preflight validation failed for environment '{env_name}'");
+        }
+    }
+
+    printer.newline();
+    Ok(())
+}
+
+/// Format a UTC timestamp as a relative "x ago" string.
+fn format_relative_time(when: chrono::DateTime<Utc>) -> String {
+    let secs = (Utc::now() - when).num_seconds().max(0);
+    match secs {
+        0..=59 => "just now".to_string(),
+        60..=3599 => format!("{}m ago", secs / 60),
+        3600..=86399 => format!("{}h ago", secs / 3600),
+        _ => format!("{}d ago", secs / 86400),
+    }
+}
+
+/// Resolve the tracked project for a `-p`/cwd reference, or bail with guidance.
+fn resolve_project(project: Option<&PathBuf>) -> anyhow::Result<Project> {
+    let path = project_path(project);
+    let path_str = path
+        .canonicalize()
+        .unwrap_or(path.clone())
+        .to_string_lossy()
+        .to_string();
+    let projects = persistence::load_projects()?;
+    projects
+        .into_iter()
+        .find(|p| Path::new(&p.path) == Path::new(&path_str) || p.path == path_str)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "{} is not a tracked project. Add it with `chibby projects add {}`",
+                path.display(),
+                path.display()
+            )
+        })
+}
+
+async fn show_status(printer: &Printer, project: Option<&PathBuf>) -> anyhow::Result<()> {
     printer.header(&format!("{} Pipeline Status", icons::INFO));
 
-    printer.kv("Project", "my-app");
-    printer.kv_colored("Status", "Success", StageStatus::Success);
-    printer.kv("Last Run", "2 minutes ago");
-    printer.kv("Duration", "1m 23s");
-    printer.kv("Environment", "production");
+    let proj = resolve_project(project)?;
+    printer.kv("Project", &proj.name);
+
+    let mut runs = persistence::load_runs_for_project(&proj.path)?;
+    runs.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+
+    let Some(latest) = runs.first() else {
+        printer.kv_colored("Status", "No runs yet", StageStatus::Pending);
+        printer.newline();
+        printer.info("Run `chibby run` to execute the pipeline.");
+        return Ok(());
+    };
+
+    printer.kv_colored(
+        "Status",
+        cli_run_status(latest),
+        run_status_to_cli(Some(&latest.status)).unwrap_or(StageStatus::Pending),
+    );
+    printer.kv("Last Run", &format_relative_time(latest.started_at));
+    if let Some(d) = latest.duration_ms {
+        printer.kv("Duration", &cli::format_duration(d));
+    }
+    if let Some(ref e) = latest.environment {
+        printer.kv("Environment", e);
+    }
     printer.newline();
 
     printer.subheader("Stages");
-    printer.stage_with_duration("Build", StageStatus::Success, Some(45_000));
-    printer.stage_with_duration("Test", StageStatus::Success, Some(23_000));
-    printer.stage_with_duration("Deploy", StageStatus::Success, Some(15_000));
+    for stage in &latest.stage_results {
+        printer.stage_with_duration(
+            &stage.stage_name,
+            cli_stage_status(&stage.status),
+            stage.duration_ms,
+        );
+    }
 
     Ok(())
 }
 
 async fn cancel_pipeline(printer: &Printer, _project: Option<&PathBuf>) -> anyhow::Result<()> {
-    let spin = cli::spinner("Cancelling pipeline...");
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    spin.finish_and_clear();
-
-    printer.warn("Pipeline cancelled");
+    // CLI runs execute in a single foreground process; there is no shared
+    // daemon to signal. Cancellation is handled by Ctrl-C inside `chibby run`.
+    printer.header(&format!("{} Cancel Pipeline", icons::WARN));
+    printer.info("Chibby CLI runs in the foreground — press Ctrl-C in the `chibby run` terminal to cancel it.");
+    printer.info("The pipeline stops after the current stage and records a cancelled run.");
     Ok(())
 }
 
@@ -1069,9 +1216,9 @@ async fn handle_projects(printer: &Printer, cmd: &ProjectsCmd) -> anyhow::Result
                 None => {
                     // Default: pick the project whose path matches CWD if any
                     let cwd = std::env::current_dir().ok();
-                    let matched = cwd.as_ref().and_then(|c| {
-                        projects.iter().find(|p| Path::new(&p.path) == c.as_path())
-                    });
+                    let matched = cwd
+                        .as_ref()
+                        .and_then(|c| projects.iter().find(|p| Path::new(&p.path) == c.as_path()));
                     match matched {
                         Some(p) => &p.id,
                         None => {
@@ -1171,52 +1318,44 @@ async fn handle_pipeline(printer: &Printer, cmd: &PipelineCmd) -> anyhow::Result
 
 async fn show_history(
     printer: &Printer,
-    _project: Option<&PathBuf>,
+    project: Option<&PathBuf>,
     env: Option<&str>,
     limit: usize,
 ) -> anyhow::Result<()> {
     printer.header(&format!("{} Run History", icons::CLOCK));
 
+    let proj = resolve_project(project)?;
+    printer.kv("Project", &proj.name);
     if let Some(e) = env {
         printer.kv("Environment", e);
-        printer.newline();
+    }
+    printer.newline();
+
+    let mut runs = persistence::load_runs_for_project(&proj.path)?;
+    runs.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+
+    let filtered: Vec<&PipelineRun> = runs
+        .iter()
+        .filter(|r| match env {
+            Some(e) => r.environment.as_deref() == Some(e),
+            None => true,
+        })
+        .take(limit)
+        .collect();
+
+    if filtered.is_empty() {
+        printer.info("No runs recorded yet. Run `chibby run` to create one.");
+        return Ok(());
     }
 
-    // Example history entries
-    let runs = [
-        (
-            "abc123",
-            StageStatus::Success,
-            "2m ago",
-            34_000,
-            Some("production"),
-        ),
-        (
-            "def456",
-            StageStatus::Success,
-            "1h ago",
-            45_000,
-            Some("staging"),
-        ),
-        (
-            "ghi789",
-            StageStatus::Failed,
-            "2h ago",
-            12_000,
-            Some("production"),
-        ),
-        ("jkl012", StageStatus::Cancelled, "3h ago", 8_000, None),
-        (
-            "mno345",
-            StageStatus::Success,
-            "1d ago",
-            67_000,
-            Some("staging"),
-        ),
-    ];
-
-    for (id, status, when, duration, run_env) in runs.iter().take(limit) {
-        printer.history_entry(id, *status, when, *duration, *run_env);
+    for run in filtered {
+        printer.history_entry(
+            &run.id,
+            run_status_to_cli(Some(&run.status)).unwrap_or(StageStatus::Pending),
+            &format_relative_time(run.started_at),
+            run.duration_ms.unwrap_or(0),
+            run.environment.as_deref(),
+        );
     }
 
     Ok(())
@@ -1340,6 +1479,7 @@ async fn retry_run(
         Some(&stages_to_run),
         None,
         None,
+        &uuid::Uuid::new_v4().to_string(),
     )
     .await?;
 
@@ -1383,6 +1523,7 @@ async fn rollback_run(printer: &Printer, run_id: &str) -> anyhow::Result<()> {
         None,
         None,
         None,
+        &uuid::Uuid::new_v4().to_string(),
     )
     .await?;
 
@@ -1480,8 +1621,7 @@ async fn handle_secrets(printer: &Printer, cmd: &SecretsCmd) -> anyhow::Result<(
         SecretsCmd::Rotate { name, env, project } => {
             let path = project_path(project.as_ref());
             let path_str = path.to_string_lossy().to_string();
-            let value =
-                rpassword::prompt_password(format!("New value for {} ({}): ", name, env))?;
+            let value = rpassword::prompt_password(format!("New value for {} ({}): ", name, env))?;
             if value.is_empty() {
                 anyhow::bail!("Secret value cannot be empty");
             }
@@ -1533,11 +1673,8 @@ async fn handle_secrets(printer: &Printer, cmd: &SecretsCmd) -> anyhow::Result<(
 
             for env_name in envs_to_check {
                 printer.subheader(&format!("Environment: {}", env_name));
-                let statuses = secrets_engine::check_secrets_status(
-                    &path_str,
-                    &env_name,
-                    &secrets_config,
-                );
+                let statuses =
+                    secrets_engine::check_secrets_status(&path_str, &env_name, &secrets_config);
                 for s in statuses {
                     printer.secret(&s.name, s.is_set);
                 }
@@ -1877,10 +2014,7 @@ async fn bootstrap_cmd(
 
     let report = bootstrap::scan_project(&path)?;
     printer.kv("Scanned files", &report.scanned_files.to_string());
-    printer.kv(
-        "Suggested envs",
-        &report.suggested_environments.join(", "),
-    );
+    printer.kv("Suggested envs", &report.suggested_environments.join(", "));
 
     if report.detected.is_empty() {
         printer.newline();
@@ -1917,7 +2051,11 @@ async fn bootstrap_cmd(
         return Ok(());
     }
 
-    let mode = if merge { ApplyMode::Merge } else { ApplyMode::Safe };
+    let mode = if merge {
+        ApplyMode::Merge
+    } else {
+        ApplyMode::Safe
+    };
     match bootstrap::apply_bootstrap(&path, &report, mode) {
         Ok(true) => {
             printer.success(&format!(
@@ -2106,7 +2244,11 @@ fn print_import_report(printer: &Printer, report: &ImportReport) {
     if !vars.is_empty() {
         printer.subheader(&format!("Variables ({})", vars.len()));
         for v in &vars {
-            let label = if v.value.is_some() { "value" } else { "name only" };
+            let label = if v.value.is_some() {
+                "value"
+            } else {
+                "name only"
+            };
             printer.kv(&v.name, label);
         }
         printer.newline();
@@ -2114,7 +2256,11 @@ fn print_import_report(printer: &Printer, report: &ImportReport) {
     if !secrets.is_empty() {
         printer.subheader(&format!("Secrets ({})", secrets.len()));
         for s in &secrets {
-            let label = if s.value.is_some() { "value" } else { "name only" };
+            let label = if s.value.is_some() {
+                "value"
+            } else {
+                "name only"
+            };
             printer.kv(&s.name, label);
         }
     }
@@ -2124,11 +2270,7 @@ async fn handle_export(printer: &Printer, cmd: &ExportCmd) -> anyhow::Result<()>
     let ExportCmd::Dotenv { env, out, project } = cmd;
     let repo = project_path(project.as_ref());
     let lines = importers::export_dotenv(&repo, env, out)?;
-    printer.success(&format!(
-        "Wrote {} lines to {}",
-        lines,
-        out.display()
-    ));
+    printer.success(&format!("Wrote {} lines to {}", lines, out.display()));
     printer.info(
         "This file may contain plaintext secrets — keep it out of git and treat it like a credential.",
     );
@@ -2594,40 +2736,27 @@ async fn init_project(printer: &Printer, path: Option<&PathBuf>, ai: bool) -> an
 async fn run_preflight(
     printer: &Printer,
     env: Option<&str>,
-    _project: Option<&PathBuf>,
+    project: Option<&PathBuf>,
 ) -> anyhow::Result<()> {
-    printer.header(&format!("{} Preflight Checks", icons::SHIELD));
+    let project_path = project_path(project);
 
+    printer.header(&format!("{} Preflight Checks", icons::SHIELD));
+    printer.kv("Project", &project_path.display().to_string());
     if let Some(e) = env {
         printer.kv("Environment", e);
-        printer.newline();
     }
-
-    let checks = [
-        ("Pipeline config", true, None),
-        ("Git status clean", true, None),
-        ("Secrets configured", true, None),
-        ("Dependencies up to date", true, None),
-    ];
-
-    for (check, passes, msg) in checks {
-        let spin = cli::spinner(&format!("Checking {}...", check.to_lowercase()));
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-        spin.finish_and_clear();
-
-        printer.preflight_check(check, passes, msg);
-    }
-
-    if env.is_some() {
-        let spin = cli::spinner("Testing SSH connection...");
-        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-        spin.finish_and_clear();
-        printer.preflight_check("SSH connection", true, None);
-    }
-
     printer.newline();
-    printer.success(&format!("All checks passed {}", icons::SPARKLE));
 
+    let pipeline = run_support::load_selected_pipeline(&project_path, None).with_context(|| {
+        format!(
+            "Failed to load pipeline from {}",
+            project_path.join(".chibby").join("pipeline.toml").display()
+        )
+    })?;
+
+    check_preflight(printer, &project_path, &pipeline, env).await?;
+
+    printer.success(&format!("All checks passed {}", icons::SPARKLE));
     Ok(())
 }
 

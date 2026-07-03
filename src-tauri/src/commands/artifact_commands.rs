@@ -27,7 +27,8 @@ pub fn collect_artifacts(
     project_name: String,
     version: String,
 ) -> Result<ArtifactManifest, String> {
-    let config = artifacts::load_artifact_config(Path::new(&repo_path)).map_err(|e| e.to_string())?;
+    let config =
+        artifacts::load_artifact_config(Path::new(&repo_path)).map_err(|e| e.to_string())?;
     artifacts::collect_artifacts(Path::new(&repo_path), &config, &project_name, &version)
         .map_err(|e| e.to_string())
 }
@@ -35,7 +36,8 @@ pub fn collect_artifacts(
 /// List all artifact manifests for a project.
 #[tauri::command]
 pub fn list_artifact_manifests(repo_path: String) -> Result<Vec<ArtifactManifest>, String> {
-    let config = artifacts::load_artifact_config(Path::new(&repo_path)).map_err(|e| e.to_string())?;
+    let config =
+        artifacts::load_artifact_config(Path::new(&repo_path)).map_err(|e| e.to_string())?;
     artifacts::list_artifact_manifests(Path::new(&repo_path), &config).map_err(|e| e.to_string())
 }
 
@@ -91,6 +93,11 @@ pub fn run_cleanup(repo_path: String, dry_run: bool) -> Result<CleanupResult, St
         cleanup::load_cleanup_config(Path::new(&repo_path)).map_err(|e| e.to_string())?;
     let artifact_config =
         artifacts::load_artifact_config(Path::new(&repo_path)).map_err(|e| e.to_string())?;
-    cleanup::run_cleanup(Path::new(&repo_path), &cleanup_config, &artifact_config, dry_run)
-        .map_err(|e| e.to_string())
+    cleanup::run_cleanup(
+        Path::new(&repo_path),
+        &cleanup_config,
+        &artifact_config,
+        dry_run,
+    )
+    .map_err(|e| e.to_string())
 }

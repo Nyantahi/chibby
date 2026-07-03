@@ -54,10 +54,7 @@ pub async fn validate_preflight(
     };
 
     // 2. Check SSH stages have a host configured.
-    let has_ssh_stages = pipeline
-        .stages
-        .iter()
-        .any(|s| s.backend == Backend::Ssh);
+    let has_ssh_stages = pipeline.stages.iter().any(|s| s.backend == Backend::Ssh);
 
     if has_ssh_stages {
         if env.ssh_host.is_none() {
@@ -167,9 +164,12 @@ async fn check_uncommitted_changes(project_path: &str) -> Result<bool> {
 /// Test SSH connectivity to a host.
 pub async fn test_ssh_connectivity(host: &str, port: Option<u16>) -> Result<String> {
     let mut cmd = tokio::process::Command::new("ssh");
-    cmd.arg("-o").arg("BatchMode=yes")
-        .arg("-o").arg("ConnectTimeout=5")
-        .arg("-o").arg("StrictHostKeyChecking=accept-new");
+    cmd.arg("-o")
+        .arg("BatchMode=yes")
+        .arg("-o")
+        .arg("ConnectTimeout=5")
+        .arg("-o")
+        .arg("StrictHostKeyChecking=accept-new");
 
     if let Some(p) = port {
         cmd.arg("-p").arg(p.to_string());

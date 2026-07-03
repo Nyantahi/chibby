@@ -102,9 +102,7 @@ fn check_glibc() {
         return;
     }
 
-    let output = std::process::Command::new("ldd")
-        .arg("--version")
-        .output();
+    let output = std::process::Command::new("ldd").arg("--version").output();
 
     if let Ok(result) = output {
         let stdout = String::from_utf8_lossy(&result.stdout);
@@ -129,7 +127,13 @@ fn check_glibc() {
 fn extract_glibc_version(text: &str) -> Option<(u32, u32)> {
     // Look for version pattern like "2.35" or "2.31"
     for word in text.split_whitespace() {
-        if word.contains('.') && word.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+        if word.contains('.')
+            && word
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_digit())
+                .unwrap_or(false)
+        {
             let parts: Vec<&str> = word.split('.').collect();
             if parts.len() >= 2 {
                 if let (Ok(major), Ok(minor)) = (parts[0].parse(), parts[1].parse()) {

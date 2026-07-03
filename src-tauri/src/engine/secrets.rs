@@ -29,49 +29,43 @@ pub fn set_secret(
     value: &str,
 ) -> Result<()> {
     let account = account_key(project_path, env_name, secret_name);
-    let entry = keyring::Entry::new(SERVICE_NAME, &account)
-        .context("Failed to create keyring entry")?;
+    let entry =
+        keyring::Entry::new(SERVICE_NAME, &account).context("Failed to create keyring entry")?;
     entry
         .set_password(value)
         .context("Failed to store secret in keychain")?;
-    log::info!("Stored secret '{}' for env '{}' in keychain", secret_name, env_name);
+    log::info!(
+        "Stored secret '{}' for env '{}' in keychain",
+        secret_name,
+        env_name
+    );
     Ok(())
 }
 
 /// Retrieve a secret value from the OS keychain.
-pub fn get_secret(
-    project_path: &str,
-    env_name: &str,
-    secret_name: &str,
-) -> Result<String> {
+pub fn get_secret(project_path: &str, env_name: &str, secret_name: &str) -> Result<String> {
     let account = account_key(project_path, env_name, secret_name);
-    let entry = keyring::Entry::new(SERVICE_NAME, &account)
-        .context("Failed to create keyring entry")?;
-    entry
-        .get_password()
-        .context(format!("Secret '{}' not found in keychain for env '{}'", secret_name, env_name))
+    let entry =
+        keyring::Entry::new(SERVICE_NAME, &account).context("Failed to create keyring entry")?;
+    entry.get_password().context(format!(
+        "Secret '{}' not found in keychain for env '{}'",
+        secret_name, env_name
+    ))
 }
 
 /// Delete a secret from the OS keychain.
-pub fn delete_secret(
-    project_path: &str,
-    env_name: &str,
-    secret_name: &str,
-) -> Result<()> {
+pub fn delete_secret(project_path: &str, env_name: &str, secret_name: &str) -> Result<()> {
     let account = account_key(project_path, env_name, secret_name);
-    let entry = keyring::Entry::new(SERVICE_NAME, &account)
-        .context("Failed to create keyring entry")?;
-    entry
-        .delete_credential()
-        .context(format!("Failed to delete secret '{}' for env '{}'", secret_name, env_name))
+    let entry =
+        keyring::Entry::new(SERVICE_NAME, &account).context("Failed to create keyring entry")?;
+    entry.delete_credential().context(format!(
+        "Failed to delete secret '{}' for env '{}'",
+        secret_name, env_name
+    ))
 }
 
 /// Check whether a secret exists in the OS keychain.
-pub fn has_secret(
-    project_path: &str,
-    env_name: &str,
-    secret_name: &str,
-) -> bool {
+pub fn has_secret(project_path: &str, env_name: &str, secret_name: &str) -> bool {
     let account = match account_key(project_path, env_name, secret_name).parse::<String>() {
         Ok(a) => a,
         Err(_) => return false,

@@ -60,9 +60,7 @@ fn check_vbscript(config: &TauriConfig) {
     }
 
     // Check if cscript is available
-    let output = std::process::Command::new("where")
-        .arg("cscript")
-        .output();
+    let output = std::process::Command::new("where").arg("cscript").output();
 
     match output {
         Ok(result) if result.status.success() => {

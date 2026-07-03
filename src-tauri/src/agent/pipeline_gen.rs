@@ -21,7 +21,10 @@ pub fn describe_project(
     parts.push(format!("Project path: {}", project_path));
 
     if !project_types.is_empty() {
-        parts.push(format!("Detected project types: {}", project_types.join(", ")));
+        parts.push(format!(
+            "Detected project types: {}",
+            project_types.join(", ")
+        ));
     }
 
     if !detected_scripts.is_empty() {
@@ -43,22 +46,21 @@ pub fn validate_generated_content(content: &str, format: &PipelineFormat) -> Res
     match format {
         PipelineFormat::Chibby => {
             // Should contain TOML-like structure
-            if !content.contains("[[stages]]") && !content.contains("[stages]") && !content.contains("name") {
+            if !content.contains("[[stages]]")
+                && !content.contains("[stages]")
+                && !content.contains("name")
+            {
                 return Err("Generated Chibby pipeline doesn't look like valid TOML".to_string());
             }
         }
         PipelineFormat::GithubActions => {
             if !content.contains("on:") && !content.contains("jobs:") {
-                return Err(
-                    "Generated GitHub Actions config missing 'on:' or 'jobs:'".to_string(),
-                );
+                return Err("Generated GitHub Actions config missing 'on:' or 'jobs:'".to_string());
             }
         }
         PipelineFormat::CircleCi => {
             if !content.contains("version:") && !content.contains("jobs:") {
-                return Err(
-                    "Generated CircleCI config missing 'version:' or 'jobs:'".to_string(),
-                );
+                return Err("Generated CircleCI config missing 'version:' or 'jobs:'".to_string());
             }
         }
         PipelineFormat::Drone => {

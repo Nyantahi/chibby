@@ -71,16 +71,15 @@ pub fn load_app_settings() -> Result<AppSettings> {
     }
     let content = std::fs::read_to_string(&path)
         .with_context(|| format!("Failed to read settings: {}", path.display()))?;
-    let settings: AppSettings = toml::from_str(&content)
-        .with_context(|| "Failed to parse settings.toml")?;
+    let settings: AppSettings =
+        toml::from_str(&content).with_context(|| "Failed to parse settings.toml")?;
     Ok(settings)
 }
 
 /// Save app-level settings to `<data_dir>/settings.toml`.
 pub fn save_app_settings(settings: &AppSettings) -> Result<()> {
     let path = persistence::data_dir()?.join("settings.toml");
-    let content = toml::to_string_pretty(settings)
-        .context("Failed to serialize settings")?;
+    let content = toml::to_string_pretty(settings).context("Failed to serialize settings")?;
     std::fs::write(&path, content)
         .with_context(|| format!("Failed to write settings: {}", path.display()))?;
     Ok(())
@@ -98,8 +97,8 @@ fn app_account_key(key_name: &str) -> String {
 /// Store an app-level secret in the OS keychain.
 pub fn set_app_secret(key_name: &str, value: &str) -> Result<()> {
     let account = app_account_key(key_name);
-    let entry = keyring::Entry::new(SERVICE_NAME, &account)
-        .context("Failed to create keyring entry")?;
+    let entry =
+        keyring::Entry::new(SERVICE_NAME, &account).context("Failed to create keyring entry")?;
     entry
         .set_password(value)
         .context("Failed to store app secret in keychain")?;
@@ -110,8 +109,8 @@ pub fn set_app_secret(key_name: &str, value: &str) -> Result<()> {
 /// Delete an app-level secret from the OS keychain.
 pub fn delete_app_secret(key_name: &str) -> Result<()> {
     let account = app_account_key(key_name);
-    let entry = keyring::Entry::new(SERVICE_NAME, &account)
-        .context("Failed to create keyring entry")?;
+    let entry =
+        keyring::Entry::new(SERVICE_NAME, &account).context("Failed to create keyring entry")?;
     entry
         .delete_credential()
         .context(format!("Failed to delete app secret '{}'", key_name))
@@ -120,8 +119,8 @@ pub fn delete_app_secret(key_name: &str) -> Result<()> {
 /// Retrieve an app-level secret from the OS keychain.
 pub fn get_app_secret(key_name: &str) -> Result<String> {
     let account = app_account_key(key_name);
-    let entry = keyring::Entry::new(SERVICE_NAME, &account)
-        .context("Failed to create keyring entry")?;
+    let entry =
+        keyring::Entry::new(SERVICE_NAME, &account).context("Failed to create keyring entry")?;
     entry
         .get_password()
         .context(format!("Failed to retrieve app secret '{}'", key_name))

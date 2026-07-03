@@ -4,8 +4,8 @@
 //! based on detected project types and industry best practices.
 
 use crate::engine::models::{
-    FileRecommendation, ProjectRecommendations, RecommendationCategory,
-    RecommendationPriority, RecommendationSummary,
+    FileRecommendation, ProjectRecommendations, RecommendationCategory, RecommendationPriority,
+    RecommendationSummary,
 };
 use serde_json;
 use std::path::Path;
@@ -62,10 +62,8 @@ pub fn analyze_repository(repo_path: &Path) -> ProjectRecommendations {
     let readiness_score = calculate_readiness_score(&recommendations);
 
     // Filter to only include MISSING files (exists == false)
-    let missing_recommendations: Vec<FileRecommendation> = recommendations
-        .into_iter()
-        .filter(|r| !r.exists)
-        .collect();
+    let missing_recommendations: Vec<FileRecommendation> =
+        recommendations.into_iter().filter(|r| !r.exists).collect();
 
     ProjectRecommendations {
         project_types,
@@ -164,7 +162,17 @@ fn detect_project_types(repo_path: &Path) -> Vec<String> {
 
 /// Common subdirectory names for fullstack projects.
 const FULLSTACK_SUBDIRS: &[&str] = &[
-    "frontend", "backend", "api", "web", "app", "client", "server", "src", "admin", "dashboard", "portal",
+    "frontend",
+    "backend",
+    "api",
+    "web",
+    "app",
+    "client",
+    "server",
+    "src",
+    "admin",
+    "dashboard",
+    "portal",
 ];
 
 /// Check if package.json contains React as a dependency.
@@ -176,12 +184,18 @@ fn has_react_dependency(pkg_path: &Path) -> bool {
             let dev_deps = json.get("devDependencies").and_then(|d| d.as_object());
 
             if let Some(deps) = deps {
-                if deps.contains_key("react") || deps.contains_key("next") || deps.contains_key("vue") {
+                if deps.contains_key("react")
+                    || deps.contains_key("next")
+                    || deps.contains_key("vue")
+                {
                     return true;
                 }
             }
             if let Some(dev_deps) = dev_deps {
-                if dev_deps.contains_key("react") || dev_deps.contains_key("next") || dev_deps.contains_key("vue") {
+                if dev_deps.contains_key("react")
+                    || dev_deps.contains_key("next")
+                    || dev_deps.contains_key("vue")
+                {
                     return true;
                 }
             }
@@ -394,7 +408,8 @@ fn add_universal_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommenda
     recs.push(FileRecommendation {
         file_name: ".editorconfig".to_string(),
         title: "EditorConfig".to_string(),
-        description: "Maintains consistent coding styles across different editors and IDEs.".to_string(),
+        description: "Maintains consistent coding styles across different editors and IDEs."
+            .to_string(),
         priority: RecommendationPriority::High,
         category: RecommendationCategory::CodeQuality,
         docs_url: Some("https://editorconfig.org/".to_string()),
@@ -418,11 +433,13 @@ fn add_universal_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommenda
     recs.push(FileRecommendation {
         file_name: "CHANGELOG.md".to_string(),
         title: "Changelog".to_string(),
-        description: "Track notable changes for each version. Helps users understand what's new.".to_string(),
+        description: "Track notable changes for each version. Helps users understand what's new."
+            .to_string(),
         priority: RecommendationPriority::Medium,
         category: RecommendationCategory::Documentation,
         docs_url: Some("https://keepachangelog.com/".to_string()),
-        exists: repo_path.join("CHANGELOG.md").exists() || repo_path.join("docs/community/CHANGELOG.md").exists(),
+        exists: repo_path.join("CHANGELOG.md").exists()
+            || repo_path.join("docs/community/CHANGELOG.md").exists(),
         template_hint: Some("Follow Keep a Changelog format".to_string()),
     });
 
@@ -487,7 +504,8 @@ fn add_universal_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommenda
         priority: RecommendationPriority::Low,
         category: RecommendationCategory::Documentation,
         docs_url: Some("https://www.contributor-covenant.org/".to_string()),
-        exists: repo_path.join("CODE_OF_CONDUCT.md").exists() || repo_path.join("docs/community/CODE_OF_CONDUCT.md").exists(),
+        exists: repo_path.join("CODE_OF_CONDUCT.md").exists()
+            || repo_path.join("docs/community/CODE_OF_CONDUCT.md").exists(),
         template_hint: Some("Contributor Covenant is widely used".to_string()),
     });
 
@@ -530,7 +548,9 @@ fn add_node_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommendation>
         description: "Ensures reproducible builds by locking dependency versions.".to_string(),
         priority: RecommendationPriority::Critical,
         category: RecommendationCategory::Dependencies,
-        docs_url: Some("https://docs.npmjs.com/cli/v10/configuring-npm/package-lock-json".to_string()),
+        docs_url: Some(
+            "https://docs.npmjs.com/cli/v10/configuring-npm/package-lock-json".to_string(),
+        ),
         exists: has_lock,
         template_hint: Some("Run 'npm install' to generate".to_string()),
     });
@@ -624,7 +644,9 @@ fn add_rust_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommendation>
         description: "Locks dependency versions for reproducible builds.".to_string(),
         priority: RecommendationPriority::Critical,
         category: RecommendationCategory::Dependencies,
-        docs_url: Some("https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html".to_string()),
+        docs_url: Some(
+            "https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html".to_string(),
+        ),
         exists: repo_path.join("Cargo.lock").exists(),
         template_hint: Some("Run 'cargo build' to generate".to_string()),
     });
@@ -661,7 +683,7 @@ fn add_rust_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommendation>
         priority: RecommendationPriority::Medium,
         category: RecommendationCategory::Dependencies,
         docs_url: Some("https://rust-lang.github.io/rustup/overrides.html".to_string()),
-        exists: repo_path.join("rust-toolchain.toml").exists() 
+        exists: repo_path.join("rust-toolchain.toml").exists()
             || repo_path.join("rust-toolchain").exists(),
         template_hint: Some("[toolchain]\nchannel = \"stable\"".to_string()),
     });
@@ -677,7 +699,9 @@ fn add_python_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommendatio
         description: "Modern Python project configuration (PEP 518/621).".to_string(),
         priority: RecommendationPriority::Critical,
         category: RecommendationCategory::Dependencies,
-        docs_url: Some("https://packaging.python.org/en/latest/guides/writing-pyproject-toml/".to_string()),
+        docs_url: Some(
+            "https://packaging.python.org/en/latest/guides/writing-pyproject-toml/".to_string(),
+        ),
         exists: has_pyproject,
         template_hint: Some("Replaces setup.py, setup.cfg".to_string()),
     });
@@ -694,7 +718,9 @@ fn add_python_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommendatio
         description: "Lists project dependencies with pinned versions.".to_string(),
         priority: RecommendationPriority::Critical,
         category: RecommendationCategory::Dependencies,
-        docs_url: Some("https://pip.pypa.io/en/stable/reference/requirements-file-format/".to_string()),
+        docs_url: Some(
+            "https://pip.pypa.io/en/stable/reference/requirements-file-format/".to_string(),
+        ),
         exists: has_deps,
         template_hint: Some("Use 'pip freeze > requirements.txt'".to_string()),
     });
@@ -741,7 +767,9 @@ fn add_python_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommendatio
         description: "Directory containing Python test files (test_*.py or *_test.py).".to_string(),
         priority: RecommendationPriority::High,
         category: RecommendationCategory::Testing,
-        docs_url: Some("https://docs.pytest.org/en/stable/explanation/goodpractices.html".to_string()),
+        docs_url: Some(
+            "https://docs.pytest.org/en/stable/explanation/goodpractices.html".to_string(),
+        ),
         exists: has_test_dir || has_test_files,
         template_hint: Some("Create tests/ with test_*.py files".to_string()),
     });
@@ -781,7 +809,7 @@ fn add_go_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommendation>) 
         priority: RecommendationPriority::High,
         category: RecommendationCategory::CodeQuality,
         docs_url: Some("https://golangci-lint.run/usage/configuration/".to_string()),
-        exists: repo_path.join(".golangci.yml").exists() 
+        exists: repo_path.join(".golangci.yml").exists()
             || repo_path.join(".golangci.yaml").exists(),
         template_hint: Some("Enable staticcheck, gosec, errcheck".to_string()),
     });
@@ -790,8 +818,7 @@ fn add_go_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommendation>) 
 /// Add Java/Kotlin specific recommendations.
 fn add_java_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommendation>) {
     // Gradle wrapper
-    let has_wrapper = repo_path.join("gradlew").exists()
-        || repo_path.join("mvnw").exists();
+    let has_wrapper = repo_path.join("gradlew").exists() || repo_path.join("mvnw").exists();
 
     recs.push(FileRecommendation {
         file_name: "gradlew".to_string(),
@@ -805,8 +832,8 @@ fn add_java_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommendation>
     });
 
     // Checkstyle or similar
-    let has_linter = repo_path.join("checkstyle.xml").exists()
-        || repo_path.join(".editorconfig").exists();
+    let has_linter =
+        repo_path.join("checkstyle.xml").exists() || repo_path.join(".editorconfig").exists();
 
     recs.push(FileRecommendation {
         file_name: "checkstyle.xml".to_string(),
@@ -841,7 +868,10 @@ fn add_dotnet_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommendatio
         description: "Centralized MSBuild properties for all projects.".to_string(),
         priority: RecommendationPriority::Medium,
         category: RecommendationCategory::Dependencies,
-        docs_url: Some("https://learn.microsoft.com/en-us/visualstudio/msbuild/customize-your-build".to_string()),
+        docs_url: Some(
+            "https://learn.microsoft.com/en-us/visualstudio/msbuild/customize-your-build"
+                .to_string(),
+        ),
         exists: repo_path.join("Directory.Build.props").exists(),
         template_hint: Some("Set TreatWarningsAsErrors, nullable, etc.".to_string()),
     });
@@ -853,9 +883,10 @@ fn add_dotnet_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommendatio
         description: "Configure package sources and settings.".to_string(),
         priority: RecommendationPriority::Low,
         category: RecommendationCategory::Dependencies,
-        docs_url: Some("https://learn.microsoft.com/en-us/nuget/reference/nuget-config-file".to_string()),
-        exists: repo_path.join("nuget.config").exists() 
-            || repo_path.join("NuGet.Config").exists(),
+        docs_url: Some(
+            "https://learn.microsoft.com/en-us/nuget/reference/nuget-config-file".to_string(),
+        ),
+        exists: repo_path.join("nuget.config").exists() || repo_path.join("NuGet.Config").exists(),
         template_hint: Some("Useful for private feeds".to_string()),
     });
 }
@@ -908,7 +939,9 @@ fn add_php_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommendation>)
         description: "Locks dependency versions for consistent installs.".to_string(),
         priority: RecommendationPriority::Critical,
         category: RecommendationCategory::Dependencies,
-        docs_url: Some("https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies".to_string()),
+        docs_url: Some(
+            "https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies".to_string(),
+        ),
         exists: repo_path.join("composer.lock").exists(),
         template_hint: Some("Run 'composer install' to generate".to_string()),
     });
@@ -983,7 +1016,7 @@ fn calculate_readiness_score(recommendations: &[FileRecommendation]) -> u8 {
             RecommendationPriority::Medium => 2.0,
             RecommendationPriority::Low => 1.0,
         };
-        
+
         max_score += weight;
         if rec.exists {
             score += weight;
@@ -1042,8 +1075,14 @@ mod tests {
 
         // Should return universal recommendations
         assert!(!recs.recommendations.is_empty());
-        assert!(recs.recommendations.iter().any(|r| r.file_name == ".gitignore"));
-        assert!(recs.recommendations.iter().any(|r| r.file_name == "README.md"));
+        assert!(recs
+            .recommendations
+            .iter()
+            .any(|r| r.file_name == ".gitignore"));
+        assert!(recs
+            .recommendations
+            .iter()
+            .any(|r| r.file_name == "README.md"));
     }
 
     #[test]
@@ -1092,8 +1131,14 @@ mod tests {
         let recs = analyze_repository(temp.path());
 
         // Should include Node-specific recommendations
-        assert!(recs.recommendations.iter().any(|r| r.file_name.contains("lock")));
-        assert!(recs.recommendations.iter().any(|r| r.file_name.contains("eslint")));
+        assert!(recs
+            .recommendations
+            .iter()
+            .any(|r| r.file_name.contains("lock")));
+        assert!(recs
+            .recommendations
+            .iter()
+            .any(|r| r.file_name.contains("eslint")));
     }
 
     #[test]
@@ -1104,7 +1149,13 @@ mod tests {
         let recs = analyze_repository(temp.path());
 
         // Should include Rust-specific recommendations
-        assert!(recs.recommendations.iter().any(|r| r.file_name == "Cargo.lock"));
-        assert!(recs.recommendations.iter().any(|r| r.file_name == "rustfmt.toml"));
+        assert!(recs
+            .recommendations
+            .iter()
+            .any(|r| r.file_name == "Cargo.lock"));
+        assert!(recs
+            .recommendations
+            .iter()
+            .any(|r| r.file_name == "rustfmt.toml"));
     }
 }

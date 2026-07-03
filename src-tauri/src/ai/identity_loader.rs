@@ -219,7 +219,10 @@ pub fn resolve_identity_path() -> Option<PathBuf> {
 
 fn load_file_or_fallback(path: &Path, fallback: &str, total_size: &mut usize) -> Result<String> {
     if !path.exists() {
-        log::debug!("Identity file not found, using fallback: {}", path.display());
+        log::debug!(
+            "Identity file not found, using fallback: {}",
+            path.display()
+        );
         return Ok(fallback.to_string());
     }
 

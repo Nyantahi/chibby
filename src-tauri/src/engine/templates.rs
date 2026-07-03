@@ -12,8 +12,7 @@ use std::path::{Path, PathBuf};
 use regex::Regex;
 
 use super::models::{
-    Pipeline, PipelineTemplate, Stage, TemplateFile, TemplateSource, TemplateType,
-    TemplateVariable,
+    Pipeline, PipelineTemplate, Stage, TemplateFile, TemplateSource, TemplateType, TemplateVariable,
 };
 
 // ---------------------------------------------------------------------------
@@ -284,10 +283,7 @@ pub fn get_all_templates(repo_path: Option<&Path>) -> Vec<PipelineTemplate> {
 }
 
 /// Look up a single template by name, respecting the priority order.
-pub fn get_template_by_name(
-    name: &str,
-    repo_path: Option<&Path>,
-) -> Option<PipelineTemplate> {
+pub fn get_template_by_name(name: &str, repo_path: Option<&Path>) -> Option<PipelineTemplate> {
     get_all_templates(repo_path)
         .into_iter()
         .find(|t| t.meta.name == name)
@@ -444,10 +440,9 @@ pub fn apply_template_variables(
 
     match template.meta.template_type {
         TemplateType::Pipeline => {
-            let p = template
-                .pipeline
-                .as_ref()
-                .ok_or_else(|| "Template marked as pipeline but has no pipeline field".to_string())?;
+            let p = template.pipeline.as_ref().ok_or_else(|| {
+                "Template marked as pipeline but has no pipeline field".to_string()
+            })?;
             Ok(Pipeline {
                 name: subst(&p.name),
                 stages: p.stages.iter().map(subst_stage).collect(),
@@ -484,7 +479,13 @@ fn template_to_toml(template: &PipelineTemplate) -> Result<String, String> {
 fn slug(name: &str) -> String {
     name.to_lowercase()
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .trim_matches('-')
         .to_string()
@@ -526,7 +527,11 @@ fn delete_template_from_dir(dir: &Path, name: &str) -> Result<(), String> {
     if path.exists() {
         fs::remove_file(&path).map_err(|e| format!("Failed to delete template: {e}"))
     } else {
-        Err(format!("Template '{}' not found in {}", name, dir.display()))
+        Err(format!(
+            "Template '{}' not found in {}",
+            name,
+            dir.display()
+        ))
     }
 }
 
@@ -542,7 +547,10 @@ pub fn export_template(name: &str, repo_path: Option<&Path>) -> Result<String, S
 }
 
 /// Import a template from a TOML string.
-pub fn import_template(toml_content: &str, source: TemplateSource) -> Result<PipelineTemplate, String> {
+pub fn import_template(
+    toml_content: &str,
+    source: TemplateSource,
+) -> Result<PipelineTemplate, String> {
     parse_template(toml_content, source)
 }
 

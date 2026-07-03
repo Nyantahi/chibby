@@ -1,4 +1,7 @@
-use crate::engine::models::{Pipeline, Stage, Backend, PipelineValidation, PipelineWarning, WarningSeverity, FileConflict, DeploymentMethod, DeploymentConfig, HealthCheck, Environment, EnvironmentsConfig};
+use crate::engine::models::{
+    Backend, DeploymentConfig, DeploymentMethod, Environment, EnvironmentsConfig, FileConflict,
+    HealthCheck, Pipeline, PipelineValidation, PipelineWarning, Stage, WarningSeverity,
+};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
@@ -117,7 +120,11 @@ const SCRIPT_PATTERNS: &[&str] = &[
 
 /// Directory-based CI patterns to check for existence.
 const CI_DIR_PATTERNS: &[(&str, &str, ScriptType)] = &[
-    (".github/workflows", ".github/workflows", ScriptType::GithubActions),
+    (
+        ".github/workflows",
+        ".github/workflows",
+        ScriptType::GithubActions,
+    ),
     (".circleci", ".circleci/config.yml", ScriptType::CircleCi),
     // Python test directories
     ("tests", "tests/", ScriptType::PythonTestDir),
@@ -214,11 +221,29 @@ pub enum ScriptType {
 
 /// Common subdirectory names for fullstack projects (frontend/backend).
 const FULLSTACK_SUBDIRS: &[&str] = &[
-    "frontend", "backend", "api", "web", "app", "client", "server", "src", "admin", "dashboard", "portal",
+    "frontend",
+    "backend",
+    "api",
+    "web",
+    "app",
+    "client",
+    "server",
+    "src",
+    "admin",
+    "dashboard",
+    "portal",
 ];
 
 /// Subdirectories that indicate frontend (Node.js) projects.
-const FRONTEND_SUBDIRS: &[&str] = &["frontend", "client", "web", "app", "admin", "dashboard", "portal"];
+const FRONTEND_SUBDIRS: &[&str] = &[
+    "frontend",
+    "client",
+    "web",
+    "app",
+    "admin",
+    "dashboard",
+    "portal",
+];
 
 /// Subdirectories that indicate backend (Python/Node.js) projects.
 const BACKEND_SUBDIRS: &[&str] = &["backend", "api", "server"];
@@ -288,7 +313,8 @@ pub fn detect_project_folders(repo_path: &Path) -> Vec<ProjectFolder> {
         };
 
         // Determine if frontend or backend based on folder name
-        let is_frontend = FRONTEND_SUBDIRS.contains(&subdir.to_lowercase().as_str()) || has_package_json && !has_python;
+        let is_frontend = FRONTEND_SUBDIRS.contains(&subdir.to_lowercase().as_str())
+            || has_package_json && !has_python;
         let is_backend = BACKEND_SUBDIRS.contains(&subdir.to_lowercase().as_str()) || has_python;
 
         folders.push(ProjectFolder {
@@ -520,7 +546,11 @@ pub fn detect_scripts(repo_path: &Path) -> Vec<DetectedScript> {
     }
 
     // Scan for Python test files (test_*.py, *_test.py) in repo root and tests/ directories
-    let python_test_dirs = [repo_path.to_path_buf(), repo_path.join("tests"), repo_path.join("test")];
+    let python_test_dirs = [
+        repo_path.to_path_buf(),
+        repo_path.join("tests"),
+        repo_path.join("test"),
+    ];
     for test_dir in &python_test_dirs {
         if test_dir.is_dir() {
             if let Ok(entries) = std::fs::read_dir(test_dir) {
@@ -530,7 +560,11 @@ pub fn detect_scripts(repo_path: &Path) -> Vec<DetectedScript> {
                         let display_name = if test_dir == repo_path {
                             name.clone()
                         } else {
-                            format!("{}/{}", test_dir.file_name().unwrap_or_default().to_string_lossy(), name)
+                            format!(
+                                "{}/{}",
+                                test_dir.file_name().unwrap_or_default().to_string_lossy(),
+                                name
+                            )
                         };
                         // Only add if not already found
                         if !found.iter().any(|s| s.file_name == display_name) {
@@ -562,8 +596,9 @@ fn classify_file(name: &str) -> ScriptType {
         "gulpfile.js" => ScriptType::Gulp,
         // Containers
         "Dockerfile" => ScriptType::Dockerfile,
-        "docker-compose.yml" | "docker-compose.yaml"
-        | "compose.yml" | "compose.yaml" => ScriptType::DockerCompose,
+        "docker-compose.yml" | "docker-compose.yaml" | "compose.yml" | "compose.yaml" => {
+            ScriptType::DockerCompose
+        }
         "skaffold.yaml" => ScriptType::Skaffold,
         "Vagrantfile" => ScriptType::Vagrantfile,
         // Node / JS / TS
@@ -618,13 +653,15 @@ fn classify_file(name: &str) -> ScriptType {
         "src-tauri/tauri.conf.json" => ScriptType::TauriConfig,
         "src-tauri/Cargo.toml" => ScriptType::CargoToml,
         // Linters / formatters
-        ".eslintrc.json" | ".eslintrc.js" | ".eslintrc.yml"
-        | "eslint.config.js" | "eslint.config.mjs" => ScriptType::Eslint,
+        ".eslintrc.json" | ".eslintrc.js" | ".eslintrc.yml" | "eslint.config.js"
+        | "eslint.config.mjs" => ScriptType::Eslint,
         ".prettierrc" | ".prettierrc.json" => ScriptType::Prettier,
         "biome.json" => ScriptType::Biome,
         // Chibby config
-        ".chibby/signing.toml" | ".chibby/artifacts.toml"
-        | ".chibby/notify.toml" | ".chibby/cleanup.toml" => ScriptType::ChibbyConfig,
+        ".chibby/signing.toml"
+        | ".chibby/artifacts.toml"
+        | ".chibby/notify.toml"
+        | ".chibby/cleanup.toml" => ScriptType::ChibbyConfig,
         // Shell / unknown
         _ if name.ends_with(".sh") => ScriptType::ShellScript,
         _ => ScriptType::Unknown,
@@ -757,7 +794,10 @@ pub fn generate_draft_pipeline(
     if has_root_cargo {
         if is_tauri {
             // Standard Tauri project — Cargo.toml is in src-tauri/
-            stages.push(local_stage("cargo-test", vec!["cd src-tauri && cargo test"]));
+            stages.push(local_stage(
+                "cargo-test",
+                vec!["cd src-tauri && cargo test"],
+            ));
         } else {
             stages.push(local_stage("cargo-build", vec!["cargo build --release"]));
             stages.push(local_stage("cargo-test", vec!["cargo test"]));
@@ -805,8 +845,14 @@ pub fn generate_draft_pipeline(
 
     // ── Nx (monorepo) ─────────────────────────────────────────────
     if has(ScriptType::Nx) {
-        stages.push(local_stage("nx-build", vec!["npx nx run-many --target=build"]));
-        stages.push(local_stage("nx-test", vec!["npx nx run-many --target=test"]));
+        stages.push(local_stage(
+            "nx-build",
+            vec!["npx nx run-many --target=build"],
+        ));
+        stages.push(local_stage(
+            "nx-test",
+            vec!["npx nx run-many --target=test"],
+        ));
     }
 
     // ── Deno ──────────────────────────────────────────────────────
@@ -847,7 +893,8 @@ pub fn generate_draft_pipeline(
     // ── Python linting (if Python project without Docker-only setup) ─────
     if has_root_python && !has_root_package_json {
         // Check for common Python linter configs
-        let has_ruff = repo_path.join("ruff.toml").exists() || repo_path.join("pyproject.toml").exists();
+        let has_ruff =
+            repo_path.join("ruff.toml").exists() || repo_path.join("pyproject.toml").exists();
         let has_flake8 = repo_path.join(".flake8").exists() || repo_path.join("setup.cfg").exists();
 
         if has_ruff {
@@ -860,7 +907,9 @@ pub fn generate_draft_pipeline(
     // ── Fullstack: Multiple subdirectories ──────────────────────────
     // Detect and generate stages for ALL project folders (frontend, backend, admin, etc.)
     let has_subdir_file = |subdir: &str, file: &str| {
-        scripts.iter().any(|s| s.file_name == format!("{}/{}", subdir, file))
+        scripts
+            .iter()
+            .any(|s| s.file_name == format!("{}/{}", subdir, file))
     };
 
     // Get all project folders with their capabilities
@@ -879,12 +928,16 @@ pub fn generate_draft_pipeline(
             // For single-folder projects, only if no root package.json
             if is_fullstack || !has_root_pkg {
                 // Use npm install (not npm ci) since package-lock.json may not exist
-                stages.push(local_stage(&format!("{}-install", subdir),
-                    vec![&format!("cd {} && npm install", subdir)]));
+                stages.push(local_stage(
+                    &format!("{}-install", subdir),
+                    vec![&format!("cd {} && npm install", subdir)],
+                ));
 
                 if folder.npm_scripts.contains("lint") {
-                    stages.push(local_stage(&format!("{}-lint", subdir),
-                        vec![&format!("cd {} && npm run lint", subdir)]));
+                    stages.push(local_stage(
+                        &format!("{}-lint", subdir),
+                        vec![&format!("cd {} && npm run lint", subdir)],
+                    ));
                 }
 
                 // Check for tests
@@ -907,8 +960,10 @@ pub fn generate_draft_pipeline(
                 }
 
                 if folder.npm_scripts.contains("build") {
-                    stages.push(local_stage(&format!("{}-build", subdir),
-                        vec![&format!("cd {} && npm run build", subdir)]));
+                    stages.push(local_stage(
+                        &format!("{}-build", subdir),
+                        vec![&format!("cd {} && npm run build", subdir)],
+                    ));
                 }
             }
         }
@@ -923,14 +978,19 @@ pub fn generate_draft_pipeline(
                 } else {
                     format!("cd {} && pip install -e .", subdir)
                 };
-                stages.push(local_stage(&format!("{}-install", subdir), vec![&install_cmd]));
+                stages.push(local_stage(
+                    &format!("{}-install", subdir),
+                    vec![&install_cmd],
+                ));
 
                 // Check for tests in subdirectory
-                let has_pytest_config = has_subdir_file(subdir, "pytest.ini")
-                    || has_subdir_file(subdir, "conftest.py");
+                let has_pytest_config =
+                    has_subdir_file(subdir, "pytest.ini") || has_subdir_file(subdir, "conftest.py");
                 if folder.has_tests || has_pytest_config {
-                    stages.push(local_stage(&format!("{}-test", subdir),
-                        vec![&format!("cd {} && pytest", subdir)]));
+                    stages.push(local_stage(
+                        &format!("{}-test", subdir),
+                        vec![&format!("cd {} && pytest", subdir)],
+                    ));
                 }
             }
         }
@@ -944,22 +1004,38 @@ pub fn generate_draft_pipeline(
                 // Tauri project with non-standard layout (e.g. backend/tauri.conf.json).
                 // Emit cargo-build, cargo-test, and tauri-build with the correct config path.
                 let tauri_conf = format!("{}/tauri.conf.json", subdir);
-                stages.push(local_stage("cargo-build",
-                    vec![&format!("cargo build --release --manifest-path {}", manifest)]));
-                stages.push(local_stage("cargo-test",
-                    vec![&format!("cargo test --manifest-path {}", manifest)]));
+                stages.push(local_stage(
+                    "cargo-build",
+                    vec![&format!(
+                        "cargo build --release --manifest-path {}",
+                        manifest
+                    )],
+                ));
+                stages.push(local_stage(
+                    "cargo-test",
+                    vec![&format!("cargo test --manifest-path {}", manifest)],
+                ));
                 if has_script("tauri:build") {
                     stages.push(local_stage("tauri-build", vec!["npm run tauri:build"]));
                 } else {
-                    stages.push(local_stage("tauri-build",
-                        vec![&format!("npx tauri build -c {}", tauri_conf)]));
+                    stages.push(local_stage(
+                        "tauri-build",
+                        vec![&format!("npx tauri build -c {}", tauri_conf)],
+                    ));
                 }
             } else {
                 // Plain Rust in a subdirectory — prefix stage names with folder name.
-                stages.push(local_stage(&format!("{}-cargo-build", subdir),
-                    vec![&format!("cargo build --release --manifest-path {}", manifest)]));
-                stages.push(local_stage(&format!("{}-cargo-test", subdir),
-                    vec![&format!("cargo test --manifest-path {}", manifest)]));
+                stages.push(local_stage(
+                    &format!("{}-cargo-build", subdir),
+                    vec![&format!(
+                        "cargo build --release --manifest-path {}",
+                        manifest
+                    )],
+                ));
+                stages.push(local_stage(
+                    &format!("{}-cargo-test", subdir),
+                    vec![&format!("cargo test --manifest-path {}", manifest)],
+                ));
             }
         }
     }
@@ -982,9 +1058,19 @@ pub fn generate_draft_pipeline(
 
     // ── Java / Gradle ─────────────────────────────────────────────
     if has(ScriptType::Gradle) {
-        let gradle_cmd = if has_file("gradlew") { "./gradlew" } else { "gradle" };
-        stages.push(local_stage("gradle-build", vec![&format!("{} build", gradle_cmd)]));
-        stages.push(local_stage("gradle-test", vec![&format!("{} test", gradle_cmd)]));
+        let gradle_cmd = if has_file("gradlew") {
+            "./gradlew"
+        } else {
+            "gradle"
+        };
+        stages.push(local_stage(
+            "gradle-build",
+            vec![&format!("{} build", gradle_cmd)],
+        ));
+        stages.push(local_stage(
+            "gradle-test",
+            vec![&format!("{} test", gradle_cmd)],
+        ));
     }
 
     // ── .NET ──────────────────────────────────────────────────────
@@ -1001,19 +1087,19 @@ pub fn generate_draft_pipeline(
 
     // ── C / C++ / CMake ───────────────────────────────────────────
     if has(ScriptType::CMake) {
-        stages.push(local_stage("cmake-build", vec![
-            "cmake -B build",
-            "cmake --build build",
-        ]));
+        stages.push(local_stage(
+            "cmake-build",
+            vec!["cmake -B build", "cmake --build build"],
+        ));
         stages.push(local_stage("cmake-test", vec!["ctest --test-dir build"]));
     }
 
     // ── Meson ─────────────────────────────────────────────────────
     if has(ScriptType::Meson) {
-        stages.push(local_stage("meson-build", vec![
-            "meson setup build",
-            "meson compile -C build",
-        ]));
+        stages.push(local_stage(
+            "meson-build",
+            vec!["meson setup build", "meson compile -C build"],
+        ));
         stages.push(local_stage("meson-test", vec!["meson test -C build"]));
     }
 
@@ -1045,7 +1131,10 @@ pub fn generate_draft_pipeline(
 
     // ── Fallback ──────────────────────────────────────────────────
     if stages.is_empty() {
-        stages.push(local_stage("build", vec!["echo 'Add your build commands here'"]));
+        stages.push(local_stage(
+            "build",
+            vec!["echo 'Add your build commands here'"],
+        ));
     }
 
     // ── Security gates ────────────────────────────────────────────
@@ -1148,14 +1237,19 @@ pub fn generate_deploy_pipeline(
         let workflow_stages = workflows_to_stages(&deploy_workflows);
         for stage in workflow_stages {
             // Determine if this is an SSH stage based on commands
-            let is_ssh_stage = stage.commands.iter().any(|cmd| {
-                cmd.contains("ssh ") || cmd.contains("rsync") || cmd.contains("scp ")
-            });
+            let is_ssh_stage = stage
+                .commands
+                .iter()
+                .any(|cmd| cmd.contains("ssh ") || cmd.contains("rsync") || cmd.contains("scp "));
 
             stages.push(Stage {
                 name: stage.name,
                 commands: stage.commands,
-                backend: if is_ssh_stage { Backend::Ssh } else { Backend::Local },
+                backend: if is_ssh_stage {
+                    Backend::Ssh
+                } else {
+                    Backend::Local
+                },
                 working_dir: stage.working_dir,
                 fail_fast: stage.fail_fast,
                 health_check: stage.health_check,
@@ -1255,7 +1349,8 @@ pub fn detect_project_type(repo_path: &Path) -> ProjectType {
 
     // Check for static site patterns without package.json
     if has_dir("public") || has_dir("static") {
-        if has_file("index.html") || has_file("public/index.html") || has_file("static/index.html") {
+        if has_file("index.html") || has_file("public/index.html") || has_file("static/index.html")
+        {
             return ProjectType::StaticSite;
         }
     }
@@ -1424,10 +1519,7 @@ pub fn get_suggested_deploy_methods(repo_path: &Path) -> Vec<DeploymentMethod> {
             DeploymentMethod::DockerComposeSsh,
             DeploymentMethod::Skip,
         ],
-        ProjectType::Tauri => vec![
-            DeploymentMethod::GithubRelease,
-            DeploymentMethod::Skip,
-        ],
+        ProjectType::Tauri => vec![DeploymentMethod::GithubRelease, DeploymentMethod::Skip],
         ProjectType::Node => vec![
             DeploymentMethod::DockerComposeSsh,
             DeploymentMethod::Vercel,
@@ -1488,12 +1580,19 @@ pub fn generate_deployment_pipeline(
         DeploymentMethod::DockerComposeSsh => {
             stages.push(local_stage("docker-build", vec!["docker compose build"]));
 
-            let compose_file = deploy_config.compose_file.as_deref().unwrap_or("docker-compose.yml");
-            let compose_cmd = if compose_file != "docker-compose.yml" && compose_file != "compose.yml" {
-                format!("docker compose -f {} pull && docker compose -f {} up -d --remove-orphans", compose_file, compose_file)
-            } else {
-                "docker compose pull && docker compose up -d --remove-orphans".to_string()
-            };
+            let compose_file = deploy_config
+                .compose_file
+                .as_deref()
+                .unwrap_or("docker-compose.yml");
+            let compose_cmd =
+                if compose_file != "docker-compose.yml" && compose_file != "compose.yml" {
+                    format!(
+                        "docker compose -f {} pull && docker compose -f {} up -d --remove-orphans",
+                        compose_file, compose_file
+                    )
+                } else {
+                    "docker compose pull && docker compose up -d --remove-orphans".to_string()
+                };
 
             stages.push(Stage {
                 name: "deploy".to_string(),
@@ -1522,13 +1621,19 @@ pub fn generate_deployment_pipeline(
         }
 
         DeploymentMethod::DockerRegistry => {
-            let registry = deploy_config.docker_registry.as_deref().unwrap_or("ghcr.io");
+            let registry = deploy_config
+                .docker_registry
+                .as_deref()
+                .unwrap_or("ghcr.io");
             let image_name = format!("{}/{}", registry, repo_name.to_lowercase());
 
-            stages.push(local_stage("docker-build", vec![
-                &format!("docker build -t {} .", image_name),
-                &format!("docker push {}", image_name),
-            ]));
+            stages.push(local_stage(
+                "docker-build",
+                vec![
+                    &format!("docker build -t {} .", image_name),
+                    &format!("docker push {}", image_name),
+                ],
+            ));
 
             stages.push(Stage {
                 name: "deploy".to_string(),
@@ -1585,9 +1690,10 @@ pub fn generate_deployment_pipeline(
 
             stages.push(Stage {
                 name: "github-release".to_string(),
-                commands: vec![
-                    format!("gh release create v$({}) --generate-notes --draft ./dist/*", version_cmd),
-                ],
+                commands: vec![format!(
+                    "gh release create v$({}) --generate-notes --draft ./dist/*",
+                    version_cmd
+                )],
                 backend: Backend::Local,
                 working_dir: None,
                 fail_fast: true,
@@ -1598,9 +1704,10 @@ pub fn generate_deployment_pipeline(
         DeploymentMethod::SshRsync => {
             let ssh_host = deploy_config.ssh_host.as_deref().unwrap_or("{{ssh_host}}");
 
-            stages.push(local_stage("deploy", vec![
-                &format!("rsync -avz --delete ./dist/ {}:~/app/", ssh_host),
-            ]));
+            stages.push(local_stage(
+                "deploy",
+                vec![&format!("rsync -avz --delete ./dist/ {}:~/app/", ssh_host)],
+            ));
 
             stages.push(Stage {
                 name: "restart".to_string(),
@@ -1616,19 +1723,29 @@ pub fn generate_deployment_pipeline(
             stages.push(local_stage("deploy", vec!["fly deploy"]));
 
             if let Some(health_url) = &deploy_config.health_check_url {
-                let app_name = deploy_config.platform_project.as_deref().unwrap_or(repo_name);
-                stages.push(local_stage("health-check", vec![
-                    &format!("curl -sf https://{}.fly.dev{} || exit 1", app_name, health_url),
-                ]));
+                let app_name = deploy_config
+                    .platform_project
+                    .as_deref()
+                    .unwrap_or(repo_name);
+                stages.push(local_stage(
+                    "health-check",
+                    vec![&format!(
+                        "curl -sf https://{}.fly.dev{} || exit 1",
+                        app_name, health_url
+                    )],
+                ));
             }
         }
 
         DeploymentMethod::Render => {
             // Render typically auto-deploys on push, but we can trigger via API
-            stages.push(local_stage("deploy", vec![
-                "echo 'Render deploys automatically on push. Manual trigger:'",
-                "# curl -X POST https://api.render.com/deploy/srv-xxx?key=xxx",
-            ]));
+            stages.push(local_stage(
+                "deploy",
+                vec![
+                    "echo 'Render deploys automatically on push. Manual trigger:'",
+                    "# curl -X POST https://api.render.com/deploy/srv-xxx?key=xxx",
+                ],
+            ));
         }
 
         DeploymentMethod::Railway => {
@@ -1638,9 +1755,10 @@ pub fn generate_deployment_pipeline(
         DeploymentMethod::Netlify => {
             // Detect build output directory
             let dist_dir = detect_dist_directory(repo_path);
-            stages.push(local_stage("deploy", vec![
-                &format!("netlify deploy --prod --dir={}", dist_dir),
-            ]));
+            stages.push(local_stage(
+                "deploy",
+                vec![&format!("netlify deploy --prod --dir={}", dist_dir)],
+            ));
         }
 
         DeploymentMethod::Vercel => {
@@ -1649,11 +1767,18 @@ pub fn generate_deployment_pipeline(
 
         DeploymentMethod::S3Static => {
             let dist_dir = detect_dist_directory(repo_path);
-            let bucket = deploy_config.platform_project.as_deref().unwrap_or("{{s3_bucket}}");
+            let bucket = deploy_config
+                .platform_project
+                .as_deref()
+                .unwrap_or("{{s3_bucket}}");
 
-            stages.push(local_stage("deploy", vec![
-                &format!("aws s3 sync ./{} s3://{} --delete", dist_dir, bucket),
-            ]));
+            stages.push(local_stage(
+                "deploy",
+                vec![&format!(
+                    "aws s3 sync ./{} s3://{} --delete",
+                    dist_dir, bucket
+                )],
+            ));
 
             // Optional CloudFront invalidation
             stages.push(local_stage("invalidate-cache", vec![
@@ -1689,7 +1814,11 @@ pub fn generate_deployment_pipeline(
                     stages.push(Stage {
                         name: stage.name,
                         commands: stage.commands,
-                        backend: if is_ssh_stage { Backend::Ssh } else { Backend::Local },
+                        backend: if is_ssh_stage {
+                            Backend::Ssh
+                        } else {
+                            Backend::Local
+                        },
                         working_dir: stage.working_dir,
                         fail_fast: stage.fail_fast,
                         health_check: stage.health_check,
@@ -1734,7 +1863,9 @@ pub fn generate_deployment_pipeline(
 /// SSH-based deployments get production + staging environments.
 /// PaaS deployments get production only.
 /// Package publishing (Cargo, npm) and GitHub releases don't need environments.
-pub fn generate_default_environments(deploy_config: &DeploymentConfig) -> Option<EnvironmentsConfig> {
+pub fn generate_default_environments(
+    deploy_config: &DeploymentConfig,
+) -> Option<EnvironmentsConfig> {
     let envs = match deploy_config.method {
         // SSH-based deployments: production + staging
         DeploymentMethod::DockerComposeSsh
@@ -1793,7 +1924,8 @@ fn detect_version_command(repo_path: &Path) -> String {
 
     // Check for Cargo.toml
     if repo_path.join("Cargo.toml").exists() {
-        return "cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].version'".to_string();
+        return "cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].version'"
+            .to_string();
     }
 
     // Check for package.json
@@ -1899,10 +2031,17 @@ fn parse_single_github_workflow(file_path: &Path) -> Option<CiWorkflow> {
     let content = std::fs::read_to_string(file_path).ok()?;
     let yaml: serde_yaml::Value = serde_yaml::from_str(&content).ok()?;
 
-    let workflow_name = yaml.get("name")
+    let workflow_name = yaml
+        .get("name")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .unwrap_or_else(|| file_path.file_stem().unwrap_or_default().to_string_lossy().to_string());
+        .unwrap_or_else(|| {
+            file_path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string()
+        });
 
     let mut jobs = Vec::new();
 
@@ -1915,8 +2054,14 @@ fn parse_single_github_workflow(file_path: &Path) -> Option<CiWorkflow> {
                 for step in steps_arr {
                     // Only include steps with "run" commands (skip actions like checkout)
                     if let Some(run_cmd) = step.get("run").and_then(|v| v.as_str()) {
-                        let step_name = step.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
-                        let working_dir = step.get("working-directory").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        let step_name = step
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        let working_dir = step
+                            .get("working-directory")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
 
                         steps.push(CiWorkflowStep {
                             name: step_name,
@@ -1959,18 +2104,24 @@ pub fn workflows_to_stages(workflows: &[CiWorkflow]) -> Vec<Stage> {
             // Create a unique stage name
             let base_name = format!("ci-{}", job.name);
             let stage_name = if seen_names.contains(&base_name) {
-                format!("{}-{}", base_name, workflow.name.to_lowercase().replace(' ', "-"))
+                format!(
+                    "{}-{}",
+                    base_name,
+                    workflow.name.to_lowercase().replace(' ', "-")
+                )
             } else {
                 base_name.clone()
             };
             seen_names.insert(stage_name.clone());
 
             // Collect all run commands from this job
-            let commands: Vec<String> = job.steps
+            let commands: Vec<String> = job
+                .steps
                 .iter()
                 .flat_map(|step| {
                     // Split multi-line run commands
-                    step.run.lines()
+                    step.run
+                        .lines()
                         .map(|line| line.trim().to_string())
                         .filter(|line| !line.is_empty() && !line.starts_with('#'))
                         .collect::<Vec<_>>()
@@ -1982,9 +2133,7 @@ pub fn workflows_to_stages(workflows: &[CiWorkflow]) -> Vec<Stage> {
             }
 
             // Use working directory from first step that has one
-            let working_dir = job.steps
-                .iter()
-                .find_map(|s| s.working_directory.clone());
+            let working_dir = job.steps.iter().find_map(|s| s.working_directory.clone());
 
             stages.push(Stage {
                 name: stage_name,
@@ -2081,7 +2230,8 @@ pub fn validate_pipeline(pipeline: &Pipeline, repo_path: &Path) -> PipelineValid
         || repo_path.join("GNUmakefile").exists();
 
     // Also check subdirectories for package.json (fullstack projects)
-    let mut subdir_package_jsons: std::collections::HashMap<String, HashSet<String>> = std::collections::HashMap::new();
+    let mut subdir_package_jsons: std::collections::HashMap<String, HashSet<String>> =
+        std::collections::HashMap::new();
     for subdir in FULLSTACK_SUBDIRS {
         let subdir_path = repo_path.join(subdir);
         if subdir_path.join("package.json").exists() {
@@ -2113,7 +2263,8 @@ pub fn validate_pipeline(pipeline: &Pipeline, repo_path: &Path) -> PipelineValid
             }
 
             // Check make commands
-            if let Some(warning) = check_make_command(cmd, &make_targets, has_makefile, &stage.name) {
+            if let Some(warning) = check_make_command(cmd, &make_targets, has_makefile, &stage.name)
+            {
                 warnings.push(warning);
             }
 
@@ -2124,7 +2275,9 @@ pub fn validate_pipeline(pipeline: &Pipeline, repo_path: &Path) -> PipelineValid
         }
     }
 
-    let has_errors = warnings.iter().any(|w| w.severity == WarningSeverity::Error);
+    let has_errors = warnings
+        .iter()
+        .any(|w| w.severity == WarningSeverity::Error);
 
     PipelineValidation {
         warnings,
@@ -2147,17 +2300,43 @@ fn detect_file_conflicts(repo_path: &Path) -> Vec<FileConflict> {
     // Define groups of files that conflict with each other
     let conflict_groups: &[(&str, &[&str], Option<&str>)] = &[
         // Makefiles - on case-sensitive systems, both can exist but cause confusion
-        ("Makefile", &["Makefile", "makefile", "GNUmakefile"], Some("GNUmakefile > Makefile > makefile")),
+        (
+            "Makefile",
+            &["Makefile", "makefile", "GNUmakefile"],
+            Some("GNUmakefile > Makefile > makefile"),
+        ),
         // Docker Compose - multiple variants
-        ("Docker Compose", &["docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"], Some("compose.yml is the modern default")),
+        (
+            "Docker Compose",
+            &[
+                "docker-compose.yml",
+                "docker-compose.yaml",
+                "compose.yml",
+                "compose.yaml",
+            ],
+            Some("compose.yml is the modern default"),
+        ),
         // Taskfile
         ("Taskfile", &["Taskfile.yml", "Taskfile.yaml"], None),
         // Deno config
         ("Deno Config", &["deno.json", "deno.jsonc"], None),
         // Python project config (multiple ways to define a project)
-        ("Python Project", &["pyproject.toml", "setup.py", "setup.cfg"], Some("pyproject.toml is the modern standard")),
+        (
+            "Python Project",
+            &["pyproject.toml", "setup.py", "setup.cfg"],
+            Some("pyproject.toml is the modern standard"),
+        ),
         // Package lock files - indicates mixed package manager usage
-        ("Package Lock", &["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb"], Some("Use only one package manager")),
+        (
+            "Package Lock",
+            &[
+                "package-lock.json",
+                "yarn.lock",
+                "pnpm-lock.yaml",
+                "bun.lockb",
+            ],
+            Some("Use only one package manager"),
+        ),
         // Gradle
         ("Gradle Build", &["build.gradle", "build.gradle.kts"], None),
     ];
@@ -2193,7 +2372,9 @@ fn detect_file_conflicts(repo_path: &Path) -> Vec<FileConflict> {
         conflicts.push(FileConflict {
             category: "Environment Files".to_string(),
             files: env_files,
-            message: "Many .env files detected. Ensure you know which ones are loaded and in what order.".to_string(),
+            message:
+                "Many .env files detected. Ensure you know which ones are loaded and in what order."
+                    .to_string(),
             active_file: Some(".env".to_string()),
         });
     }
@@ -2248,7 +2429,12 @@ fn detect_env_file_conflicts(repo_path: &Path) -> Vec<String> {
     if let Ok(entries) = std::fs::read_dir(repo_path) {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
-            if name == ".env" || (name.starts_with(".env.") && !name.ends_with(".example") && !name.ends_with(".sample") && !name.ends_with(".template")) {
+            if name == ".env"
+                || (name.starts_with(".env.")
+                    && !name.ends_with(".example")
+                    && !name.ends_with(".sample")
+                    && !name.ends_with(".template"))
+            {
                 env_files.push(name);
             }
         }
@@ -2303,10 +2489,20 @@ fn check_npm_command_fullstack(
     if is_fullstack {
         // For fullstack projects, npm commands without cd prefix are likely from
         // imported CI workflows - give a more helpful message
-        return check_npm_command_fullstack_soft(cmd_trimmed, all_npm_scripts, stage_name, subdir_scripts);
+        return check_npm_command_fullstack_soft(
+            cmd_trimmed,
+            all_npm_scripts,
+            stage_name,
+            subdir_scripts,
+        );
     }
 
-    check_npm_command(cmd_trimmed, all_npm_scripts, has_any_package_json, stage_name)
+    check_npm_command(
+        cmd_trimmed,
+        all_npm_scripts,
+        has_any_package_json,
+        stage_name,
+    )
 }
 
 /// Softer validation for fullstack projects - downgrades errors to warnings
@@ -2319,20 +2515,31 @@ fn check_npm_command_fullstack_soft(
     let cmd_trimmed = cmd.trim();
 
     // Match "npm test", "npm run <script>", "npm run-script <script>"
-    if cmd_trimmed.starts_with("npm ") || cmd_trimmed.starts_with("yarn ") || cmd_trimmed.starts_with("pnpm ") {
+    if cmd_trimmed.starts_with("npm ")
+        || cmd_trimmed.starts_with("yarn ")
+        || cmd_trimmed.starts_with("pnpm ")
+    {
         let script_name = extract_npm_script_name(cmd_trimmed);
 
         if let Some(script) = script_name {
             // Check if script exists in any subdir
-            let found_in_subdir = subdir_scripts.iter().find(|(_, scripts)| scripts.contains(&script));
+            let found_in_subdir = subdir_scripts
+                .iter()
+                .find(|(_, scripts)| scripts.contains(&script));
 
             if let Some((subdir, _)) = found_in_subdir {
                 // Script found in a subdirectory - suggest adding cd prefix
                 return Some(PipelineWarning {
                     stage_name: stage_name.to_string(),
                     command: cmd.to_string(),
-                    message: format!("Script '{}' found in {}/package.json, not root", script, subdir),
-                    suggestion: Some(format!("Add 'cd {} && ' prefix or move script to root package.json", subdir)),
+                    message: format!(
+                        "Script '{}' found in {}/package.json, not root",
+                        script, subdir
+                    ),
+                    suggestion: Some(format!(
+                        "Add 'cd {} && ' prefix or move script to root package.json",
+                        subdir
+                    )),
                     severity: WarningSeverity::Warning, // Warning, not error
                 });
             } else if !all_npm_scripts.contains(&script) {
@@ -2347,7 +2554,10 @@ fn check_npm_command_fullstack_soft(
                     stage_name: stage_name.to_string(),
                     command: cmd.to_string(),
                     message: format!("Script '{}' not found in any package.json", script),
-                    suggestion: Some(format!("Add the script to {}/package.json or remove this stage", subdir_hint)),
+                    suggestion: Some(format!(
+                        "Add the script to {}/package.json or remove this stage",
+                        subdir_hint
+                    )),
                     severity: WarningSeverity::Warning, // Warning for fullstack projects
                 });
             }
@@ -2401,7 +2611,10 @@ fn check_npm_command(
     let cmd_trimmed = cmd.trim();
 
     // Match "npm test", "npm run <script>", "npm run-script <script>"
-    if cmd_trimmed.starts_with("npm ") || cmd_trimmed.starts_with("yarn ") || cmd_trimmed.starts_with("pnpm ") {
+    if cmd_trimmed.starts_with("npm ")
+        || cmd_trimmed.starts_with("yarn ")
+        || cmd_trimmed.starts_with("pnpm ")
+    {
         let script_name = extract_npm_script_name(cmd_trimmed);
 
         if let Some(script) = script_name {
@@ -2541,13 +2754,19 @@ mod tests {
     #[test]
     fn test_classify_file_docker() {
         assert_eq!(classify_file("Dockerfile"), ScriptType::Dockerfile);
-        assert_eq!(classify_file("docker-compose.yml"), ScriptType::DockerCompose);
+        assert_eq!(
+            classify_file("docker-compose.yml"),
+            ScriptType::DockerCompose
+        );
     }
 
     #[test]
     fn test_classify_file_python() {
         assert_eq!(classify_file("pyproject.toml"), ScriptType::PythonProject);
-        assert_eq!(classify_file("requirements.txt"), ScriptType::PythonRequirements);
+        assert_eq!(
+            classify_file("requirements.txt"),
+            ScriptType::PythonRequirements
+        );
     }
 
     #[test]
@@ -2579,7 +2798,9 @@ mod tests {
 
         let scripts = detect_scripts(temp.path());
         assert!(!scripts.is_empty());
-        assert!(scripts.iter().any(|s| s.script_type == ScriptType::PackageJson));
+        assert!(scripts
+            .iter()
+            .any(|s| s.script_type == ScriptType::PackageJson));
     }
 
     #[test]
@@ -2593,7 +2814,9 @@ mod tests {
 
         let scripts = detect_scripts(temp.path());
         assert!(!scripts.is_empty());
-        assert!(scripts.iter().any(|s| s.script_type == ScriptType::Makefile));
+        assert!(scripts
+            .iter()
+            .any(|s| s.script_type == ScriptType::Makefile));
     }
 
     #[test]
@@ -2609,7 +2832,12 @@ mod tests {
             .iter()
             .filter(|s| s.script_type == ScriptType::Makefile)
             .collect();
-        assert_eq!(makefile_hits.len(), 1, "expected one Makefile entry, got {:?}", makefile_hits);
+        assert_eq!(
+            makefile_hits.len(),
+            1,
+            "expected one Makefile entry, got {:?}",
+            makefile_hits
+        );
         assert_eq!(makefile_hits[0].file_name, "Makefile");
     }
 
@@ -2639,7 +2867,9 @@ mod tests {
 
         let scripts = detect_scripts(temp.path());
         assert!(!scripts.is_empty());
-        assert!(scripts.iter().any(|s| s.script_type == ScriptType::CargoToml));
+        assert!(scripts
+            .iter()
+            .any(|s| s.script_type == ScriptType::CargoToml));
     }
 
     #[test]
@@ -2665,11 +2895,7 @@ mod tests {
         assert!(!pipeline.stages.is_empty());
 
         // Should generate npm-based stages
-        let stage_commands: Vec<_> = pipeline
-            .stages
-            .iter()
-            .flat_map(|s| &s.commands)
-            .collect();
+        let stage_commands: Vec<_> = pipeline.stages.iter().flat_map(|s| &s.commands).collect();
         assert!(stage_commands.iter().any(|c| c.contains("npm")));
     }
 
@@ -2685,11 +2911,7 @@ mod tests {
         let pipeline = generate_draft_pipeline("rust-app", &scripts, tmp.path());
 
         // Should detect Rust and add cargo stages
-        let stage_commands: Vec<_> = pipeline
-            .stages
-            .iter()
-            .flat_map(|s| &s.commands)
-            .collect();
+        let stage_commands: Vec<_> = pipeline.stages.iter().flat_map(|s| &s.commands).collect();
         assert!(stage_commands.iter().any(|c| c.contains("cargo")));
     }
 
@@ -2879,7 +3101,8 @@ jobs:
         std::fs::write(
             frontend.join("package.json"),
             r#"{"name": "frontend", "scripts": {"build": "vite build", "test": "vitest"}}"#,
-        ).unwrap();
+        )
+        .unwrap();
 
         let folders = detect_project_folders(temp.path());
         assert_eq!(folders.len(), 1);
@@ -2900,7 +3123,8 @@ jobs:
         std::fs::write(
             frontend.join("package.json"),
             r#"{"name": "frontend", "scripts": {"build": "vite build"}}"#,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Create backend directory with Python
         let backend = temp.path().join("backend");
@@ -2934,7 +3158,8 @@ jobs:
             std::fs::write(
                 dir.join("package.json"),
                 format!(r#"{{"name": "{}", "scripts": {{"test": "vitest"}}}}"#, name),
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         let folders = detect_project_folders(temp.path());
@@ -2974,8 +3199,12 @@ jobs:
             std::fs::create_dir(&dir).unwrap();
             std::fs::write(
                 dir.join("package.json"),
-                format!(r#"{{"name": "{}", "scripts": {{"lint": "eslint", "test": "vitest"}}}}"#, name),
-            ).unwrap();
+                format!(
+                    r#"{{"name": "{}", "scripts": {{"lint": "eslint", "test": "vitest"}}}}"#,
+                    name
+                ),
+            )
+            .unwrap();
         }
 
         // Create docker-compose.yml
@@ -2987,20 +3216,59 @@ jobs:
         // Should have stages for ALL folders (frontend, backend, admin)
         let stage_names: Vec<_> = pipeline.stages.iter().map(|s| s.name.as_str()).collect();
 
-        assert!(stage_names.contains(&"frontend-install"), "Missing frontend-install: {:?}", stage_names);
-        assert!(stage_names.contains(&"frontend-lint"), "Missing frontend-lint: {:?}", stage_names);
-        assert!(stage_names.contains(&"frontend-test"), "Missing frontend-test: {:?}", stage_names);
+        assert!(
+            stage_names.contains(&"frontend-install"),
+            "Missing frontend-install: {:?}",
+            stage_names
+        );
+        assert!(
+            stage_names.contains(&"frontend-lint"),
+            "Missing frontend-lint: {:?}",
+            stage_names
+        );
+        assert!(
+            stage_names.contains(&"frontend-test"),
+            "Missing frontend-test: {:?}",
+            stage_names
+        );
 
-        assert!(stage_names.contains(&"backend-install"), "Missing backend-install: {:?}", stage_names);
-        assert!(stage_names.contains(&"backend-lint"), "Missing backend-lint: {:?}", stage_names);
-        assert!(stage_names.contains(&"backend-test"), "Missing backend-test: {:?}", stage_names);
+        assert!(
+            stage_names.contains(&"backend-install"),
+            "Missing backend-install: {:?}",
+            stage_names
+        );
+        assert!(
+            stage_names.contains(&"backend-lint"),
+            "Missing backend-lint: {:?}",
+            stage_names
+        );
+        assert!(
+            stage_names.contains(&"backend-test"),
+            "Missing backend-test: {:?}",
+            stage_names
+        );
 
-        assert!(stage_names.contains(&"admin-install"), "Missing admin-install: {:?}", stage_names);
-        assert!(stage_names.contains(&"admin-lint"), "Missing admin-lint: {:?}", stage_names);
-        assert!(stage_names.contains(&"admin-test"), "Missing admin-test: {:?}", stage_names);
+        assert!(
+            stage_names.contains(&"admin-install"),
+            "Missing admin-install: {:?}",
+            stage_names
+        );
+        assert!(
+            stage_names.contains(&"admin-lint"),
+            "Missing admin-lint: {:?}",
+            stage_names
+        );
+        assert!(
+            stage_names.contains(&"admin-test"),
+            "Missing admin-test: {:?}",
+            stage_names
+        );
 
         // Docker-deploy should NOT be in CI pipeline (it goes in deploy.toml)
-        assert!(!stage_names.contains(&"docker-deploy"), "docker-deploy should not be in CI pipeline for fullstack");
+        assert!(
+            !stage_names.contains(&"docker-deploy"),
+            "docker-deploy should not be in CI pipeline for fullstack"
+        );
     }
 
     #[test]
@@ -3030,7 +3298,8 @@ jobs:
         std::fs::write(
             frontend.join("package.json"),
             r#"{"name": "frontend", "scripts": {"lint": "eslint", "test": "vitest"}}"#,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Create backend with Python
         let backend = temp.path().join("backend");
@@ -3045,9 +3314,17 @@ jobs:
         for stage in &pipeline.stages {
             for cmd in &stage.commands {
                 if stage.name.starts_with("frontend-") {
-                    assert!(cmd.starts_with("cd frontend && "), "Command missing 'cd frontend &&' prefix: {}", cmd);
+                    assert!(
+                        cmd.starts_with("cd frontend && "),
+                        "Command missing 'cd frontend &&' prefix: {}",
+                        cmd
+                    );
                 } else if stage.name.starts_with("backend-") {
-                    assert!(cmd.starts_with("cd backend &&" ), "Command missing 'cd backend &&' prefix: {}", cmd);
+                    assert!(
+                        cmd.starts_with("cd backend &&"),
+                        "Command missing 'cd backend &&' prefix: {}",
+                        cmd
+                    );
                 }
             }
         }
@@ -3067,11 +3344,18 @@ jobs:
                 ..Default::default()
             };
             let result = generate_default_environments(&config);
-            assert!(result.is_some(), "Expected environments for {:?}", config.method);
+            assert!(
+                result.is_some(),
+                "Expected environments for {:?}",
+                config.method
+            );
             let envs = result.unwrap();
             assert_eq!(envs.environments.len(), 2);
             assert_eq!(envs.environments[0].name, "production");
-            assert_eq!(envs.environments[0].ssh_host, Some("user@example.com".to_string()));
+            assert_eq!(
+                envs.environments[0].ssh_host,
+                Some("user@example.com".to_string())
+            );
             assert_eq!(envs.environments[1].name, "staging");
             assert!(envs.environments[1].ssh_host.is_none());
         }
@@ -3093,7 +3377,11 @@ jobs:
                 ..Default::default()
             };
             let result = generate_default_environments(&config);
-            assert!(result.is_some(), "Expected environments for {:?}", config.method);
+            assert!(
+                result.is_some(),
+                "Expected environments for {:?}",
+                config.method
+            );
             let envs = result.unwrap();
             assert_eq!(envs.environments.len(), 1);
             assert_eq!(envs.environments[0].name, "production");
@@ -3116,7 +3404,11 @@ jobs:
                 ..Default::default()
             };
             let result = generate_default_environments(&config);
-            assert!(result.is_none(), "Expected no environments for {:?}", config.method);
+            assert!(
+                result.is_none(),
+                "Expected no environments for {:?}",
+                config.method
+            );
         }
     }
 }

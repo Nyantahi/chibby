@@ -132,10 +132,7 @@ impl AnalysisContext {
 
                 parts.push(format!(
                     "\n### Stage: {} [{}] (exit: {:?}, {:?}ms)",
-                    stage.stage_name,
-                    status_icon,
-                    stage.exit_code,
-                    stage.duration_ms
+                    stage.stage_name, status_icon, stage.exit_code, stage.duration_ms
                 ));
 
                 // Truncate logs to last 50 lines each to manage context window

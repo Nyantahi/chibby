@@ -26,8 +26,7 @@ pub fn save_updater_config(repo_path: &Path, config: &UpdaterConfig) -> Result<(
     let chibby_dir = repo_path.join(".chibby");
     std::fs::create_dir_all(&chibby_dir)?;
 
-    let toml_str =
-        toml::to_string_pretty(config).context("Failed to serialize updater config")?;
+    let toml_str = toml::to_string_pretty(config).context("Failed to serialize updater config")?;
 
     let file_path = chibby_dir.join("updater.toml");
     std::fs::write(&file_path, &toml_str)?;
@@ -79,10 +78,7 @@ fn find_tauri_cli() -> Option<Vec<String>> {
             .output();
         if let Ok(o) = output {
             if o.status.success() {
-                return Some(vec![
-                    "npx".to_string(),
-                    "@tauri-apps/cli".to_string(),
-                ]);
+                return Some(vec!["npx".to_string(), "@tauri-apps/cli".to_string()]);
             }
         }
     }
@@ -200,7 +196,11 @@ fn extract_key_from_output(output: &str, key_type: &str) -> Option<String> {
     let long_strings: Vec<&str> = output
         .lines()
         .map(|l| l.trim())
-        .filter(|l| l.len() > 40 && l.chars().all(|c| c.is_alphanumeric() || c == '+' || c == '/' || c == '='))
+        .filter(|l| {
+            l.len() > 40
+                && l.chars()
+                    .all(|c| c.is_alphanumeric() || c == '+' || c == '/' || c == '=')
+        })
         .collect();
 
     match (key_type, long_strings.len()) {
@@ -237,8 +237,8 @@ pub fn has_update_private_key(project_path: &str) -> bool {
 /// Retrieve the Tauri update private key from the keychain.
 fn get_update_private_key(project_path: &str) -> Result<String> {
     let account = updater_account_key(project_path);
-    let entry = keyring::Entry::new(UPDATER_SERVICE, &account)
-        .context("Failed to create keyring entry")?;
+    let entry =
+        keyring::Entry::new(UPDATER_SERVICE, &account).context("Failed to create keyring entry")?;
     entry
         .get_password()
         .context("Tauri update private key not found in keychain. Run key generation first.")
@@ -247,18 +247,15 @@ fn get_update_private_key(project_path: &str) -> Result<String> {
 /// Delete the Tauri update private key from the keychain.
 pub fn delete_update_private_key(project_path: &str) -> Result<()> {
     let account = updater_account_key(project_path);
-    let entry = keyring::Entry::new(UPDATER_SERVICE, &account)
-        .context("Failed to create keyring entry")?;
+    let entry =
+        keyring::Entry::new(UPDATER_SERVICE, &account).context("Failed to create keyring entry")?;
     entry
         .delete_credential()
         .context("Failed to delete update private key from keychain")
 }
 
 /// Rotate the update key pair: generate new keys and re-sign the current release.
-pub fn rotate_update_keys(
-    repo_path: &Path,
-    project_path: &str,
-) -> Result<UpdateKeyResult> {
+pub fn rotate_update_keys(repo_path: &Path, project_path: &str) -> Result<UpdateKeyResult> {
     // Delete old key if present
     let _ = delete_update_private_key(project_path);
 
@@ -275,7 +272,8 @@ pub fn rotate_update_keys(
     Ok(UpdateKeyResult {
         public_key: result.public_key,
         private_key_stored: true,
-        message: "Key pair rotated. Update your tauri.conf.json with the new public key.".to_string(),
+        message: "Key pair rotated. Update your tauri.conf.json with the new public key."
+            .to_string(),
     })
 }
 
@@ -309,12 +307,18 @@ pub fn updater_preflight(repo_path: &Path, project_path: &str) -> Vec<String> {
 
     // Check private key in keychain
     if !has_update_private_key(project_path) {
-        issues.push("Update private key not found in OS keychain. Run key generation or import your key.".to_string());
+        issues.push(
+            "Update private key not found in OS keychain. Run key generation or import your key."
+                .to_string(),
+        );
     }
 
     // Check base URL
     if config.base_url.is_none() {
-        issues.push("No base_url configured. This is required to generate download URLs in latest.json.".to_string());
+        issues.push(
+            "No base_url configured. This is required to generate download URLs in latest.json."
+                .to_string(),
+        );
     }
 
     // Check publish target config
@@ -326,7 +330,9 @@ pub fn updater_preflight(repo_path: &Path, project_path: &str) -> Vec<String> {
         }
         Some(UpdatePublishTarget::GithubRelease) => {
             if config.github_repo.is_none() {
-                issues.push("GitHub Release target selected but no github_repo configured.".to_string());
+                issues.push(
+                    "GitHub Release target selected but no github_repo configured.".to_string(),
+                );
             }
         }
         Some(UpdatePublishTarget::Scp) => {
@@ -360,17 +366,12 @@ pub fn updater_preflight(repo_path: &Path, project_path: &str) -> Vec<String> {
 ///
 /// This is separate from macOS code signing / Windows Authenticode. The Tauri
 /// updater uses Ed25519 signatures to verify update integrity.
-pub fn sign_update_bundle(
-    file_path: &Path,
-    project_path: &str,
-) -> Result<UpdateSignResult> {
+pub fn sign_update_bundle(file_path: &Path, project_path: &str) -> Result<UpdateSignResult> {
     let cli = check_tauri_cli()?;
     let private_key = get_update_private_key(project_path)?;
 
     // Use `tauri signer sign` with the private key passed via env var
-    let file_str = file_path
-        .to_str()
-        .context("Invalid file path")?;
+    let file_str = file_path.to_str().context("Invalid file path")?;
 
     let mut cmd = std::process::Command::new(&cli[0]);
     for arg in &cli[1..] {
@@ -380,9 +381,7 @@ pub fn sign_update_bundle(
     cmd.env("TAURI_SIGNING_PRIVATE_KEY", &private_key);
     cmd.env("TAURI_SIGNING_PRIVATE_KEY_PASSWORD", "");
 
-    let output = cmd
-        .output()
-        .context("Failed to run `tauri signer sign`")?;
+    let output = cmd.output().context("Failed to run `tauri signer sign`")?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -510,8 +509,8 @@ pub fn generate_latest_json(
     std::fs::create_dir_all(&output_dir)?;
 
     let output_path = output_dir.join("latest.json");
-    let json_str = serde_json::to_string_pretty(&latest_json)
-        .context("Failed to serialize latest.json")?;
+    let json_str =
+        serde_json::to_string_pretty(&latest_json).context("Failed to serialize latest.json")?;
     std::fs::write(&output_path, &json_str)?;
 
     log::info!("Generated latest.json at {}", output_path.display());
@@ -602,8 +601,8 @@ pub fn merge_latest_json(
     merged.pub_date = fragment.pub_date.clone();
 
     // Write back
-    let json_str = serde_json::to_string_pretty(&merged)
-        .context("Failed to serialize merged latest.json")?;
+    let json_str =
+        serde_json::to_string_pretty(&merged).context("Failed to serialize merged latest.json")?;
     std::fs::write(existing_path, &json_str)?;
 
     log::info!("Merged latest.json at {}", existing_path.display());
@@ -628,10 +627,7 @@ pub fn publish_update(
         .as_ref()
         .context("No publish_target configured in updater.toml")?;
 
-    let artifact_dir = repo_path
-        .join(".chibby")
-        .join("artifacts")
-        .join(version);
+    let artifact_dir = repo_path.join(".chibby").join("artifacts").join(version);
 
     if !artifact_dir.exists() {
         anyhow::bail!(
@@ -717,9 +713,7 @@ fn publish_to_local(
         .with_context(|| format!("Failed to create local publish directory: {dest}"))?;
 
     for file in files {
-        let file_name = file
-            .file_name()
-            .context("Invalid file")?;
+        let file_name = file.file_name().context("Invalid file")?;
 
         if file == latest_json_path {
             // Atomic write for latest.json: write to temp then rename
@@ -743,9 +737,7 @@ fn publish_via_scp(config: &UpdaterConfig, files: &[PathBuf]) -> Result<()> {
         .context("scp_dest not configured")?;
 
     for file in files {
-        let file_str = file
-            .to_str()
-            .context("Invalid file path")?;
+        let file_str = file.to_str().context("Invalid file path")?;
 
         let status = std::process::Command::new("scp")
             .args(["-o", "BatchMode=yes", file_str, dest])
@@ -753,11 +745,7 @@ fn publish_via_scp(config: &UpdaterConfig, files: &[PathBuf]) -> Result<()> {
             .context("Failed to run scp")?;
 
         if !status.success() {
-            anyhow::bail!(
-                "scp failed for {} → {}",
-                file.display(),
-                dest
-            );
+            anyhow::bail!("scp failed for {} → {}", file.display(), dest);
         }
     }
 
@@ -778,9 +766,7 @@ fn publish_to_s3(config: &UpdaterConfig, files: &[PathBuf]) -> Result<()> {
     }
 
     for file in files {
-        let file_str = file
-            .to_str()
-            .context("Invalid file path")?;
+        let file_str = file.to_str().context("Invalid file path")?;
 
         let file_name = file
             .file_name()
@@ -830,10 +816,15 @@ fn publish_to_github_release(
     // Create release if it doesn't exist (ignore error if already exists)
     let _ = std::process::Command::new("gh")
         .args([
-            "release", "create", &tag,
-            "--repo", repo,
-            "--title", &format!("v{}", version),
-            "--notes", &format!("Release v{}", version),
+            "release",
+            "create",
+            &tag,
+            "--repo",
+            repo,
+            "--title",
+            &format!("v{}", version),
+            "--notes",
+            &format!("Release v{}", version),
         ])
         .status();
 
@@ -843,19 +834,19 @@ fn publish_to_github_release(
 
         let status = std::process::Command::new("gh")
             .args([
-                "release", "upload", &tag,
+                "release",
+                "upload",
+                &tag,
                 file_str,
-                "--repo", repo,
+                "--repo",
+                repo,
                 "--clobber",
             ])
             .status()
             .context("Failed to run gh release upload")?;
 
         if !status.success() {
-            anyhow::bail!(
-                "gh release upload failed for {}",
-                file.display()
-            );
+            anyhow::bail!("gh release upload failed for {}", file.display());
         }
     }
 

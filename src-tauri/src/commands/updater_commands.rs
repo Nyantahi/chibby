@@ -41,10 +41,7 @@ pub fn generate_update_keys(repo_path: String) -> Result<UpdateKeyResult, String
 
 /// Import an existing Tauri update private key into the OS keychain.
 #[tauri::command]
-pub fn import_update_private_key(
-    repo_path: String,
-    private_key: String,
-) -> Result<(), String> {
+pub fn import_update_private_key(repo_path: String, private_key: String) -> Result<(), String> {
     updater::set_update_private_key(&repo_path, &private_key).map_err(|e| e.to_string())
 }
 
@@ -104,9 +101,8 @@ pub fn generate_latest_json(
         artifacts::load_artifact_config(Path::new(&repo_path)).map_err(|e| e.to_string())?;
 
     // Find the manifest for the requested version
-    let manifests =
-        artifacts::list_artifact_manifests(Path::new(&repo_path), &artifact_config)
-            .map_err(|e| e.to_string())?;
+    let manifests = artifacts::list_artifact_manifests(Path::new(&repo_path), &artifact_config)
+        .map_err(|e| e.to_string())?;
 
     let manifest = manifests
         .into_iter()

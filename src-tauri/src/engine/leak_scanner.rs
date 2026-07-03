@@ -28,7 +28,10 @@ pub struct LeakMatch {
 const RULES: &[(&str, &str)] = &[
     // GitHub
     ("github-pat", r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,}"),
-    ("github-fine-grained-pat", r"\bgithub_pat_[A-Za-z0-9_]{82}\b"),
+    (
+        "github-fine-grained-pat",
+        r"\bgithub_pat_[A-Za-z0-9_]{82}\b",
+    ),
     // GitLab
     ("gitlab-pat", r"\bglpat-[A-Za-z0-9_\-]{20,}\b"),
     // OpenAI / Anthropic style
@@ -37,9 +40,15 @@ const RULES: &[(&str, &str)] = &[
     // Slack
     ("slack-token", r"\bxox[bporas]-\d+-\d+-[A-Za-z0-9]+\b"),
     // Stripe
-    ("stripe-key", r"\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{24,}\b"),
+    (
+        "stripe-key",
+        r"\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{24,}\b",
+    ),
     // SendGrid
-    ("sendgrid-key", r"\bSG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}\b"),
+    (
+        "sendgrid-key",
+        r"\bSG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}\b",
+    ),
     // AWS
     ("aws-access-key-id", r"\bAKIA[0-9A-Z]{16}\b"),
     // Twilio
@@ -140,10 +149,7 @@ mod tests {
     #[test]
     fn stripe_key_caught_in_toml_value() {
         let key = String::from("s") + "k" + "_live_" + &"Y".repeat(28);
-        let toml = format!(
-            "\n[environments.variables]\nSTRIPE_LIVE = \"{}\"\n",
-            key
-        );
+        let toml = format!("\n[environments.variables]\nSTRIPE_LIVE = \"{}\"\n", key);
         let hits = scan(&toml);
         assert!(hits.iter().any(|m| m.rule == "stripe-key"));
     }

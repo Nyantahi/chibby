@@ -32,11 +32,12 @@ pub fn load_environments_local(repo_path: String) -> Result<EnvironmentsConfig, 
 
 /// Save the committed environments config.
 #[tauri::command]
-pub fn save_environments(
-    repo_path: String,
-    config: EnvironmentsConfig,
-) -> Result<(), String> {
-    let env_names: Vec<&str> = config.environments.iter().map(|e| e.name.as_str()).collect();
+pub fn save_environments(repo_path: String, config: EnvironmentsConfig) -> Result<(), String> {
+    let env_names: Vec<&str> = config
+        .environments
+        .iter()
+        .map(|e| e.name.as_str())
+        .collect();
     audit::log_event(
         "save_environments",
         &format!("project={} envs={:?}", repo_path, env_names),
@@ -50,7 +51,11 @@ pub fn save_environments_local(
     repo_path: String,
     config: EnvironmentsConfig,
 ) -> Result<(), String> {
-    let env_names: Vec<&str> = config.environments.iter().map(|e| e.name.as_str()).collect();
+    let env_names: Vec<&str> = config
+        .environments
+        .iter()
+        .map(|e| e.name.as_str())
+        .collect();
     audit::log_event(
         "save_environments_local",
         &format!("project={} envs={:?}", repo_path, env_names),
@@ -66,10 +71,7 @@ pub fn load_secrets_config(repo_path: String) -> Result<SecretsConfig, String> {
 
 /// Save secrets config to a project's .chibby/secrets.toml.
 #[tauri::command]
-pub fn save_secrets_config(
-    repo_path: String,
-    config: SecretsConfig,
-) -> Result<(), String> {
+pub fn save_secrets_config(repo_path: String, config: SecretsConfig) -> Result<(), String> {
     pipeline::save_secrets_config(Path::new(&repo_path), &config).map_err(|e| e.to_string())
 }
 
@@ -83,7 +85,10 @@ pub fn set_secret(
 ) -> Result<(), String> {
     audit::log_event(
         "set_secret",
-        &format!("project={} env={} secret={}", project_path, env_name, secret_name),
+        &format!(
+            "project={} env={} secret={}",
+            project_path, env_name, secret_name
+        ),
     );
     secrets::set_secret(&project_path, &env_name, &secret_name, &value)
         .map_err(|e| e.to_string())?;
@@ -100,7 +105,10 @@ pub fn delete_secret(
 ) -> Result<(), String> {
     audit::log_event(
         "delete_secret",
-        &format!("project={} env={} secret={}", project_path, env_name, secret_name),
+        &format!(
+            "project={} env={} secret={}",
+            project_path, env_name, secret_name
+        ),
     );
     secrets::delete_secret(&project_path, &env_name, &secret_name).map_err(|e| e.to_string())?;
     secret_audit::record_delete_quietly(&project_path, &env_name, &secret_name, Provenance::Gui);
@@ -119,9 +127,7 @@ pub fn get_secret_audit(
 
 /// Scan environments.toml for variable values that look like real credentials.
 #[tauri::command]
-pub fn scan_environments_for_leaks(
-    repo_path: String,
-) -> Result<Vec<pipeline::EnvLeakHit>, String> {
+pub fn scan_environments_for_leaks(repo_path: String) -> Result<Vec<pipeline::EnvLeakHit>, String> {
     pipeline::scan_environments_for_leaks(Path::new(&repo_path)).map_err(|e| e.to_string())
 }
 
@@ -142,10 +148,7 @@ pub fn check_secrets_status(
 
 /// Test SSH connectivity to a host.
 #[tauri::command]
-pub async fn test_ssh_connection(
-    host: String,
-    port: Option<u16>,
-) -> Result<String, String> {
+pub async fn test_ssh_connection(host: String, port: Option<u16>) -> Result<String, String> {
     preflight::test_ssh_connectivity(&host, port)
         .await
         .map_err(|e| e.to_string())
@@ -166,7 +169,11 @@ pub fn apply_bootstrap(
     report: BootstrapReport,
     merge: bool,
 ) -> Result<bool, String> {
-    let mode = if merge { ApplyMode::Merge } else { ApplyMode::Safe };
+    let mode = if merge {
+        ApplyMode::Merge
+    } else {
+        ApplyMode::Safe
+    };
     audit::log_event(
         "apply_bootstrap",
         &format!(
@@ -322,12 +329,8 @@ pub fn export_dotenv(
         "export_dotenv",
         &format!("project={} env={} out={}", repo_path, env_name, output_path),
     );
-    importers::export_dotenv(
-        Path::new(&repo_path),
-        &env_name,
-        Path::new(&output_path),
-    )
-    .map_err(|e| e.to_string())
+    importers::export_dotenv(Path::new(&repo_path), &env_name, Path::new(&output_path))
+        .map_err(|e| e.to_string())
 }
 
 /// Run preflight validation for a pipeline against an environment.

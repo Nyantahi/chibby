@@ -74,7 +74,9 @@ fn extract_version(file_path: &Path, file_name: &str) -> Result<Option<String>> 
             // JSON: look for "version": "X.Y.Z"
             let v: serde_json::Value = serde_json::from_str(&content)
                 .with_context(|| format!("Failed to parse {}", file_path.display()))?;
-            Ok(v.get("version").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            Ok(v.get("version")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()))
         }
         "Cargo.toml" | "pyproject.toml" => {
             // TOML: look for [package].version or [project].version
@@ -313,7 +315,10 @@ fn create_git_tag(repo_path: &Path, tag: &str, message: &str) -> Result<()> {
 }
 
 /// Generate a changelog from commits since the last tag (or all commits if no tag).
-pub fn generate_changelog(repo_path: &Path, since_tag: Option<&str>) -> Result<Vec<ChangelogEntry>> {
+pub fn generate_changelog(
+    repo_path: &Path,
+    since_tag: Option<&str>,
+) -> Result<Vec<ChangelogEntry>> {
     let range = match since_tag {
         Some(tag) => format!("{tag}..HEAD"),
         None => "HEAD".to_string(),
@@ -484,11 +489,7 @@ version = "2.0.0"
     #[test]
     fn test_detect_versions_single_file() {
         let temp = TempDir::new().unwrap();
-        std::fs::write(
-            temp.path().join("package.json"),
-            r#"{"version": "1.0.0"}"#,
-        )
-        .unwrap();
+        std::fs::write(temp.path().join("package.json"), r#"{"version": "1.0.0"}"#).unwrap();
 
         let info = detect_versions(temp.path()).unwrap();
         assert_eq!(info.files.len(), 1);
@@ -499,11 +500,7 @@ version = "2.0.0"
     #[test]
     fn test_detect_versions_consistent() {
         let temp = TempDir::new().unwrap();
-        std::fs::write(
-            temp.path().join("package.json"),
-            r#"{"version": "2.0.0"}"#,
-        )
-        .unwrap();
+        std::fs::write(temp.path().join("package.json"), r#"{"version": "2.0.0"}"#).unwrap();
         std::fs::write(
             temp.path().join("Cargo.toml"),
             r#"[package]
@@ -522,11 +519,7 @@ version = "2.0.0"
     #[test]
     fn test_detect_versions_inconsistent() {
         let temp = TempDir::new().unwrap();
-        std::fs::write(
-            temp.path().join("package.json"),
-            r#"{"version": "1.0.0"}"#,
-        )
-        .unwrap();
+        std::fs::write(temp.path().join("package.json"), r#"{"version": "1.0.0"}"#).unwrap();
         std::fs::write(
             temp.path().join("Cargo.toml"),
             r#"[package]
