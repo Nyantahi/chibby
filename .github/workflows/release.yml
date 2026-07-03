@@ -23,7 +23,7 @@ jobs:
       release_id: ${{ steps.create.outputs.id }}
       tag_name: ${{ github.ref_name }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Create GitHub Release
         id: create
@@ -60,7 +60,7 @@ jobs:
             bundles: nsis
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -94,7 +94,7 @@ jobs:
           cargo build --features cli --bin chibby-cli --release --target ${{ matrix.target }}
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -146,7 +146,7 @@ jobs:
     needs: create-release
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
