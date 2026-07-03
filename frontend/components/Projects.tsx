@@ -139,38 +139,39 @@ function Projects() {
         </div>
       ) : (
         <div className="project-grid">
-          {projects.map(({ project, has_pipeline }) => (
-            <Link key={project.id} to={`/project/${project.id}`} className="project-card">
-              <div className="project-card-header">
-                <FolderGit2 size={18} />
-                <h3 className="project-name">{project.name}</h3>
-                {runningPaths.has(project.path) && (
-                  <Loader2 size={14} className="spin status-running" />
-                )}
-              </div>
-              <p className="project-path">{project.path}</p>
-              <div className="project-card-footer">
-                <span className={`badge badge-${has_pipeline ? 'success' : 'neutral'}`}>
-                  {has_pipeline ? 'Pipeline configured' : 'No pipeline'}
-                </span>
-                {project.last_run_status && (
-                  <div className="project-last-run">
-                    <span className="project-run-status">
-                      {statusIcon(project.last_run_status)}
-                      <span
-                        className={`status-text status-${statusClass(project.last_run_status)}`}
-                      >
-                        {capitalize(project.last_run_status)}
+          {projects.map(({ project, has_pipeline }) => {
+            const isRunning = runningPaths.has(project.path);
+            // While running, show live "Running" instead of the stale last-run summary.
+            const displayStatus = isRunning ? 'running' : project.last_run_status;
+            return (
+              <Link key={project.id} to={`/project/${project.id}`} className="project-card">
+                <div className="project-card-header">
+                  <FolderGit2 size={18} />
+                  <h3 className="project-name">{project.name}</h3>
+                  {isRunning && <Loader2 size={14} className="spin status-running" />}
+                </div>
+                <p className="project-path">{project.path}</p>
+                <div className="project-card-footer">
+                  <span className={`badge badge-${has_pipeline ? 'success' : 'neutral'}`}>
+                    {has_pipeline ? 'Pipeline configured' : 'No pipeline'}
+                  </span>
+                  {displayStatus && (
+                    <div className="project-last-run">
+                      <span className="project-run-status">
+                        {statusIcon(displayStatus)}
+                        <span className={`status-text status-${statusClass(displayStatus)}`}>
+                          {isRunning ? 'Running' : capitalize(displayStatus)}
+                        </span>
                       </span>
-                    </span>
-                    {project.last_run_at && (
-                      <span className="run-date">{formatDate(project.last_run_at)}</span>
-                    )}
-                  </div>
-                )}
-              </div>
-            </Link>
-          ))}
+                      {!isRunning && project.last_run_at && (
+                        <span className="run-date">{formatDate(project.last_run_at)}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </Link>
+            );
+          })}
         </div>
       )}
     </div>
