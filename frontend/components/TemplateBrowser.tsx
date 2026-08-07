@@ -34,6 +34,7 @@ const CATEGORY_OPTIONS = [
   { value: 'go', label: 'Go' },
   { value: 'docker', label: 'Docker' },
   { value: 'deployment', label: 'Deployment' },
+  { value: 'security', label: 'Security' },
 ];
 
 function TemplateBrowser({ repoPath, filterType, onApply, onEdit }: Props) {

@@ -373,20 +373,8 @@ fn ensure_default_gates_toml(repo_path: &Path) -> Result<(), anyhow::Error> {
     cfg.iac_scan = GateMode::Warn;
     cfg.license_check = GateMode::Warn;
     cfg.secret_scan_baseline = true;
-    cfg.secret_scan_allowlist = vec![
-        "**/__tests__/**".into(),
-        "**/__mocks__/**".into(),
-        "**/tests/**".into(),
-        "**/test/**".into(),
-        "**/*.test.ts".into(),
-        "**/*.test.tsx".into(),
-        "**/*.spec.ts".into(),
-        "**/node_modules/**".into(),
-        "**/dist/**".into(),
-        "**/build/**".into(),
-        "**/.next/**".into(),
-        "**/.vercel/**".into(),
-    ];
+    // secret_scan_allowlist / license_denylist / commit rules come from
+    // GatesConfig::default() so the seeded file and CLI fallback stay in sync.
     gates::save_gates_config(repo_path, &cfg)?;
     audit::log_event(
         "auto_seed_gates",

@@ -1,0 +1,15 @@
+[meta]
+name = "Security: Commit Lint"
+description = "Lint commit messages against conventional-commit rules (chibby scan commits)"
+author = "chibby"
+version = "1.0.0"
+category = "security"
+tags = ["security", "commits", "conventional-commits", "lint"]
+required_tools = []
+template_type = "stage"
+
+[[stages]]
+name = "security-commit-lint"
+commands = ["NO_COLOR=true chibby scan commits"]
+backend = "local"
+fail_fast = true
