@@ -66,6 +66,43 @@
 }
 
 /* ============================================================
+   Light theme — remaps surface/text/border; keeps brand hues.
+   Applied via document.documentElement[data-theme='light'].
+   ============================================================ */
+
+[data-theme='light'] {
+  --color-bg: #ffffff;
+  --color-surface: #f6f8fa;
+  --color-surface-hover: #eef1f4;
+  --color-surface-active: #e6eaef;
+  --color-border: #d0d7de;
+  --color-border-light: #c2cad3;
+  --color-text: #1f2328;
+  --color-text-muted: #57606a;
+  --color-text-dim: #8b949e;
+
+  /* Brand + status hues held; slightly deepened for contrast on light. */
+  --color-primary: #17a37e;
+  --color-primary-hover: #128a6a;
+  --color-primary-bg: color-mix(in srgb, var(--color-primary) 12%, transparent);
+
+  --color-accent: #c77f2a;
+  --color-accent-hover: #b06e22;
+  --color-accent-bg: color-mix(in srgb, var(--color-accent) 12%, transparent);
+
+  --color-success: #17a37e;
+  --color-success-bg: color-mix(in srgb, var(--color-success) 14%, transparent);
+  --color-failed: #d1372c;
+  --color-failed-bg: color-mix(in srgb, var(--color-failed) 12%, transparent);
+  --color-running: #c77f2a;
+  --color-running-bg: color-mix(in srgb, var(--color-running) 14%, transparent);
+  --color-pending: #8b949e;
+  --color-pending-bg: color-mix(in srgb, var(--color-pending) 14%, transparent);
+  --color-skipped: #8b949e;
+  --color-cancelled: #8b949e;
+}
+
+/* ============================================================
    Reset & Base
    ============================================================ */
 
@@ -172,6 +209,36 @@ a:hover {
 .sidebar-footer {
   padding: var(--space-md) var(--space-lg);
   border-top: 1px solid var(--color-border);
+}
+
+.sidebar-footer-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-sm);
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.theme-toggle:hover {
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-light);
 }
 
 .version-label {
@@ -842,6 +909,67 @@ select.input {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: var(--space-lg);
+}
+
+/* Table view (toggleable alternative to the card grid) */
+.project-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.project-table th,
+.project-table td {
+  text-align: left;
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.project-table th {
+  color: var(--color-text-muted);
+  font-weight: 500;
+  font-size: var(--font-size-xs);
+  background: var(--color-surface-active);
+}
+
+.project-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.project-row {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.project-row:hover {
+  background: var(--color-surface-hover);
+}
+
+.project-row-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.project-row-path {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-row-dim {
+  color: var(--color-text-dim);
+  white-space: nowrap;
 }
 
 .project-card {
@@ -2019,7 +2147,7 @@ select.input {
 }
 
 .log-line-warning {
-  color: #e5a100;
+  color: var(--color-accent);
 }
 
 .log-line-info {
