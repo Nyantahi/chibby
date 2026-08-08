@@ -5,9 +5,11 @@ import { useState, useCallback } from 'react';
 
 export type Theme = 'dark' | 'light';
 export type ProjectsView = 'cards' | 'table';
+export type CardTableView = 'cards' | 'table';
 
 export const PREF_THEME = 'chibby.theme';
 export const PREF_PROJECTS_VIEW = 'chibby.projectsView';
+export const PREF_TEMPLATES_VIEW = 'chibby.templatesView';
 
 export function getPref<T>(key: string, fallback: T): T {
   try {

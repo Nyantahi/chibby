@@ -912,7 +912,8 @@ select.input {
 }
 
 /* Table view (toggleable alternative to the card grid) */
-.project-table {
+.project-table,
+.template-table {
   width: 100%;
   border-collapse: collapse;
   font-size: var(--font-size-sm);
@@ -923,20 +924,24 @@ select.input {
 }
 
 .project-table th,
-.project-table td {
+.project-table td,
+.template-table th,
+.template-table td {
   text-align: left;
   padding: var(--space-md) var(--space-lg);
   border-bottom: 1px solid var(--color-border);
 }
 
-.project-table th {
+.project-table th,
+.template-table th {
   color: var(--color-text-muted);
   font-weight: 500;
   font-size: var(--font-size-xs);
   background: var(--color-surface-active);
 }
 
-.project-table tbody tr:last-child td {
+.project-table tbody tr:last-child td,
+.template-table tbody tr:last-child td {
   border-bottom: none;
 }
 
@@ -970,6 +975,39 @@ select.input {
 .project-row-dim {
   color: var(--color-text-dim);
   white-space: nowrap;
+}
+
+.template-row {
+  transition: background 0.15s;
+}
+
+.template-row:hover {
+  background: var(--color-surface-hover);
+}
+
+.template-row-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.template-row-desc {
+  margin-top: var(--space-xs);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  max-width: 420px;
+}
+
+.template-row-dim {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.template-row-actions {
+  display: flex;
+  gap: var(--space-sm);
 }
 
 .project-card {

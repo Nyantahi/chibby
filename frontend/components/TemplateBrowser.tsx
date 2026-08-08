@@ -1,6 +1,16 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Search, Layout, Layers, Package, ChevronDown, ChevronRight } from 'lucide-react';
+import {
+  Search,
+  Layout,
+  Layers,
+  Package,
+  ChevronDown,
+  ChevronRight,
+  LayoutGrid,
+  Table as TableIcon,
+} from 'lucide-react';
 import { getTemplates } from '../services/api';
+import { usePref, PREF_TEMPLATES_VIEW, type CardTableView } from '../services/prefs';
 import type { PipelineTemplate, TemplateType, TemplateSource } from '../types';
 
 interface Props {
@@ -50,6 +60,9 @@ function TemplateBrowser({ repoPath, filterType, onApply, onEdit }: Props) {
 
   // Expanded template detail
   const [expandedTemplate, setExpandedTemplate] = useState<string | null>(null);
+
+  // Cards vs table view (persisted)
+  const [view, setView] = usePref<CardTableView>(PREF_TEMPLATES_VIEW, 'cards');
 
   async function loadTemplates() {
     try {
@@ -182,6 +195,27 @@ function TemplateBrowser({ repoPath, filterType, onApply, onEdit }: Props) {
           <option value="user">User</option>
           <option value="project">Project</option>
         </select>
+
+        <div className="tabs" role="tablist" aria-label="Template view">
+          <button
+            type="button"
+            className={`tab ${view === 'cards' ? 'tab-active' : ''}`}
+            onClick={() => setView('cards')}
+            aria-pressed={view === 'cards'}
+          >
+            <LayoutGrid size={14} />
+            Cards
+          </button>
+          <button
+            type="button"
+            className={`tab ${view === 'table' ? 'tab-active' : ''}`}
+            onClick={() => setView('table')}
+            aria-pressed={view === 'table'}
+          >
+            <TableIcon size={14} />
+            Table
+          </button>
+        </div>
       </div>
 
       {/* Count */}
@@ -195,7 +229,7 @@ function TemplateBrowser({ repoPath, filterType, onApply, onEdit }: Props) {
         <div className="text-muted" style={{ padding: '2rem', textAlign: 'center' }}>
           {templates.length === 0 ? 'No templates available.' : 'No templates match your filters.'}
         </div>
-      ) : (
+      ) : view === 'cards' ? (
         <div className="template-grid">
           {filtered.map((t) => {
             const isExpanded = expandedTemplate === t.meta.name;
@@ -341,6 +375,62 @@ function TemplateBrowser({ repoPath, filterType, onApply, onEdit }: Props) {
             );
           })}
         </div>
+      ) : (
+        <table className="template-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Type</th>
+              <th>Category</th>
+              <th>Source</th>
+              <th>Stages</th>
+              {(onApply || onEdit) && <th>Actions</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((t) => (
+              <tr key={`${t.source}-${t.meta.name}`} className="template-row">
+                <td>
+                  <div className="template-row-name">
+                    {t.meta.template_type === 'pipeline' ? (
+                      <Layout size={14} style={{ color: 'var(--accent)' }} />
+                    ) : (
+                      <Layers size={14} style={{ color: 'var(--text-muted)' }} />
+                    )}
+                    <span>{t.meta.name}</span>
+                  </div>
+                  <div className="template-row-desc">{t.meta.description}</div>
+                </td>
+                <td className="template-row-dim">
+                  {t.meta.template_type === 'pipeline' ? 'Pipeline' : 'Stage'}
+                </td>
+                <td className="template-row-dim">{t.meta.category || '—'}</td>
+                <td>
+                  <span className={`badge ${SOURCE_BADGE_CLASS[t.source]}`}>
+                    {SOURCE_LABELS[t.source]}
+                  </span>
+                </td>
+                <td className="template-row-dim">{stageCount(t)}</td>
+                {(onApply || onEdit) && (
+                  <td>
+                    <div className="template-row-actions">
+                      {onApply && (
+                        <button className="btn btn-primary btn-sm" onClick={() => onApply(t)}>
+                          Apply
+                        </button>
+                      )}
+                      {onEdit && (
+                        <button className="btn btn-secondary btn-sm" onClick={() => onEdit(t)}>
+                          Use
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   );
