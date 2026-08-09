@@ -11,10 +11,6 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
-defaults:
-  run:
-    working-directory: chibby
-
 jobs:
   create-release:
     name: Create Release
@@ -67,7 +63,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: chibby/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -77,7 +73,7 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: chibby/src-tauri
+          workspaces: src-tauri
 
       - name: Install Linux dependencies
         if: contains(matrix.os, 'ubuntu')
@@ -106,7 +102,7 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          projectPath: chibby
+          projectPath: .
           tagName: ${{ github.ref_name }}
           releaseName: Chibby ${{ github.ref_name }}
           releaseId: ${{ needs.create-release.outputs.release_id }}
@@ -137,8 +133,8 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           files: |
-            chibby/cli-dist/chibby-cli-*.tar.gz
-            chibby/cli-dist/chibby-cli-*.zip
+            cli-dist/chibby-cli-*.tar.gz
+            cli-dist/chibby-cli-*.zip
 
   # Create universal macOS CLI binary
   macos-universal-cli:
@@ -156,16 +152,15 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: chibby/src-tauri
+          workspaces: src-tauri
 
       - name: Build CLI for both architectures
-        working-directory: chibby/src-tauri
+        working-directory: src-tauri
         run: |
           cargo build --features cli --bin chibby-cli --release --target aarch64-apple-darwin
           cargo build --features cli --bin chibby-cli --release --target x86_64-apple-darwin
 
       - name: Create universal binary
-        working-directory: chibby
         run: |
           mkdir -p cli-dist
           lipo -create \
@@ -179,7 +174,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
-          files: chibby/cli-dist/chibby-cli-macos-universal.tar.gz
+          files: cli-dist/chibby-cli-macos-universal.tar.gz
 
   publish-release:
     name: Publish Release

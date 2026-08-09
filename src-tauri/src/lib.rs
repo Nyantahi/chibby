@@ -82,6 +82,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(state::create_pipeline_state())
         .manage(agent_commands::create_agent_state())
+        .manage(agent_commands::create_approval_registry())
         .invoke_handler(tauri::generate_handler![
             // Project commands
             project_commands::list_projects,
@@ -203,6 +204,8 @@ pub fn run() {
             agent_commands::get_agent_memories,
             agent_commands::delete_agent_memory,
             agent_commands::rebuild_agent,
+            agent_commands::agent_run_tool_session,
+            agent_commands::approve_agent_action,
             // App settings commands
             settings_commands::load_app_settings,
             settings_commands::save_app_settings,

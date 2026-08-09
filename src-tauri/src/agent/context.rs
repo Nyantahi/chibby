@@ -17,7 +17,7 @@ static SECRET_PATTERNS: &[&str] = &[
 
 /// Sanitize a log line by redacting potential secrets and escaping markdown
 /// code fence breaks that could enable prompt injection.
-fn sanitize_log_line(line: &str) -> String {
+pub fn sanitize_log_line(line: &str) -> String {
     let mut sanitized = line.to_string();
 
     // 1. Redact secret-like patterns
@@ -50,6 +50,8 @@ pub struct AnalysisContext {
     pub project_path: Option<String>,
     /// Relevant memories for this project.
     pub memories: Vec<MemoryContext>,
+    /// Precomputed CI/CD status summary (markdown) — see `project_status`.
+    pub ci_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,6 +78,10 @@ impl AnalysisContext {
     /// Convert to a prompt section string for injection into the system prompt.
     pub fn to_prompt_section(&self) -> String {
         let mut parts = Vec::new();
+
+        if let Some(status) = &self.ci_status {
+            parts.push(status.clone());
+        }
 
         if let Some(path) = &self.project_path {
             parts.push(format!("**Project path:** {}", path));

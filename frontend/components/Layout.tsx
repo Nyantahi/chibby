@@ -4,6 +4,7 @@ import { FolderGit2, PlusCircle, Settings, Layers, Sun, Moon } from 'lucide-reac
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { getAppVersion } from '../services/api';
 import { initRunStore } from '../services/runStore';
+import { initAgentStore } from '../services/agentStore';
 import { getPref, setPref, PREF_THEME, type Theme } from '../services/prefs';
 import Toaster from './Toaster';
 import RunningRunsBadge from './RunningRunsBadge';
@@ -42,6 +43,8 @@ function Layout() {
   useEffect(() => {
     // Register the single global pipeline:log listener that feeds the run store.
     initRunStore();
+    // Register the single global agent:session listener for tool sessions.
+    initAgentStore();
     getAppVersion()
       .then(setVersion)
       .catch(() => setVersion('unknown'));

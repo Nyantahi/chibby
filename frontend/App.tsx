@@ -7,8 +7,7 @@ import RunDetail from './components/RunDetail';
 import Settings from './components/Settings';
 import Templates from './components/Templates';
 import CrashLog from './components/CrashLog';
-// TODO: Re-enable when Agent feature is complete (see private/plans)
-// import AgentChat from './components/AgentChat';
+import AgentDrawer from './components/AgentDrawer';
 
 function App() {
   return (
@@ -25,8 +24,7 @@ function App() {
           <Route path="crashes" element={<CrashLog />} />
         </Route>
       </Routes>
-      {/* TODO: Re-enable Agent Chat when feature is complete (see private/plans) */}
-      {/* <AgentChat /> */}
+      <AgentDrawer />
     </>
   );
 }

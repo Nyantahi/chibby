@@ -21,8 +21,7 @@ import { openPath } from '../services/openExternal';
 import { formatDate, formatDuration, statusClass, capitalize } from '../utils/format';
 import type { PipelineRun, StageResult } from '../types';
 import LogViewer from './LogViewer';
-// TODO: Re-enable when Agent feature is complete (see private/plans)
-// import AgentPanel from './AgentPanel';
+import AgentPanel from './AgentPanel';
 import { listen } from '@tauri-apps/api/event';
 
 // Strip ANSI escape sequences from live output
@@ -404,8 +403,7 @@ function RunDetail() {
         </div>
       )}
 
-      {/* TODO: Re-enable Agent Panel when feature is complete (see private/plans) */}
-      {/* {run && <AgentPanel runId={run.id} projectId={projectId} isFailed={isFailed} />} */}
+      {run && <AgentPanel runId={run.id} projectId={projectId} isFailed={isFailed} />}
     </div>
   );
 }

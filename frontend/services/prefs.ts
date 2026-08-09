@@ -6,10 +6,13 @@ import { useState, useCallback } from 'react';
 export type Theme = 'dark' | 'light';
 export type ProjectsView = 'cards' | 'table';
 export type CardTableView = 'cards' | 'table';
+/** Agent posture: 'advise' = read-only investigate & recommend; 'act' = full tool loop. */
+export type AgentInteractionMode = 'advise' | 'act';
 
 export const PREF_THEME = 'chibby.theme';
 export const PREF_PROJECTS_VIEW = 'chibby.projectsView';
 export const PREF_TEMPLATES_VIEW = 'chibby.templatesView';
+export const PREF_AGENT_MODE = 'chibby.agentMode';
 
 export function getPref<T>(key: string, fallback: T): T {
   try {
