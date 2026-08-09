@@ -26,6 +26,7 @@ const INJECTION_MARKERS: &[&str] = &[
 #[derive(Debug, Clone)]
 pub struct AgentIdentity {
     pub identity: String,
+    pub duties: String,
     pub tools: String,
     pub bootstrap: String,
 }
@@ -60,6 +61,11 @@ impl AgentIdentityRegistry {
             identity: load_file_or_fallback(
                 &base_path.join("chibby/identity.md"),
                 prompts::FALLBACK_IDENTITY,
+                &mut total_size,
+            )?,
+            duties: load_file_or_fallback(
+                &base_path.join("chibby/duties.md"),
+                prompts::FALLBACK_DUTIES,
                 &mut total_size,
             )?,
             tools: load_file_or_fallback(
@@ -119,6 +125,7 @@ impl AgentIdentityRegistry {
     pub fn load_fallback() -> Self {
         let agent = AgentIdentity {
             identity: prompts::FALLBACK_IDENTITY.to_string(),
+            duties: prompts::FALLBACK_DUTIES.to_string(),
             tools: prompts::FALLBACK_TOOLS.to_string(),
             bootstrap: prompts::FALLBACK_BOOTSTRAP.to_string(),
         };
@@ -141,9 +148,10 @@ impl AgentIdentityRegistry {
     /// Order: identity → security → cicd-knowledge → tools → output-format → memory-instruction
     /// Optionally appends bootstrap content on first run.
     pub fn assemble_prompt(&self, is_first_run: bool) -> String {
-        let mut parts = Vec::with_capacity(7);
+        let mut parts = Vec::with_capacity(8);
 
         parts.push(self.agent.identity.as_str());
+        parts.push(self.agent.duties.as_str());
         parts.push(self.shared.security.as_str());
         parts.push(self.shared.cicd_knowledge.as_str());
         parts.push(self.agent.tools.as_str());
@@ -155,6 +163,21 @@ impl AgentIdentityRegistry {
         }
 
         parts.join("\n\n---\n\n")
+    }
+
+    /// Lean system prompt for the action-taking tool loop. Omits the advisory-only
+    /// output-format and memory-marker sections (the loop calls tools instead of
+    /// emitting structured findings or `[REMEMBER]` markers).
+    /// Order: identity → duties → security → cicd-knowledge → tools.
+    pub fn assemble_prompt_for_tools(&self) -> String {
+        [
+            self.agent.identity.as_str(),
+            self.agent.duties.as_str(),
+            self.shared.security.as_str(),
+            self.shared.cicd_knowledge.as_str(),
+            self.agent.tools.as_str(),
+        ]
+        .join("\n\n---\n\n")
     }
 
     /// Hot-reload identity files if they have changed (dev mode only).
@@ -257,6 +280,7 @@ fn load_file_or_fallback(path: &Path, fallback: &str, total_size: &mut usize) ->
 fn compute_checksum(agent: &AgentIdentity, shared: &SharedDirectives) -> u64 {
     let mut hasher = DefaultHasher::new();
     agent.identity.hash(&mut hasher);
+    agent.duties.hash(&mut hasher);
     agent.tools.hash(&mut hasher);
     agent.bootstrap.hash(&mut hasher);
     shared.security.hash(&mut hasher);

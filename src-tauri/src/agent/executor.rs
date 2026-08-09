@@ -44,14 +44,13 @@ impl AgentExecution {
         }
     }
 
-    /// Check if a stage name looks like a deploy stage.
+    /// Check if a stage name looks like a deploy stage. Shares the token set
+    /// with the agent command classifier so both gates agree.
     pub fn is_deploy_stage(stage_name: &str) -> bool {
         let lower = stage_name.to_lowercase();
-        lower.contains("deploy")
-            || lower.contains("release")
-            || lower.contains("publish")
-            || lower.contains("upload")
-            || lower.contains("push")
+        super::command_exec::DEPLOY_TOKENS
+            .iter()
+            .any(|t| lower.contains(t))
     }
 
     /// Mark a stage as completed.

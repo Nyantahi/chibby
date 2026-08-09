@@ -487,7 +487,8 @@ pub async fn run_pipeline(
 }
 
 /// Build a local shell command with environment variable injection.
-fn build_local_command(
+/// Shared with the agent command chokepoint (`agent::command_exec`).
+pub(crate) fn build_local_command(
     cmd_str: &str,
     repo_path: &Path,
     working_dir: &Option<String>,
@@ -517,6 +518,9 @@ fn build_local_command(
         .env("TERM", "dumb")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        // Kill the child if its handle is dropped (cancel / agent timeout) so we
+        // never orphan a running process.
+        .kill_on_drop(true)
         .spawn()?;
 
     Ok(child)

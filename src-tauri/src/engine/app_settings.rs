@@ -23,6 +23,28 @@ pub struct AppSettings {
     /// Behaviour when adding a project — see `BootstrapMode`.
     #[serde(default)]
     pub bootstrap_mode: BootstrapMode,
+    /// How much autonomy the CI/CD agent has when running commands / editing
+    /// files — see `AgentMode`.
+    #[serde(default)]
+    pub agent_mode: AgentMode,
+    /// LLM model id the agent uses (Anthropic). Defaults to the current flagship.
+    #[serde(default = "default_agent_model")]
+    pub agent_model: String,
+}
+
+/// How much the agent may do on its own before pausing for user approval.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentMode {
+    /// Propose every command / file edit; nothing runs until the user approves.
+    /// (Default — safest.)
+    #[default]
+    ProposeApprove,
+    /// Auto-run safe commands and edits; pause for approval on risky actions
+    /// (deploy, push, destructive commands).
+    AutoSafeGateRisky,
+    /// Run multi-step sequences autonomously, pausing only at checkpoints.
+    AutonomousCheckpoints,
 }
 
 /// What to do when adding a project that has detectable env/secret references.
@@ -50,6 +72,13 @@ fn default_run_retention() -> u32 {
     50
 }
 
+/// Default Anthropic model for the agent. Bare id, no date suffix.
+pub const DEFAULT_ANTHROPIC_MODEL: &str = "claude-opus-4-8";
+
+fn default_agent_model() -> String {
+    DEFAULT_ANTHROPIC_MODEL.to_string()
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -58,6 +87,8 @@ impl Default for AppSettings {
             default_artifact_retention: 5,
             default_run_retention: 50,
             bootstrap_mode: BootstrapMode::Confirm,
+            agent_mode: AgentMode::default(),
+            agent_model: default_agent_model(),
         }
     }
 }

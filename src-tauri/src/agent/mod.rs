@@ -1,14 +1,23 @@
+pub mod ci_edit;
+pub mod ci_files;
+pub mod command_exec;
 pub mod context;
 pub mod executor;
 pub mod pipeline_gen;
+pub mod project_status;
 pub mod skills;
+pub mod tool_loop;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::ai::identity_loader::AgentIdentityRegistry;
-use crate::ai::provider::LLMProvider;
+use crate::ai::provider::{ChatMessage, LLMProvider};
+
+/// A single conversation turn crossing the Tauri boundary. Re-exported alias of
+/// the provider's `ChatMessage`.
+pub type ChatTurn = ChatMessage;
 
 pub use context::AnalysisContext;
 
@@ -145,6 +154,52 @@ impl ChibbyAgent {
         skills::detect_skill_mode(msg, ctx)
     }
 
+    /// Clone-able handle to the underlying provider (for the tool loop).
+    pub fn provider(&self) -> Arc<dyn LLMProvider> {
+        self.provider.clone()
+    }
+
+    /// System prompt for the action-taking tool loop. Uses the lean assembly
+    /// (no advisory output-format/memory sections), injects the guidance for the
+    /// skill detected from the user's message, and appends tool-use rules +
+    /// project context (which includes the CI/CD status summary).
+    pub fn tool_system_prompt(&self, msg: &str, ctx: &AnalysisContext, read_only: bool) -> String {
+        let base = self.identity.assemble_prompt_for_tools();
+        let skill = self.detect_skill(msg, ctx);
+        let skill_guidance = skills::skill_guidance(&skill);
+        let context_section = ctx.to_prompt_section();
+
+        let tool_use = if read_only {
+            "## Tool use — Advise mode (read-only)\n\
+             You have read-only tools: read_file, list_dir, validate_pipeline. You CANNOT\n\
+             run commands or edit files in this mode.\n\
+             - Investigate: read the relevant files, list directories, validate the pipeline.\n\
+             - Explain the issue and the recommended fix in plain terms.\n\
+             - Propose the exact commands to run and/or the complete CI/CD file changes, so\n\
+             the user can review them — but do not attempt to execute or write anything.\n\
+             - Stay strictly within CI/CD; decline unrelated work and offer the CI/CD angle.\n\
+             - End with concrete, copy-pasteable next steps, and note that switching to Act\n\
+             lets you apply them with approval."
+        } else {
+            "## Tool use — Act mode\n\
+             You run shell commands and edit CI/CD config files with the provided tools.\n\
+             - Read files and run safe checks (build/test/lint) before changing anything.\n\
+             - Diagnose and propose the change first, then apply the smallest change that\n\
+             fixes it; when editing a CI/CD file, pass the COMPLETE new file content.\n\
+             - Risky commands (deploy/push/destructive) and file edits may require user\n\
+             approval depending on the configured autonomy mode; wait for the tool result\n\
+             and, if an action is rejected, adapt and continue.\n\
+             - Stay strictly within CI/CD; decline unrelated work and offer the CI/CD angle.\n\
+             - When the task is done, give a short summary of what you did."
+        };
+
+        format!(
+            "{base}\n\n---\n\n## Current focus: {skill}\n\n{skill_guidance}\n\n\
+             ---\n\n{tool_use}\n\n\
+             ---\n\n## Context\n\n{context_section}"
+        )
+    }
+
     /// Build the full system prompt for a given skill mode.
     fn build_prompt(&self, skill: &SkillMode, ctx: &AnalysisContext, is_first_run: bool) -> String {
         let base_prompt = self.identity.assemble_prompt(is_first_run);
@@ -179,17 +234,36 @@ impl ChibbyAgent {
         Ok(parse_analysis_response(&response, skill))
     }
 
-    /// Chat with the agent about CI/CD topics.
+    /// Chat with the agent about CI/CD topics (single turn, no history).
     pub async fn chat(
         &self,
         msg: &str,
         ctx: AnalysisContext,
         is_first_run: bool,
     ) -> Result<AgentResponse> {
+        self.chat_with_history(msg, &[], ctx, is_first_run).await
+    }
+
+    /// Chat with the agent, threading prior conversation turns for context.
+    /// `history` holds earlier turns (roles "user"/"assistant"); `msg` is the
+    /// new user message appended after it.
+    pub async fn chat_with_history(
+        &self,
+        msg: &str,
+        history: &[ChatTurn],
+        ctx: AnalysisContext,
+        is_first_run: bool,
+    ) -> Result<AgentResponse> {
         let skill = self.detect_skill(msg, &ctx);
         let system_prompt = self.build_prompt(&skill, &ctx, is_first_run);
 
-        let response = self.provider.complete(&system_prompt, msg).await?;
+        let mut messages: Vec<ChatMessage> = history.to_vec();
+        messages.push(ChatMessage::user(msg));
+
+        let response = self
+            .provider
+            .complete_conversation(&system_prompt, &messages)
+            .await?;
         Ok(AgentResponse {
             message: response,
             suggestions: Vec::new(),

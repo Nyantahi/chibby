@@ -1,10 +1,14 @@
+use std::collections::HashMap;
 use std::sync::Arc;
-use tauri::State;
-use tokio::sync::RwLock;
 
+use async_trait::async_trait;
+use tauri::{AppHandle, Emitter, State};
+use tokio::sync::{oneshot, Mutex, RwLock};
+
+use crate::agent::tool_loop::{self, PendingAction, ToolLoopEvent, ToolLoopHost};
 use crate::agent::{
-    context::AnalysisContext, AgentAnalysis, AgentResponse, ChibbyAgent, GeneratedPipeline,
-    PipelineFormat,
+    context::AnalysisContext, AgentAnalysis, AgentResponse, ChatTurn, ChibbyAgent,
+    GeneratedPipeline, PipelineFormat,
 };
 use crate::ai::identity_loader::{resolve_identity_path, AgentIdentityRegistry};
 use crate::ai::memory::{self, MemoryEntry, MemoryStore};
@@ -13,6 +17,8 @@ use crate::engine::{audit, persistence, pipeline};
 
 /// Maximum allowed length for a chat message (in bytes).
 const MAX_CHAT_MESSAGE_LEN: usize = 8192;
+/// Maximum number of prior turns threaded into a chat request.
+const MAX_HISTORY_TURNS: usize = 40;
 /// Maximum allowed length for project info sent with pipeline generation.
 const MAX_PROJECT_INFO_LEN: usize = 16384;
 
@@ -142,6 +148,7 @@ pub async fn analyze_run(
 #[tauri::command]
 pub async fn agent_chat(
     message: String,
+    history: Option<Vec<ChatTurn>>,
     project_id: Option<String>,
     run_id: Option<String>,
     state: State<'_, SharedAgentState>,
@@ -156,6 +163,14 @@ pub async fn agent_chat(
             MAX_CHAT_MESSAGE_LEN
         ));
     }
+
+    // Cap threaded history to the most recent turns to bound prompt size/cost.
+    let history = history.unwrap_or_default();
+    let history = if history.len() > MAX_HISTORY_TURNS {
+        history[history.len() - MAX_HISTORY_TURNS..].to_vec()
+    } else {
+        history
+    };
 
     audit::log_event(
         "agent_chat",
@@ -195,7 +210,7 @@ pub async fn agent_chat(
     }
 
     let response = agent
-        .chat(&message, ctx, is_first_run)
+        .chat_with_history(&message, &history, ctx, is_first_run)
         .await
         .map_err(|e| format!("Chat failed: {}", e))?;
 
@@ -253,31 +268,8 @@ pub fn save_generated_pipeline(
     file_path: String,
     content: String,
 ) -> Result<(), String> {
-    // Validate file_path: no absolute paths or traversal
-    if file_path.contains("..") || file_path.starts_with('/') || file_path.starts_with('\\') {
-        return Err("Invalid file path: must be a relative path within the project".to_string());
-    }
-
-    let full_path = std::path::Path::new(&project_path).join(&file_path);
-
-    // Ensure the resolved path is still within the project directory
-    let canonical_project =
-        std::fs::canonicalize(&project_path).map_err(|e| format!("Invalid project path: {}", e))?;
-    // Create parent dirs first so canonicalize works on the target
-    if let Some(parent) = full_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create directory: {}", e))?;
-    }
-    // For new files, check that the parent is within the project
-    let canonical_parent = std::fs::canonicalize(
-        full_path
-            .parent()
-            .unwrap_or(std::path::Path::new(&project_path)),
-    )
-    .map_err(|e| format!("Failed to resolve path: {}", e))?;
-    if !canonical_parent.starts_with(&canonical_project) {
-        return Err("File path resolves outside the project directory".to_string());
-    }
+    // Validate the path stays within the project (shared with agent CI edits).
+    let full_path = crate::agent::ci_edit::guard_project_path(&project_path, &file_path)?;
 
     audit::log_event(
         "save_generated_pipeline",
@@ -315,6 +307,167 @@ pub async fn delete_agent_memory(
         .memory_store
         .delete_memory(&key, project_id.as_deref())
         .map_err(|e| format!("Failed to delete memory: {}", e))
+}
+
+// ---------------------------------------------------------------------------
+// Stage B: action-taking tool loop
+// ---------------------------------------------------------------------------
+
+/// Pending approval channels, keyed by `<session_id>:<action_id>`.
+pub type ApprovalRegistry = Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>;
+
+pub fn create_approval_registry() -> ApprovalRegistry {
+    Arc::new(Mutex::new(HashMap::new()))
+}
+
+/// Event payload emitted to the frontend, tagging each loop event with its session.
+#[derive(serde::Serialize, Clone)]
+struct SessionEvent {
+    session_id: String,
+    #[serde(flatten)]
+    event: ToolLoopEvent,
+}
+
+/// `ToolLoopHost` backed by Tauri events + oneshot approval channels.
+struct CommandHost {
+    app: AppHandle,
+    session_id: String,
+    approvals: ApprovalRegistry,
+}
+
+#[async_trait]
+impl ToolLoopHost for CommandHost {
+    fn emit(&self, event: ToolLoopEvent) {
+        let _ = self.app.emit(
+            "agent:session",
+            SessionEvent {
+                session_id: self.session_id.clone(),
+                event,
+            },
+        );
+    }
+
+    async fn request_approval(&self, pending: PendingAction) -> bool {
+        let (tx, rx) = oneshot::channel();
+        let key = format!("{}:{}", self.session_id, pending.id);
+        // Register the channel BEFORE surfacing the request, so an eager
+        // approval can't arrive before we're listening.
+        self.approvals.lock().await.insert(key, tx);
+        self.emit(ToolLoopEvent::AwaitingApproval { pending });
+        rx.await.unwrap_or(false)
+    }
+}
+
+/// Run an action-taking agent session. Streams progress via `agent:session`
+/// events and pauses for approval per the configured autonomy mode.
+#[tauri::command]
+pub async fn agent_run_tool_session(
+    app: AppHandle,
+    session_id: String,
+    message: String,
+    project_path: String,
+    read_only: bool,
+    state: State<'_, SharedAgentState>,
+    approvals: State<'_, ApprovalRegistry>,
+) -> Result<String, String> {
+    if message.trim().is_empty() {
+        return Err("Message cannot be empty".to_string());
+    }
+    if message.len() > MAX_CHAT_MESSAGE_LEN {
+        return Err(format!(
+            "Message exceeds maximum length of {} characters",
+            MAX_CHAT_MESSAGE_LEN
+        ));
+    }
+
+    // Assemble the CI/CD status summary outside the lock (cheap local reads).
+    let ci_status = crate::agent::project_status::build_ci_status(&project_path);
+
+    // Snapshot what the loop needs, then release the lock (the loop runs long
+    // and approvals must be able to touch shared state meanwhile).
+    let (provider, system_prompt) = {
+        let agent_state = state.read().await;
+        let agent = agent_state
+            .agent
+            .as_ref()
+            .ok_or("Agent not available. Configure an API key in Settings.")?;
+
+        let mut ctx = AnalysisContext::empty();
+        ctx.project_path = Some(project_path.clone());
+        ctx.ci_status = Some(ci_status);
+        ctx.memories = agent_state
+            .memory_store
+            .load_all_for_project(&project_path)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|m| crate::agent::context::MemoryContext {
+                key: m.key,
+                value: m.value,
+            })
+            .collect();
+
+        (
+            agent.provider(),
+            agent.tool_system_prompt(&message, &ctx, read_only),
+        )
+    };
+
+    let mode = crate::engine::app_settings::load_app_settings()
+        .map(|s| s.agent_mode)
+        .unwrap_or_default();
+
+    audit::log_event(
+        "agent_tool_session",
+        &format!(
+            "project={} session={} mode={:?} read_only={}",
+            project_path, session_id, mode, read_only
+        ),
+    );
+
+    let host: Arc<dyn ToolLoopHost> = Arc::new(CommandHost {
+        app: app.clone(),
+        session_id: session_id.clone(),
+        approvals: approvals.inner().clone(),
+    });
+
+    match tool_loop::run_tool_session(
+        provider,
+        system_prompt,
+        project_path,
+        message,
+        mode,
+        read_only,
+        host.clone(),
+    )
+    .await
+    {
+        Ok(text) => Ok(text),
+        Err(e) => {
+            host.emit(ToolLoopEvent::Error {
+                message: e.to_string(),
+            });
+            Err(e.to_string())
+        }
+    }
+}
+
+/// Approve or reject a pending agent action (unblocks the paused session).
+#[tauri::command]
+pub async fn approve_agent_action(
+    session_id: String,
+    action_id: String,
+    approved: bool,
+    approvals: State<'_, ApprovalRegistry>,
+) -> Result<(), String> {
+    let key = format!("{}:{}", session_id, action_id);
+    let sender = approvals.lock().await.remove(&key);
+    match sender {
+        Some(tx) => {
+            let _ = tx.send(approved);
+            Ok(())
+        }
+        None => Err("No pending action found (it may have already been resolved).".to_string()),
+    }
 }
 
 /// Rebuild the agent (e.g., after changing API keys in settings).

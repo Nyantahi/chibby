@@ -1,0 +1,51 @@
+[meta]
+name = "Security: All Scans"
+description = "Full security suite — secrets, deps, SAST, container, IaC, license, commit lint"
+author = "chibby"
+version = "1.0.0"
+category = "security"
+tags = ["security", "bundle", "secrets", "sast", "trivy", "audit", "scan"]
+required_tools = ["gitleaks", "semgrep", "trivy"]
+template_type = "stage"
+
+[[stages]]
+name = "security-secrets"
+commands = ["NO_COLOR=true chibby scan secrets"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "security-deps"
+commands = ["NO_COLOR=true chibby scan deps"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "security-sast"
+commands = ["NO_COLOR=true chibby scan sast"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "security-container"
+commands = ["NO_COLOR=true chibby scan container"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "security-iac"
+commands = ["NO_COLOR=true chibby scan iac"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "security-license"
+commands = ["NO_COLOR=true chibby scan license"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "security-commit-lint"
+commands = ["NO_COLOR=true chibby scan commits"]
+backend = "local"
+fail_fast = true

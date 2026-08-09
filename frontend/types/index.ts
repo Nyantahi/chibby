@@ -9,10 +9,15 @@ export interface AppSettings {
   default_artifact_retention: number;
   default_run_retention: number;
   bootstrap_mode: BootstrapMode;
+  agent_mode: AgentMode;
+  agent_model: string;
 }
 
 /** Behaviour when adding a project that has detectable env/secret references. */
 export type BootstrapMode = 'confirm' | 'silent' | 'off';
+
+/** How much autonomy the CI/CD agent has when running commands / editing files. */
+export type AgentMode = 'propose_approve' | 'auto_safe_gate_risky' | 'autonomous_checkpoints';
 
 /** Execution backend for a pipeline stage. */
 export type Backend = 'local' | 'ssh';
@@ -733,11 +738,25 @@ export interface AgentAnalysis {
   skill_used: SkillMode;
 }
 
+/** A single conversation turn sent to / from the agent. */
+export interface ChatTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 /** Agent chat response. */
 export interface AgentResponse {
   message: string;
   suggestions: string[];
   skill_used: SkillMode;
+}
+
+/** A side-effecting agent action awaiting user approval. */
+export interface PendingAction {
+  id: string;
+  tool: string;
+  summary: string;
+  reason: string;
 }
 
 /** Pipeline format for generation. */

@@ -1,0 +1,15 @@
+[meta]
+name = "Security: Container Scan"
+description = "Scan container images for vulnerabilities via trivy (chibby scan container)"
+author = "chibby"
+version = "1.0.0"
+category = "security"
+tags = ["security", "container", "trivy", "docker", "scan"]
+required_tools = ["trivy"]
+template_type = "stage"
+
+[[stages]]
+name = "security-container"
+commands = ["NO_COLOR=true chibby scan container"]
+backend = "local"
+fail_fast = true
