@@ -131,6 +131,31 @@ const SAFE_PREFIXES: &[&str] = &[
 /// their presence disqualifies the safe-allowlist fast path.
 const CHAINING_MARKERS: &[&str] = &["&&", "||", ";", "|", "`", "$(", ">", "<", "&"];
 
+/// Bare root / home / wildcard targets whose recursive delete or permission
+/// change would wipe the machine or the user's home. Matched as whole tokens so
+/// targeted paths (`/home/app/build`, `./dist`) are NOT caught.
+const CATASTROPHIC_TARGETS: &[&str] = &["/", "/*", "~", "~/", "~/*", "$home", "$home/*", ".*"];
+
+/// Block-device path prefixes; writing raw bytes to these destroys a disk.
+/// Pseudo-devices (`/dev/null`, `/dev/stdout`, …) are intentionally excluded so
+/// ordinary `dd ... of=/dev/null` is not blocked.
+const BLOCK_DEVICE_PREFIXES: &[&str] = &[
+    "/dev/sd",
+    "/dev/disk",
+    "/dev/nvme",
+    "/dev/hd",
+    "/dev/vd",
+    "/dev/mmcblk",
+];
+
+/// Absolute-block substrings matched against the normalized command, each with
+/// a human-readable reason. Unconditionally refused (see `blocked_reason`).
+const BLOCKED_PATTERNS: &[(&str, &str)] = &[
+    ("mkfs", "formats a filesystem (mkfs)"),
+    (":(){", "fork bomb"),
+    (":|:&", "fork bomb"),
+];
+
 /// Max wall-clock for a single agent command before it is terminated.
 const AGENT_COMMAND_TIMEOUT_SECS: u64 = 300;
 /// Keep at most this many trailing output lines per stream.
@@ -207,6 +232,56 @@ pub fn classify(command: &str) -> RiskClass {
     RiskClass::Risky("unrecognized command — gated for safety".to_string())
 }
 
+/// True when any whitespace-delimited token is a bare root/home/wildcard target.
+fn has_catastrophic_target(norm: &str) -> bool {
+    norm.split_whitespace()
+        .any(|t| CATASTROPHIC_TARGETS.contains(&t))
+}
+
+/// Return `Some(reason)` when `command` is catastrophic and must NEVER run,
+/// regardless of autonomy mode.
+///
+/// This is defense-in-depth, NOT a sandbox: `run_command` still executes via a
+/// login shell with the full privileges of the user running the app. This list
+/// only refuses a short set of unambiguously destructive commands; real
+/// isolation (containers / seccomp / a restricted user) is a separate future
+/// effort. Patterns are deliberately narrow to avoid blocking ordinary work
+/// (e.g. `rm -rf build` and `dd ... of=/dev/null` are allowed through).
+pub fn blocked_reason(command: &str) -> Option<String> {
+    let norm = normalize_command(command);
+
+    // Recursive-force delete of root / home / bare wildcard.
+    if (norm.contains("rm -rf") || norm.contains("rm -fr")) && has_catastrophic_target(&norm) {
+        return Some("recursive delete of root, home, or a wildcard path".to_string());
+    }
+
+    // Recursive permission / ownership change of root or home.
+    if norm.contains("chmod -r") && has_catastrophic_target(&norm) {
+        return Some("recursive chmod of root or home".to_string());
+    }
+    if norm.contains("chown -r") && has_catastrophic_target(&norm) {
+        return Some("recursive chown of root or home".to_string());
+    }
+
+    // Writing raw bytes to a block device (dd of=… or a shell redirect).
+    for dev in BLOCK_DEVICE_PREFIXES {
+        if norm.contains(&format!("of={dev}"))
+            || norm.contains(&format!("> {dev}"))
+            || norm.contains(&format!(">{dev}"))
+        {
+            return Some(format!("writes directly to block device {dev}*"));
+        }
+    }
+
+    for (pat, reason) in BLOCKED_PATTERNS {
+        if norm.contains(pat) {
+            return Some((*reason).to_string());
+        }
+    }
+
+    None
+}
+
 /// Result of running an agent command.
 #[derive(Debug, Clone, Serialize)]
 pub struct CommandOutcome {
@@ -233,6 +308,13 @@ pub async fn execute_agent_command(
         "agent_command",
         &format!("cwd={} cmd={}", repo_path.display(), command),
     );
+
+    // Hard block: catastrophic commands never spawn, regardless of autonomy mode.
+    if let Some(reason) = blocked_reason(command) {
+        return Err(anyhow::anyhow!(
+            "Command blocked as catastrophic and will not run: {reason}"
+        ));
+    }
 
     let child = executor::build_local_command(command, repo_path, &working_dir, &HashMap::new())
         .context("Failed to spawn agent command")?;
@@ -340,6 +422,40 @@ mod tests {
             "chibby scan secrets",
         ] {
             assert_eq!(classify(cmd), RiskClass::Safe, "expected safe: {cmd}");
+        }
+    }
+
+    #[test]
+    fn catastrophic_commands_are_blocked() {
+        for cmd in [
+            "rm -rf /",
+            "rm -rf /*",
+            "rm -rf ~",
+            "rm -rf $HOME",
+            "rm -rf .*",
+            "mkfs.ext4 /dev/sda",
+            "dd if=/dev/zero of=/dev/sda",
+            "dd if=/dev/zero > /dev/disk0",
+            "chmod -R 000 /",
+            "chown -R nobody /",
+            ":(){ :|:& };:",
+        ] {
+            assert!(blocked_reason(cmd).is_some(), "expected blocked: {cmd}");
+        }
+    }
+
+    #[test]
+    fn ordinary_commands_are_not_blocked() {
+        for cmd in [
+            "rm -rf build",
+            "rm -rf ./dist",
+            "rm -rf /home/app/project/target",
+            "cargo test",
+            "npm run build",
+            "dd if=input.img of=/dev/null",
+            "chmod -R 755 ./scripts",
+        ] {
+            assert!(blocked_reason(cmd).is_none(), "expected allowed: {cmd}");
         }
     }
 
