@@ -7,6 +7,7 @@ pub mod artifacts;
 pub mod audit;
 pub mod bootstrap;
 pub mod cleanup;
+pub mod deploy;
 pub mod detector;
 pub mod executor;
 pub mod gates;
