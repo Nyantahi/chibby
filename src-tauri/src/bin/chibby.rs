@@ -6,10 +6,6 @@
 use anyhow::Context;
 use chibby_lib::engine::bootstrap::{self, ApplyMode, Classification};
 use chibby_lib::engine::executor;
-use chibby_lib::engine::importers::{
-    self, dotenv::DotEnvImporter, flyio::FlyImporter, railway::RailwayImporter,
-    vercel::VercelImporter, ApplyOptions, ImportContext, ImportReport, Importer,
-};
 use chibby_lib::engine::models::{
     Pipeline, PipelineRun, Project, RunKind, RunStatus as EngineRunStatus,
     StageStatus as EngineStageStatus,
@@ -34,13 +30,13 @@ use cli::{icons, Printer, StageStatus};
 mod args;
 #[path = "chibby/env.rs"]
 mod env;
+#[path = "chibby/import_export.rs"]
+mod import_export;
 #[path = "chibby/scan.rs"]
 mod scan;
 use args::{
-    ArtifactCmd, AuditCmd, Cli, Commands, ExportCmd, ImportCmd, PipelineCmd, ProjectsCmd,
-    UpdaterCmd, VersionCmd,
+    ArtifactCmd, AuditCmd, Cli, Commands, PipelineCmd, ProjectsCmd, UpdaterCmd, VersionCmd,
 };
-
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Main Entry Point
@@ -122,9 +118,9 @@ async fn main() {
             merge,
         }) => bootstrap_cmd(&printer, project.as_ref(), *silent, *dry_run, *merge).await,
 
-        Some(Commands::Import(cmd)) => handle_import(&printer, cmd).await,
+        Some(Commands::Import(cmd)) => import_export::handle_import(&printer, cmd).await,
 
-        Some(Commands::Export(cmd)) => handle_export(&printer, cmd).await,
+        Some(Commands::Export(cmd)) => import_export::handle_export(&printer, cmd).await,
 
         Some(Commands::Preflight { env, project }) => {
             run_preflight(&printer, env.as_deref(), project.as_ref()).await
@@ -1003,142 +999,6 @@ async fn handle_audit(printer: &Printer, cmd: &AuditCmd) -> anyhow::Result<()> {
             }
         }
     }
-    Ok(())
-}
-
-async fn handle_import(printer: &Printer, cmd: &ImportCmd) -> anyhow::Result<()> {
-    let (report, repo_path) = match cmd {
-        ImportCmd::Dotenv {
-            path,
-            env,
-            with_values,
-            project,
-        } => {
-            let repo = project_path(project.as_ref());
-            let ctx = ImportContext {
-                repo_path: repo.clone(),
-                env_name: env.clone(),
-                source_path: Some(path.clone()),
-                include_values: *with_values,
-            };
-            (DotEnvImporter.run(&ctx)?, repo)
-        }
-        ImportCmd::Vercel {
-            env,
-            with_values,
-            project,
-        } => {
-            let repo = project_path(project.as_ref());
-            let ctx = ImportContext {
-                repo_path: repo.clone(),
-                env_name: env.clone(),
-                source_path: None,
-                include_values: *with_values,
-            };
-            (VercelImporter.run(&ctx)?, repo)
-        }
-        ImportCmd::Railway {
-            env,
-            with_values,
-            project,
-        } => {
-            let repo = project_path(project.as_ref());
-            let ctx = ImportContext {
-                repo_path: repo.clone(),
-                env_name: env.clone(),
-                source_path: None,
-                include_values: *with_values,
-            };
-            (RailwayImporter.run(&ctx)?, repo)
-        }
-        ImportCmd::Fly { env, project } => {
-            let repo = project_path(project.as_ref());
-            let ctx = ImportContext {
-                repo_path: repo.clone(),
-                env_name: env.clone(),
-                source_path: None,
-                include_values: false,
-            };
-            (FlyImporter.run(&ctx)?, repo)
-        }
-    };
-
-    printer.header(&format!("{} Import from {}", icons::GEAR, report.source));
-    printer.kv("Env", &report.env_name);
-    printer.kv("Detected", &report.entries.len().to_string());
-    printer.newline();
-
-    print_import_report(printer, &report);
-
-    let applied = importers::apply_report(&report, &repo_path, ApplyOptions::default())?;
-    printer.newline();
-    printer.success(&format!(
-        "Variables: {} added ({} with values), Secret refs: {} added ({} values stored in keychain)",
-        applied.variables_added,
-        applied.variables_value_set,
-        applied.secrets_ref_added,
-        applied.secrets_value_saved
-    ));
-    if applied.secrets_value_saved == 0
-        && report
-            .entries
-            .iter()
-            .any(|e| e.classification == Classification::Secret)
-    {
-        printer.info(
-            "No secret values were stored. Re-run with `--with-values` (where supported) or set them with `chibby secrets set NAME --env <env>`.",
-        );
-    }
-    Ok(())
-}
-
-fn print_import_report(printer: &Printer, report: &ImportReport) {
-    let mut secrets: Vec<&_> = report
-        .entries
-        .iter()
-        .filter(|e| e.classification == Classification::Secret)
-        .collect();
-    let mut vars: Vec<&_> = report
-        .entries
-        .iter()
-        .filter(|e| e.classification == Classification::Variable)
-        .collect();
-    secrets.sort_by(|a, b| a.name.cmp(&b.name));
-    vars.sort_by(|a, b| a.name.cmp(&b.name));
-
-    if !vars.is_empty() {
-        printer.subheader(&format!("Variables ({})", vars.len()));
-        for v in &vars {
-            let label = if v.value.is_some() {
-                "value"
-            } else {
-                "name only"
-            };
-            printer.kv(&v.name, label);
-        }
-        printer.newline();
-    }
-    if !secrets.is_empty() {
-        printer.subheader(&format!("Secrets ({})", secrets.len()));
-        for s in &secrets {
-            let label = if s.value.is_some() {
-                "value"
-            } else {
-                "name only"
-            };
-            printer.kv(&s.name, label);
-        }
-    }
-}
-
-async fn handle_export(printer: &Printer, cmd: &ExportCmd) -> anyhow::Result<()> {
-    let ExportCmd::Dotenv { env, out, project } = cmd;
-    let repo = project_path(project.as_ref());
-    let lines = importers::export_dotenv(&repo, env, out)?;
-    printer.success(&format!("Wrote {} lines to {}", lines, out.display()));
-    printer.info(
-        "This file may contain plaintext secrets — keep it out of git and treat it like a credential.",
-    );
     Ok(())
 }
 
