@@ -32,23 +32,29 @@ pub fn guard_project_path(project_path: &str, rel_path: &str) -> Result<PathBuf,
         return Err("Invalid file path: must be a relative path within the project".to_string());
     }
 
-    let full_path = Path::new(project_path).join(rel_path);
     let canonical_project =
         std::fs::canonicalize(project_path).map_err(|e| format!("Invalid project path: {e}"))?;
+    let full_path = canonical_project.join(rel_path);
 
     if let Some(parent) = full_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {e}"))?;
     }
 
-    let canonical_parent = std::fs::canonicalize(
-        full_path
-            .parent()
-            .unwrap_or_else(|| Path::new(project_path)),
-    )
-    .map_err(|e| format!("Failed to resolve path: {e}"))?;
+    let canonical_parent =
+        std::fs::canonicalize(full_path.parent().unwrap_or(&canonical_project))
+            .map_err(|e| format!("Failed to resolve path: {e}"))?;
 
     if !canonical_parent.starts_with(&canonical_project) {
         return Err("File path resolves outside the project directory".to_string());
+    }
+
+    // Refuse a final component that is a symlink: `fs::write` follows it and
+    // would clobber a file outside the project (a malicious repo can ship such
+    // a symlink at an allowed CI path). The parent check above can't catch this.
+    if let Ok(meta) = std::fs::symlink_metadata(&full_path) {
+        if meta.file_type().is_symlink() {
+            return Err("Refusing to write through a symlink".to_string());
+        }
     }
 
     Ok(full_path)
@@ -162,24 +168,30 @@ pub fn edit_ci_file(
 }
 
 /// Unified diff between the on-disk file (or empty) and the new content.
+///
+/// The candidate content (which may contain secrets) is written to a private
+/// temp file created with O_EXCL and 0600 perms via `tempfile`, not a
+/// predictable name in a world-readable `/tmp` — closing an info-leak and a
+/// symlink-preseed clobber.
 fn compute_diff(full_path: &Path, new_content: &str) -> String {
-    let tmp_dir = std::env::temp_dir();
-    let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-    let new_tmp = tmp_dir.join(format!("chibby-agent-new-{ts}"));
-    if std::fs::write(&new_tmp, new_content).is_err() {
+    use std::io::Write;
+
+    let mut new_tmp = match tempfile::NamedTempFile::new() {
+        Ok(f) => f,
+        Err(_) => return String::new(),
+    };
+    if new_tmp.write_all(new_content.as_bytes()).is_err() {
         return String::new();
     }
 
-    let diff = if full_path.exists() {
-        git::diff_no_index(full_path, &new_tmp)
+    if full_path.exists() {
+        git::diff_no_index(full_path, new_tmp.path())
     } else {
-        let old_tmp = tmp_dir.join(format!("chibby-agent-old-{ts}"));
-        let _ = std::fs::write(&old_tmp, "");
-        let d = git::diff_no_index(&old_tmp, &new_tmp);
-        let _ = std::fs::remove_file(&old_tmp);
-        d
-    };
-
-    let _ = std::fs::remove_file(&new_tmp);
-    diff
+        let old_tmp = match tempfile::NamedTempFile::new() {
+            Ok(f) => f,
+            Err(_) => return String::new(),
+        };
+        git::diff_no_index(old_tmp.path(), new_tmp.path())
+    }
+    // Temp files are removed when the `NamedTempFile` handles drop here.
 }
