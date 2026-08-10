@@ -1166,6 +1166,40 @@ select.input {
   margin-bottom: var(--space-xl);
 }
 
+/* Add Project wizard: classes replacing former inline styles */
+.wizard-step-group {
+  display: contents;
+}
+
+.add-project-template-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+}
+
+.add-project-template-remove {
+  margin-left: auto;
+}
+
+.add-project-detected-badge {
+  margin-top: var(--space-sm);
+}
+
+.add-project-section-heading {
+  margin-top: var(--space-lg);
+}
+
+.add-project-review-actions {
+  margin-top: var(--space-xl);
+}
+
+.add-project-template-modal {
+  max-width: 700px;
+  max-height: 80vh;
+  overflow: auto;
+}
+
 .wizard-step {
   display: flex;
   flex-direction: column;
