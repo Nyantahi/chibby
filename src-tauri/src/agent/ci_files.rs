@@ -14,6 +14,20 @@ pub enum CiFormat {
     GitLab,
 }
 
+impl CiFormat {
+    /// Canonical default file path for a config of this format — the single
+    /// source of truth shared by CI editing and pipeline generation.
+    pub fn default_path(&self) -> &'static str {
+        match self {
+            CiFormat::Chibby => ".chibby/pipeline.toml",
+            CiFormat::GithubActions => ".github/workflows/ci.yml",
+            CiFormat::CircleCi => ".circleci/config.yml",
+            CiFormat::Drone => ".drone.yml",
+            CiFormat::GitLab => ".gitlab-ci.yml",
+        }
+    }
+}
+
 /// Classify a project-relative path as an editable CI/CD file, if it is one.
 pub fn is_ci_file(rel_path: &str) -> Option<CiFormat> {
     let p = rel_path.replace('\\', "/");

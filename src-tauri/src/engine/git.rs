@@ -5,6 +5,22 @@ use std::path::Path;
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
+use serde::Serialize;
+
+/// Git repository status summary surfaced to the UI.
+#[derive(Debug, Clone, Serialize)]
+pub struct GitInfo {
+    /// Current branch name (`None` when not a repo or detached HEAD).
+    pub branch: Option<String>,
+    /// Short commit hash of HEAD.
+    pub commit: Option<String>,
+    /// Whether there are uncommitted changes.
+    pub is_dirty: bool,
+    /// Commits ahead of upstream (if a tracking branch exists).
+    pub ahead: Option<u32>,
+    /// Commits behind upstream (if a tracking branch exists).
+    pub behind: Option<u32>,
+}
 
 /// Run `git <args>` in `repo`, returning trimmed stdout. Errors on non-zero exit.
 fn run_git(repo: &Path, args: &[&str]) -> Result<String> {
@@ -81,6 +97,49 @@ pub fn add(repo: &Path, pathspec: &str) -> Result<()> {
 pub fn commit(repo: &Path, message: &str) -> Result<String> {
     run_git(repo, &["commit", "-m", message])?;
     run_git(repo, &["rev-parse", "HEAD"])
+}
+
+/// Short commit hash of HEAD, or `None` if unavailable.
+pub fn head_short_commit(repo: &Path) -> Option<String> {
+    run_git(repo, &["rev-parse", "--short", "HEAD"]).ok()
+}
+
+/// Commits (ahead, behind) upstream. `(None, None)` when there is no upstream.
+pub fn ahead_behind(repo: &Path) -> (Option<u32>, Option<u32>) {
+    match run_git(repo, &["rev-list", "--left-right", "--count", "HEAD...@{upstream}"]) {
+        Ok(text) => {
+            let parts: Vec<&str> = text.split('\t').collect();
+            if parts.len() == 2 {
+                (parts[0].parse().ok(), parts[1].parse().ok())
+            } else {
+                (None, None)
+            }
+        }
+        Err(_) => (None, None),
+    }
+}
+
+/// Full repository status summary. Returns all-empty when `repo` isn't a git repo.
+pub fn info(repo: &Path) -> GitInfo {
+    if !is_git_repo(repo) {
+        return GitInfo {
+            branch: None,
+            commit: None,
+            is_dirty: false,
+            ahead: None,
+            behind: None,
+        };
+    }
+    // `current_branch` yields "HEAD" when detached — surface that as `None`.
+    let branch = current_branch(repo).ok().filter(|b| b != "HEAD");
+    let (ahead, behind) = ahead_behind(repo);
+    GitInfo {
+        branch,
+        commit: head_short_commit(repo),
+        is_dirty: !is_working_tree_clean(repo),
+        ahead,
+        behind,
+    }
 }
 
 /// Unified diff between `old` and `new` files via `git diff --no-index`.

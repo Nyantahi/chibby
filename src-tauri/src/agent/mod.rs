@@ -3,7 +3,6 @@ pub mod ci_files;
 pub mod command_exec;
 pub mod context;
 pub mod executor;
-pub mod pipeline_gen;
 pub mod project_status;
 pub mod skills;
 pub mod tool_loop;
@@ -105,6 +104,20 @@ impl std::fmt::Display for PipelineFormat {
             Self::GithubActions => write!(f, "GitHub Actions (YAML)"),
             Self::CircleCi => write!(f, "CircleCI (YAML)"),
             Self::Drone => write!(f, "Drone (YAML)"),
+        }
+    }
+}
+
+impl PipelineFormat {
+    /// Map to the shared `CiFormat`. Generation targets are a subset of editable
+    /// formats, so this keeps the two enums consistent (paths, validation) from
+    /// one source instead of a divergent second copy.
+    pub fn as_ci_format(self) -> ci_files::CiFormat {
+        match self {
+            Self::Chibby => ci_files::CiFormat::Chibby,
+            Self::GithubActions => ci_files::CiFormat::GithubActions,
+            Self::CircleCi => ci_files::CiFormat::CircleCi,
+            Self::Drone => ci_files::CiFormat::Drone,
         }
     }
 }
@@ -299,12 +312,7 @@ impl ChibbyAgent {
             .await?;
         let (content, explanation) = parse_generated_pipeline(&response);
 
-        let file_path = match format {
-            PipelineFormat::Chibby => ".chibby/pipeline.toml".to_string(),
-            PipelineFormat::GithubActions => ".github/workflows/ci.yml".to_string(),
-            PipelineFormat::CircleCi => ".circleci/config.yml".to_string(),
-            PipelineFormat::Drone => ".drone.yml".to_string(),
-        };
+        let file_path = format.as_ci_format().default_path().to_string();
 
         Ok(GeneratedPipeline {
             format,
