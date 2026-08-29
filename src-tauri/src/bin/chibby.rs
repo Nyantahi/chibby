@@ -37,8 +37,12 @@ use args::{ArtifactCmd, AuditCmd, Cli, Commands, ProjectsCmd, UpdaterCmd, Versio
 async fn main() {
     let cli_args = Cli::parse();
 
-    // Handle color preferences
-    if cli_args.no_color {
+    // Handle color preferences. Per the NO_COLOR standard (https://no-color.org),
+    // any non-empty value disables color — read presence manually so values like
+    // NO_COLOR=1 don't fail clap's bool parsing.
+    let no_color = cli_args.no_color
+        || std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
+    if no_color {
         owo_colors::set_override(false);
     }
 

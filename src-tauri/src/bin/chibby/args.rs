@@ -21,8 +21,8 @@ pub struct Cli {
     #[arg(short, long, global = true)]
     pub verbose: bool,
 
-    /// Disable colors and emoji
-    #[arg(long, global = true, env = "NO_COLOR")]
+    /// Disable colors and emoji (also honors any non-empty NO_COLOR env var)
+    #[arg(long, global = true)]
     pub no_color: bool,
 
     /// Output as JSON (for scripting)
