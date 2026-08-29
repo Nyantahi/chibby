@@ -25,12 +25,6 @@ backend = "local"
 fail_fast = true
 
 [[stages]]
-name = "cargo-test"
-commands = ["cd src-tauri && cargo test"]
-backend = "local"
-fail_fast = true
-
-[[stages]]
 name = "test"
 commands = ["npm run test:run"]
 backend = "local"
@@ -43,7 +37,31 @@ backend = "local"
 fail_fast = true
 
 [[stages]]
-name = "tauri-build"
-commands = ["npm run tauri:build"]
+name = "build"
+commands = ["npm run build"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "security-secrets"
+commands = ["chibby scan secrets"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "security-deps"
+commands = ["chibby scan deps"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "security-license"
+commands = ["chibby scan license"]
+backend = "local"
+fail_fast = true
+
+[[stages]]
+name = "security-commit-lint"
+commands = ["chibby scan commits"]
 backend = "local"
 fail_fast = true
