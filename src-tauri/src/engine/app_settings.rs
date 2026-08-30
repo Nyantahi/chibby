@@ -30,6 +30,25 @@ pub struct AppSettings {
     /// LLM model id the agent uses (Anthropic). Defaults to the current flagship.
     #[serde(default = "default_agent_model")]
     pub agent_model: String,
+    /// Which LLM provider the agent uses when keys are configured — see
+    /// `AgentProvider`.
+    #[serde(default)]
+    pub agent_provider: AgentProvider,
+}
+
+/// Which LLM provider the agent should use. When both keys are set, `Auto`
+/// prefers Anthropic with an OpenAI fallback; the explicit variants force one
+/// provider and error if its key is missing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentProvider {
+    /// Prefer Anthropic, fall back to OpenAI. (Default.)
+    #[default]
+    Auto,
+    /// Use Anthropic only.
+    Anthropic,
+    /// Use OpenAI only.
+    Openai,
 }
 
 /// How much the agent may do on its own before pausing for user approval.
@@ -89,6 +108,7 @@ impl Default for AppSettings {
             bootstrap_mode: BootstrapMode::Confirm,
             agent_mode: AgentMode::default(),
             agent_model: default_agent_model(),
+            agent_provider: AgentProvider::default(),
         }
     }
 }

@@ -17,6 +17,8 @@ mod cli {
 }
 
 use cli::{icons, Printer, StageStatus};
+#[path = "chibby/aigen.rs"]
+mod aigen;
 #[path = "chibby/args.rs"]
 mod args;
 #[path = "chibby/env.rs"]
@@ -574,17 +576,31 @@ async fn init_project(printer: &Printer, path: Option<&PathBuf>, ai: bool) -> an
     printer.info("Detected: Tauri + React + TypeScript");
     printer.newline();
 
-    let msg = if ai {
-        format!("{} Generating pipeline with AI...", icons::SPARKLE)
+    if ai {
+        let spin = cli::spinner(&format!("{} Generating pipeline with AI...", icons::SPARKLE));
+        let result = aigen::generate_pipeline_toml(&path).await;
+        spin.finish_and_clear();
+        match result {
+            Ok(explanation) => {
+                printer.success("Created .chibby/pipeline.toml");
+                if !explanation.trim().is_empty() {
+                    printer.newline();
+                    println!("{}", explanation.trim());
+                }
+            }
+            Err(e) => {
+                printer.error(&format!("AI pipeline generation failed: {}", e));
+                return Err(e);
+            }
+        }
     } else {
-        "Generating pipeline...".to_string()
-    };
-    let spin = cli::spinner(&msg);
-    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
-    spin.finish_and_clear();
+        let spin = cli::spinner("Generating pipeline...");
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        spin.finish_and_clear();
 
-    printer.success("Created .chibby/pipeline.toml");
-    printer.success("Created .chibby/environments.toml");
+        printer.success("Created .chibby/pipeline.toml");
+        printer.success("Created .chibby/environments.toml");
+    }
     printer.newline();
 
     println!(

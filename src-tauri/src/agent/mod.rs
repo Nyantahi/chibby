@@ -152,6 +152,20 @@ pub struct ExecutionResult {
 // ChibbyAgent — the single CI/CD agent
 // ---------------------------------------------------------------------------
 
+/// Build the default agent from the configured provider preference, API keys,
+/// and identity files. Shared by the Tauri commands and the CLI `--ai` flags.
+/// Errors if no provider is configured.
+pub fn build_agent() -> Result<ChibbyAgent> {
+    use crate::ai::identity_loader::{resolve_identity_path, AgentIdentityRegistry};
+
+    let provider = crate::ai::provider::build_provider()?;
+    let identity = match resolve_identity_path() {
+        Some(path) => AgentIdentityRegistry::load_from_dir(&path)?,
+        None => AgentIdentityRegistry::load_fallback(),
+    };
+    Ok(ChibbyAgent::new(provider, identity))
+}
+
 pub struct ChibbyAgent {
     provider: Arc<dyn LLMProvider>,
     identity: AgentIdentityRegistry,

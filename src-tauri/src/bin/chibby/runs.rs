@@ -355,18 +355,33 @@ pub(crate) async fn handle_pipeline(printer: &Printer, cmd: &PipelineCmd) -> any
                 printer.cmd(cmd);
             }
         }
-        PipelineCmd::Generate { project: _, ai } => {
-            let msg = if *ai {
-                format!("{} Generating pipeline with AI...", icons::SPARKLE)
+        PipelineCmd::Generate { project, ai } => {
+            let path = crate::project_path(project.as_ref());
+            if *ai {
+                let spin =
+                    cli::spinner(&format!("{} Generating pipeline with AI...", icons::SPARKLE));
+                let result = crate::aigen::generate_pipeline_toml(&path).await;
+                spin.finish_and_clear();
+                match result {
+                    Ok(explanation) => {
+                        printer.success("Pipeline generated → .chibby/pipeline.toml");
+                        if !explanation.trim().is_empty() {
+                            printer.newline();
+                            println!("{}", explanation.trim());
+                            printer.newline();
+                        }
+                    }
+                    Err(e) => {
+                        printer.error(&format!("AI pipeline generation failed: {}", e));
+                        return Err(e);
+                    }
+                }
             } else {
-                format!("{} Detecting scripts...", icons::GEAR)
-            };
-
-            let spin = cli::spinner(&msg);
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            spin.finish_and_clear();
-
-            printer.success("Pipeline generated");
+                let spin = cli::spinner(&format!("{} Detecting scripts...", icons::GEAR));
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                spin.finish_and_clear();
+                printer.success("Pipeline generated");
+            }
             printer.info(&format!("Edit with: {}", "chibby pipeline edit".cyan()));
         }
         PipelineCmd::Validate { project: _ } => {

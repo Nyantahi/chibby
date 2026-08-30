@@ -11,7 +11,11 @@ export interface AppSettings {
   bootstrap_mode: BootstrapMode;
   agent_mode: AgentMode;
   agent_model: string;
+  agent_provider: AgentProvider;
 }
+
+/** Which LLM provider the agent uses when keys are configured. */
+export type AgentProvider = 'auto' | 'anthropic' | 'openai';
 
 /** Behaviour when adding a project that has detectable env/secret references. */
 export type BootstrapMode = 'confirm' | 'silent' | 'off';

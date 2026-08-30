@@ -10,9 +10,7 @@ use crate::agent::{
     context::AnalysisContext, AgentAnalysis, AgentResponse, ChatTurn, ChibbyAgent,
     GeneratedPipeline, PipelineFormat,
 };
-use crate::ai::identity_loader::{resolve_identity_path, AgentIdentityRegistry};
 use crate::ai::memory::{self, MemoryEntry, MemoryStore};
-use crate::ai::provider;
 use crate::engine::{audit, persistence, pipeline};
 
 /// Maximum allowed length for a chat message (in bytes).
@@ -60,14 +58,7 @@ pub fn create_agent_state() -> SharedAgentState {
 }
 
 fn build_agent() -> anyhow::Result<ChibbyAgent> {
-    let llm_provider = provider::build_provider()?;
-
-    let identity = match resolve_identity_path() {
-        Some(path) => AgentIdentityRegistry::load_from_dir(&path)?,
-        None => AgentIdentityRegistry::load_fallback(),
-    };
-
-    Ok(ChibbyAgent::new(llm_provider, identity))
+    crate::agent::build_agent()
 }
 
 // ---------------------------------------------------------------------------

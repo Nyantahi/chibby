@@ -605,33 +605,50 @@ impl LLMProvider for FallbackProvider {
 // Provider factory: build the best available provider from configured keys
 // ---------------------------------------------------------------------------
 
-/// Build an LLM provider based on which API keys are configured.
-/// Prefers Anthropic as primary with OpenAI fallback when both are available.
-/// All providers are wrapped with a rate limiter (max 15 calls/minute).
+/// Build an LLM provider based on the configured provider preference and which
+/// API keys exist. `Auto` prefers Anthropic with an OpenAI fallback; the
+/// explicit provider settings force one provider and error if its key is
+/// missing. All providers are wrapped with a rate limiter (max 15 calls/minute).
 pub fn build_provider() -> Result<Arc<dyn LLMProvider>> {
+    use app_settings::AgentProvider;
+
+    let settings = app_settings::load_app_settings().unwrap_or_default();
     let has_anthropic = app_settings::has_app_secret("anthropic");
     let has_openai = app_settings::has_app_secret("openai");
 
-    // Use the configured Anthropic model; fall back to the default if settings
-    // are unreadable. OpenAI keeps its built-in default.
-    let anthropic_model = app_settings::load_app_settings()
-        .map(|s| s.agent_model)
-        .unwrap_or_else(|_| app_settings::DEFAULT_ANTHROPIC_MODEL.to_string());
+    // Anthropic uses the configured model; OpenAI keeps its built-in default.
+    let anthropic = || -> Arc<dyn LLMProvider> {
+        Arc::new(AnthropicProvider::new(Some(settings.agent_model.clone())))
+    };
+    let openai = || -> Arc<dyn LLMProvider> { Arc::new(OpenAIProvider::new(None)) };
 
-    let base: Arc<dyn LLMProvider> = match (has_anthropic, has_openai) {
-        (true, true) => {
-            let primary: Arc<dyn LLMProvider> =
-                Arc::new(AnthropicProvider::new(Some(anthropic_model)));
-            let fallback: Arc<dyn LLMProvider> = Arc::new(OpenAIProvider::new(None));
-            Arc::new(FallbackProvider::new(primary, fallback))
+    let base: Arc<dyn LLMProvider> = match settings.agent_provider {
+        AgentProvider::Anthropic => {
+            if !has_anthropic {
+                anyhow::bail!(
+                    "Anthropic is selected in Settings but no Anthropic API key is configured. \
+                     Add a key or switch the provider."
+                );
+            }
+            anthropic()
         }
-        (true, false) => Arc::new(AnthropicProvider::new(Some(anthropic_model))),
-        (false, true) => Arc::new(OpenAIProvider::new(None)),
-        (false, false) => {
-            anyhow::bail!(
+        AgentProvider::Openai => {
+            if !has_openai {
+                anyhow::bail!(
+                    "OpenAI is selected in Settings but no OpenAI API key is configured. \
+                     Add a key or switch the provider."
+                );
+            }
+            openai()
+        }
+        AgentProvider::Auto => match (has_anthropic, has_openai) {
+            (true, true) => Arc::new(FallbackProvider::new(anthropic(), openai())),
+            (true, false) => anthropic(),
+            (false, true) => openai(),
+            (false, false) => anyhow::bail!(
                 "No AI provider configured. Add an Anthropic or OpenAI API key in Settings."
-            )
-        }
+            ),
+        },
     };
 
     // Wrap with rate limiter: 15 calls per minute

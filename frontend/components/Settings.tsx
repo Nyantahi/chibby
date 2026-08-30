@@ -24,7 +24,13 @@ import {
   rebuildAgent,
 } from '../services/api';
 import { openPath } from '../services/openExternal';
-import type { AppSettings, AgentMode, AgentSystemStatus, BootstrapMode } from '../types';
+import type {
+  AppSettings,
+  AgentMode,
+  AgentProvider,
+  AgentSystemStatus,
+  BootstrapMode,
+} from '../types';
 
 /** Flip to `true` once AI integration is ready. */
 const SHOW_AGENT_SETTINGS = true;
@@ -55,6 +61,12 @@ const AGENT_MODES: { id: AgentMode; label: string; desc: string }[] = [
 const AGENT_MODELS = [
   { id: 'claude-opus-4-8', label: 'Claude Opus 4.8 (most capable)' },
   { id: 'claude-sonnet-5', label: 'Claude Sonnet 5 (faster, cheaper)' },
+];
+
+const AGENT_PROVIDERS: { id: AgentProvider; label: string }[] = [
+  { id: 'auto', label: 'Auto (Anthropic, fall back to OpenAI)' },
+  { id: 'anthropic', label: 'Anthropic' },
+  { id: 'openai', label: 'OpenAI' },
 ];
 
 function Settings() {
@@ -271,6 +283,27 @@ function Settings() {
                   {status.error && <p className="text-sm text-yellow-400 mt-1">{status.error}</p>}
 
                   <div className="form-group" style={{ marginTop: 12 }}>
+                    <label className="form-label">Provider</label>
+                    <select
+                      className="input input-sm"
+                      value={settings.agent_provider}
+                      onChange={(e) =>
+                        updateSetting('agent_provider', e.target.value as AgentProvider)
+                      }
+                    >
+                      {AGENT_PROVIDERS.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="settings-section-desc" style={{ marginTop: 4 }}>
+                      Which provider the agent uses. &ldquo;Auto&rdquo; prefers Anthropic and falls
+                      back to OpenAI; pick one explicitly to force it.
+                    </p>
+                  </div>
+
+                  <div className="form-group">
                     <label className="form-label">Model</label>
                     <select
                       className="input input-sm"
@@ -283,6 +316,10 @@ function Settings() {
                         </option>
                       ))}
                     </select>
+                    <p className="settings-section-desc" style={{ marginTop: 4 }}>
+                      Anthropic model id. Only applies when the provider is Anthropic (or Auto with
+                      an Anthropic key).
+                    </p>
                   </div>
 
                   <div className="form-group">
