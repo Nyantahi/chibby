@@ -14,14 +14,16 @@ Chibby helps developers turn existing scripts into visual, repeatable pipelines 
 
 ## Features
 
-- **Pipeline Templates** — 20 built-in templates (9 full pipelines + 11 stage snippets) with variable substitution, import/export, and 3-layer resolution ([Templates docs](docs/features/templates.md))
+- **Pipeline Templates** — 45 built-in templates (10 full pipelines + 35 stage snippets, including one-click cloud deploy targets — AWS, GCP, Azure, DigitalOcean, Fly.io, Render, Railway, Vercel, S3 — plus security-scan stages) with variable substitution, import/export, and 3-layer resolution ([Templates docs](docs/features/templates.md))
 - **GitHub Actions Import** — Import stages from existing `.github/workflows/` into your pipeline
 - **CLI** — Standalone command-line interface for headless servers and scripting ([CLI docs](docs/features/cli-commands.md))
 - **Script Import** — Detect and import existing scripts from your repo
-- **Pipeline Generation** — Auto-generate pipelines from detected commands (heuristic + LLM-assisted)
+- **Pipeline Generation** — Auto-generate pipelines from detected commands (heuristic + LLM-assisted); also available headless via `chibby init --ai` and `chibby pipeline generate --ai`
+- **CI/CD Agent (Advise / Act)** — A docked, resizable AI assistant plus a per-run analysis panel that investigates your project and pipeline through a tool-use loop (read files, list dirs, validate pipeline). Read-only **Advise** mode by default; an explicit **Act** toggle enables command execution and CI-file edits with approval, diff preview, and git-branch isolation. Provider-selectable (auto / Anthropic / OpenAI) ([Agent docs](docs/features/agent.md))
 - **Local Execution** — Run stages as local processes with live log streaming
 - **SSH Execution** — Deploy over SSH with direct commands or Docker Compose
 - **Concurrent multi-project runs** — Run pipelines for several projects at the same time; each run's live logs and stage/command progress are tracked independently, with a "Running" indicator on each project card and a sidebar list of in-progress runs
+- **Projects dashboard** — Switch between Cards and Table views, with per-project **Run** and **Delete** quick actions and live run status at a glance
 - **Environments & Secrets** — Per-environment config, OS keychain values, per-developer `environments.local.toml` overrides, and a layered read-only view ([Env/Secrets docs](docs/features/env-secrets.md))
 - **Bootstrap wizard** — Scans `.env*`, `docker-compose*.yml`, `.github/workflows/`, and JS/Python/Rust source for env/secret references and writes populated `environments.toml` + `secrets.toml` in Safe or Merge mode
 - **Importers** — Pull names (and optionally values) from `.env` files, Vercel, Railway, and Fly.io; vendor CLI presence is auto-checked
@@ -38,6 +40,7 @@ Chibby helps developers turn existing scripts into visual, repeatable pipelines 
 - **Notifications** — Desktop OS notifications and webhooks (Slack, Discord, HTTP) with one-click test send
 - **Crash log viewer** — Inspect, reveal, and clear `<data_dir>/crash.log` from the app
 - **App Settings** — Configurable notification, retention, and bootstrap-mode defaults that apply across all projects
+- **Light & dark themes** — Sidebar sun/moon toggle, applied before paint (no flash) and persisted locally
 - **Cross-Platform** — Works on macOS, Linux, and Windows
 
 ## Why Chibby?

@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Agent provider selection** — new `AgentProvider` setting (`auto` / `anthropic` / `openai`) so users with more than one API key can force a provider; `build_provider()` honors it with a clear error when the chosen provider's key is missing. Surfaced as a **Provider** dropdown in Settings.
+- **`chibby init --ai` and `pipeline generate --ai` now call the real agent** — previously stubs that slept and printed canned success. A shared `agent::build_agent()` plus a new CLI `aigen` module summarizes the project, generates a pipeline, and writes `.chibby/pipeline.toml`.
+- **Per-project Run & Delete quick actions** on the Projects page — both Cards and Table views now expose Run-pipeline and Delete buttons on each project, so you can run or remove a project without opening it.
+- **Section help tooltips** — a "?" affordance on each major section of the Environments, Release, and Quality tabs explains what it does (and how to use it) on hover or click.
+
+### Changed
+
+- **Cleaner Environments & Secrets add-forms** — labeled, full-size inputs instead of cramped placeholders; environments are now selected with toggle chips rather than a small multi-select.
+
+### Fixed
+
+- **`NO_COLOR` handling** — honor the [`NO_COLOR`](https://no-color.org/) standard and no longer crash when `NO_COLOR=1`.
+- **npm audit** — patched 6 advisories (react-router, postcss, nanoid, brace-expansion, babel).
+
+## [0.3.1] - 2026-08-16
+
+### Security
+
+- **Hardened the agent's command guards** — closed command / redaction / path-guard bypasses. Unknown and chained commands are gated behind a safe-allowlist floor so Act mode's auto-run path stays safe.
+
+### Changed
+
+- **Large internal refactor (no user-facing change)** — split the CLI into focused modules (`args`, `scan`, `env`, import/export, `runs`), extracted the executor's `run_stage` + engine/deploy, split `recommendations.rs` into a submodule, broke the Add Project wizard into per-step components, and deduped git logic and CI-format models.
+
+## [0.3.0] - 2026-08-09
+
+### Added — CI/CD Agent
+
+- **Advisory-first CI/CD agent** — a docked, resizable drawer plus a per-run analysis panel, backed by a tool-use loop (`read_file` / `list_dir` / `validate_pipeline`, and in Act mode `run_command` / `edit_ci_file`) gated by the configured autonomy mode. ([Agent docs](../features/agent.md))
+- **Advise by default, Act on demand** — read-only **Advise** mode investigates the project and pipeline and gives grounded advice/proposals without changing anything; an explicit **Act** toggle enables commands and CI-file edits with approval, diff preview, and git-branch isolation.
+- **Hardened risky-command classifier** — safe-allowlist floor, broadened secret redaction in log sanitization, and catastrophic commands blocked regardless of autonomy mode.
+
+### Added — UI
+
+- **Light theme + toggle** — `data-theme=light` token overrides with a sidebar sun/moon toggle, applied pre-paint to avoid a flash; persisted via a new localStorage prefs helper.
+- **Cards / Table view toggle** on the Projects page and the Templates page.
+
+### Added — Templates
+
+- **Security-scan stage templates** — the `chibby scan` runners (secrets, deps, sast, container, iac, license, commit-lint) promoted to built-in stage templates under a new **Security** category, plus an **All Scans** bundle. Default `GatesConfig` hardened with the standard secret-scan allowlist, reused in the bootstrap seeder.
+
+### Fixed
+
+- **Release workflow paths** — corrected for the repo-root-is-`chibby` layout (matching the earlier `ci.yml` fix).
+
+## [0.2.1] – [0.2.3] - 2026-07-03
+
+### Changed
+
+- Maintenance releases — version bumps, dependency updates (React and others), and a README description tweak. No user-facing feature changes.
+
 ## [0.2.0] - 2026-07-03
 
 ### Added — Concurrent multi-project runs

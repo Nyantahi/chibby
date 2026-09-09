@@ -265,6 +265,26 @@ While a pipeline runs:
 - Logs stream in real time
 - Each stage shows its current status
 
+### Build Caches & Workspace Persistence
+
+Chibby runs every stage as a local process **inside your project directory** — it does not clone into a fresh workspace or wipe anything between runs. So build caches persist across runs by design; there is no cache step to configure.
+
+This is the key difference from cloud CI (GitHub Actions, GitLab CI, CircleCI), which starts each job on a clean runner and therefore needs an explicit cache action (e.g. `swatinem/rust-cache`, `actions/cache`) to restore state. Chibby never discards that state, so there is nothing to restore.
+
+What carries over automatically, unchanged, from one run to the next:
+
+| Ecosystem | Persisted between runs |
+| --- | --- |
+| Rust | `target/`, `~/.cargo/registry`, `~/.cargo/git` |
+| Node | `node_modules/`, `~/.npm` |
+| Go | build cache, `~/go/pkg/mod` |
+| JVM | `~/.gradle`, `~/.m2` |
+| Python | virtualenv, `~/.cache/pip` |
+
+The result: after the first run, incremental builds are as fast as running the commands yourself in a terminal — no cold rebuilds.
+
+**Multi-crate / multi-working-dir Rust projects.** Cargo's `target/` lives relative to each stage's working directory, so stages that run from *different* working directories get *separate* `target/` dirs and don't share incremental artifacts. Home-based caches (`~/.cargo`) are always shared regardless. If you want one shared build cache across all Rust stages, set `CARGO_TARGET_DIR` to an absolute path in the project's environment config (Chibby injects environment variables into every stage). This is optional and off by default — single-working-dir pipelines already share `target/`.
+
 ---
 
 ## Viewing Run History
