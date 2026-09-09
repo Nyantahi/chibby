@@ -21,6 +21,30 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Fail fast (before any draft release is created) if the pushed tag doesn't
+      # match every internal version source. Prevents mis-versioned artifacts and
+      # broken Homebrew naming. Run scripts/bump.sh to keep all four in sync.
+      - name: Verify tag matches version
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          pkg="$(jq -r .version package.json)"
+          lock="$(jq -r .version package-lock.json)"
+          conf="$(jq -r .version src-tauri/tauri.conf.json)"
+          cargo="$(grep -m1 '^version' src-tauri/Cargo.toml | sed -E 's/version *= *"([^"]+)".*/\1/')"
+          echo "tag=$VERSION package.json=$pkg lock=$lock tauri.conf=$conf Cargo.toml=$cargo"
+          fail=0
+          for entry in "package.json:$pkg" "package-lock.json:$lock" "tauri.conf.json:$conf" "Cargo.toml:$cargo"; do
+            name="${entry%%:*}"; val="${entry#*:}"
+            if [ "$val" != "$VERSION" ]; then
+              echo "::error::$name version ($val) does not match tag ($VERSION)"; fail=1
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo "Bump every version file to match the tag (scripts/bump.sh) before releasing."
+            exit 1
+          fi
+
       - name: Create GitHub Release
         id: create
         uses: softprops/action-gh-release@v3
