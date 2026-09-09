@@ -89,18 +89,28 @@ jobs:
           cd src-tauri
           cargo build --features cli --bin chibby-cli --release --target ${{ matrix.target }}
 
+      # Tauri's DMG bundler shells out to create-dmg, which isn't preinstalled
+      # on GitHub's macOS runners. Without it, --bundles dmg fails.
+      - name: Install create-dmg (macOS)
+        if: contains(matrix.os, 'macos')
+        run: brew install create-dmg
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # macOS code signing / notarization is intentionally left OFF: the app
+          # builds unsigned. Passing EMPTY APPLE_* vars (unset secrets) makes Tauri
+          # attempt `security import` on an empty certificate and fail the whole
+          # bundle. To enable signing, set these repo secrets and uncomment:
+          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: .
           tagName: ${{ github.ref_name }}
@@ -191,3 +201,96 @@ jobs:
               release_id: ${{ needs.create-release.outputs.release_id }},
               draft: false
             });
+
+  # Regenerate the Homebrew formulas from the templates in packaging/homebrew/,
+  # fill in the release version + real SHA256s, and push them to the tap repo.
+  # Prerequisites (one-time): create the tap repo Nyantahi/homebrew-chibby with
+  # Formula/ + Casks/ dirs, and add a HOMEBREW_TAP_TOKEN secret (a PAT with write
+  # access to that repo). Without the secret this job self-skips.
+  update-homebrew:
+    name: Update Homebrew Tap
+    needs: [publish-release]
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gate on tap token
+        id: gate
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -n "$TAP_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::HOMEBREW_TAP_TOKEN not set — skipping Homebrew tap update."
+          fi
+
+      - name: Check out chibby (formula templates)
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/checkout@v7
+        with:
+          path: chibby
+
+      - name: Check out tap repo
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/checkout@v7
+        with:
+          repository: Nyantahi/homebrew-chibby
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Regenerate and push formulas
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          dl="$(mktemp -d)"
+
+          # sha256 of a named release asset, or empty if the asset is absent.
+          asset_sha() {
+            local name="$1"
+            if gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+                 --pattern "$name" --dir "$dl" --clobber >/dev/null 2>&1; then
+              sha256sum "$dl/$name" | awk '{print $1}'
+            fi
+          }
+
+          CLI_MACOS_SHA="$(asset_sha "chibby-cli-macos-universal.tar.gz")"
+          CLI_LINUX_SHA="$(asset_sha "chibby-cli-linux-x86_64.tar.gz")"
+          DMG_ARM_SHA="$(asset_sha "Chibby_${VERSION}_aarch64.dmg")"
+          DMG_X64_SHA="$(asset_sha "Chibby_${VERSION}_x64.dmg")"
+
+          # CLI formula — always updated (its assets exist on every release).
+          if [ -z "$CLI_MACOS_SHA" ] || [ -z "$CLI_LINUX_SHA" ]; then
+            echo "::error::Missing CLI release assets for $TAG"; exit 1
+          fi
+          mkdir -p tap/Formula
+          sed -e "s/version \"[^\"]*\"/version \"${VERSION}\"/" \
+              -e "s/PLACEHOLDER_MACOS_SHA256/${CLI_MACOS_SHA}/" \
+              -e "s/PLACEHOLDER_LINUX_X64_SHA256/${CLI_LINUX_SHA}/" \
+              chibby/packaging/homebrew/chibby-cli.rb > tap/Formula/chibby-cli.rb
+
+          # Cask — only when the macOS DMGs are present in the release.
+          if [ -n "$DMG_ARM_SHA" ] && [ -n "$DMG_X64_SHA" ]; then
+            mkdir -p tap/Casks
+            sed -e "s/version \"[^\"]*\"/version \"${VERSION}\"/" \
+                -e "s/PLACEHOLDER_ARM64_SHA256/${DMG_ARM_SHA}/" \
+                -e "s/PLACEHOLDER_X64_SHA256/${DMG_X64_SHA}/" \
+                chibby/packaging/homebrew/chibby.rb > tap/Casks/chibby.rb
+          else
+            echo "::warning::DMG assets not found for $TAG — cask left unchanged."
+          fi
+
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No formula changes to commit."
+          else
+            git commit -m "chibby ${VERSION}"
+            git push
+          fi
