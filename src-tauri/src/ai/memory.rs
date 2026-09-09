@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
@@ -102,19 +103,16 @@ impl MemoryStore {
     }
 
     fn project_memory_path(&self, project_id: &str) -> PathBuf {
-        // Sanitize project_id for filesystem safety
-        let safe_id: String = project_id
-            .chars()
-            .map(|c| {
-                if c.is_alphanumeric() || c == '-' || c == '_' {
-                    c
-                } else {
-                    '_'
-                }
-            })
-            .collect();
+        // Hash the full id for a collision-free, filesystem-safe directory name.
+        // Char-substitution (e.g. every non-alphanumeric → `_`) mapped distinct
+        // projects (`/a/b`, `_a_b`, `/a-b`) onto one file, cross-contaminating
+        // remembered facts. Mirrors `secret_audit::project_hash`.
+        let mut hasher = Sha256::new();
+        hasher.update(project_id.as_bytes());
+        let digest = hasher.finalize();
+        let hash: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
         self.base_dir
-            .join(format!("projects/{}/memory.json", safe_id))
+            .join(format!("projects/{}/memory.json", hash))
     }
 }
 

@@ -1,0 +1,15 @@
+[meta]
+name = "Security: SAST"
+description = "Static application security testing via semgrep (chibby scan sast)"
+author = "chibby"
+version = "1.0.0"
+category = "security"
+tags = ["security", "sast", "semgrep", "scan"]
+required_tools = ["semgrep"]
+template_type = "stage"
+
+[[stages]]
+name = "security-sast"
+commands = ["NO_COLOR=true chibby scan sast"]
+backend = "local"
+fail_fast = true

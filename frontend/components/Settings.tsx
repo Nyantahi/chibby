@@ -24,14 +24,37 @@ import {
   rebuildAgent,
 } from '../services/api';
 import { openPath } from '../services/openExternal';
-import type { AppSettings, AgentSystemStatus, BootstrapMode } from '../types';
+import type { AppSettings, AgentMode, AgentSystemStatus, BootstrapMode } from '../types';
 
 /** Flip to `true` once AI integration is ready. */
-const SHOW_AGENT_SETTINGS = false;
+const SHOW_AGENT_SETTINGS = true;
 
 const API_PROVIDERS = [
   { id: 'openai', label: 'OpenAI' },
   { id: 'anthropic', label: 'Anthropic' },
+];
+
+const AGENT_MODES: { id: AgentMode; label: string; desc: string }[] = [
+  {
+    id: 'propose_approve',
+    label: 'Propose & approve',
+    desc: 'Agent proposes every command and file edit; nothing runs until you approve.',
+  },
+  {
+    id: 'auto_safe_gate_risky',
+    label: 'Auto-run safe, gate risky',
+    desc: 'Safe commands and edits run automatically; deploys, pushes, and destructive actions pause for approval.',
+  },
+  {
+    id: 'autonomous_checkpoints',
+    label: 'Autonomous with checkpoints',
+    desc: 'Agent runs multi-step sequences on its own, pausing only at checkpoints.',
+  },
+];
+
+const AGENT_MODELS = [
+  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8 (most capable)' },
+  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5 (faster, cheaper)' },
 ];
 
 function Settings() {
@@ -94,6 +117,11 @@ function Settings() {
       setSaving(true);
       setError(null);
       await saveAppSettings(settings);
+      // Rebuild the agent so a changed model id takes effect immediately.
+      if (SHOW_AGENT_SETTINGS) {
+        const newStatus = await rebuildAgent();
+        setAgentStatus(newStatus);
+      }
       setSuccessMsg('Settings saved');
       setTimeout(() => setSuccessMsg(null), 2000);
     } catch (err) {
@@ -241,6 +269,39 @@ function Settings() {
                     </span>
                   </div>
                   {status.error && <p className="text-sm text-yellow-400 mt-1">{status.error}</p>}
+
+                  <div className="form-group" style={{ marginTop: 12 }}>
+                    <label className="form-label">Model</label>
+                    <select
+                      className="input input-sm"
+                      value={settings.agent_model}
+                      onChange={(e) => updateSetting('agent_model', e.target.value)}
+                    >
+                      {AGENT_MODELS.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Autonomy</label>
+                    <select
+                      className="input input-sm"
+                      value={settings.agent_mode}
+                      onChange={(e) => updateSetting('agent_mode', e.target.value as AgentMode)}
+                    >
+                      {AGENT_MODES.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="settings-section-desc" style={{ marginTop: 4 }}>
+                      {AGENT_MODES.find((m) => m.id === settings.agent_mode)?.desc}
+                    </p>
+                  </div>
                 </section>
               );
             })()}

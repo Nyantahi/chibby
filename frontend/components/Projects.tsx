@@ -1,8 +1,17 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
-import { FolderGit2, CircleCheck, CircleX, Circle, Loader2 } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import {
+  FolderGit2,
+  CircleCheck,
+  CircleX,
+  Circle,
+  Loader2,
+  LayoutGrid,
+  Table as TableIcon,
+} from 'lucide-react';
 import { listProjects, getAllRuns } from '../services/api';
 import { useActiveRuns } from '../services/runStore';
+import { usePref, PREF_PROJECTS_VIEW, type ProjectsView } from '../services/prefs';
 import { formatDate, statusClass, capitalize } from '../utils/format';
 import type { ProjectInfo, PipelineRun } from '../types';
 
@@ -21,7 +30,9 @@ function Projects() {
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = usePref<ProjectsView>(PREF_PROJECTS_VIEW, 'cards');
 
+  const navigate = useNavigate();
   const activeRuns = useActiveRuns();
   const runningPaths = useMemo(
     () => new Set(activeRuns.filter((r) => r.status === 'running').map((r) => r.repoPath)),
@@ -93,9 +104,33 @@ function Projects() {
     <div className="page">
       <header className="page-header">
         <h2 className="page-title">Projects</h2>
-        <Link to="/add-project" className="btn btn-primary">
-          Add Project
-        </Link>
+        <div className="header-actions">
+          {projects.length > 0 && (
+            <div className="tabs" role="tablist" aria-label="Project view">
+              <button
+                type="button"
+                className={`tab ${view === 'cards' ? 'tab-active' : ''}`}
+                onClick={() => setView('cards')}
+                aria-pressed={view === 'cards'}
+              >
+                <LayoutGrid size={14} />
+                Cards
+              </button>
+              <button
+                type="button"
+                className={`tab ${view === 'table' ? 'tab-active' : ''}`}
+                onClick={() => setView('table')}
+                aria-pressed={view === 'table'}
+              >
+                <TableIcon size={14} />
+                Table
+              </button>
+            </div>
+          )}
+          <Link to="/add-project" className="btn btn-primary">
+            Add Project
+          </Link>
+        </div>
       </header>
 
       {error && <div className="alert alert-error">{error}</div>}
@@ -137,7 +172,7 @@ function Projects() {
             Add Your First Project
           </Link>
         </div>
-      ) : (
+      ) : view === 'cards' ? (
         <div className="project-grid">
           {projects.map(({ project, has_pipeline }) => {
             const isRunning = runningPaths.has(project.path);
@@ -173,6 +208,60 @@ function Projects() {
             );
           })}
         </div>
+      ) : (
+        <table className="project-table">
+          <thead>
+            <tr>
+              <th>Project</th>
+              <th>Path</th>
+              <th>Pipeline</th>
+              <th>Status</th>
+              <th>Last Run</th>
+            </tr>
+          </thead>
+          <tbody>
+            {projects.map(({ project, has_pipeline }) => {
+              const isRunning = runningPaths.has(project.path);
+              const displayStatus = isRunning ? 'running' : project.last_run_status;
+              return (
+                <tr
+                  key={project.id}
+                  className="project-row"
+                  onClick={() => navigate(`/project/${project.id}`)}
+                >
+                  <td>
+                    <div className="project-row-name">
+                      <FolderGit2 size={16} />
+                      <span>{project.name}</span>
+                      {isRunning && <Loader2 size={14} className="spin status-running" />}
+                    </div>
+                  </td>
+                  <td className="project-row-path">{project.path}</td>
+                  <td>
+                    <span className={`badge badge-${has_pipeline ? 'success' : 'neutral'}`}>
+                      {has_pipeline ? 'Pipeline configured' : 'No pipeline'}
+                    </span>
+                  </td>
+                  <td>
+                    {displayStatus ? (
+                      <span className="project-run-status">
+                        {statusIcon(displayStatus)}
+                        <span className={`status-text status-${statusClass(displayStatus)}`}>
+                          {isRunning ? 'Running' : capitalize(displayStatus)}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="project-row-dim">—</span>
+                    )}
+                  </td>
+                  <td className="project-row-dim">
+                    {!isRunning && project.last_run_at ? formatDate(project.last_run_at) : '—'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       )}
     </div>
   );

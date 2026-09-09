@@ -1,0 +1,15 @@
+[meta]
+name = "Security: IaC Scan"
+description = "Scan infrastructure-as-code for misconfigurations via trivy (chibby scan iac)"
+author = "chibby"
+version = "1.0.0"
+category = "security"
+tags = ["security", "iac", "trivy", "terraform", "scan"]
+required_tools = ["trivy"]
+template_type = "stage"
+
+[[stages]]
+name = "security-iac"
+commands = ["NO_COLOR=true chibby scan iac"]
+backend = "local"
+fail_fast = true

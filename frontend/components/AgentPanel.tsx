@@ -11,7 +11,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { analyzeRun, agentChat } from '../services/api';
-import type { AgentAnalysis, Finding, Severity } from '../types';
+import type { AgentAnalysis, ChatTurn, Finding, Severity } from '../types';
 
 interface AgentPanelProps {
   runId: string;
@@ -22,22 +22,11 @@ interface AgentPanelProps {
 function severityIcon(severity: Severity) {
   switch (severity) {
     case 'critical':
-      return <AlertCircle size={16} className="text-red-400" />;
+      return <AlertCircle size={16} className="agent-danger" />;
     case 'warning':
-      return <AlertTriangle size={16} className="text-yellow-400" />;
+      return <AlertTriangle size={16} className="agent-accent" />;
     case 'info':
-      return <Info size={16} className="text-blue-400" />;
-  }
-}
-
-function severityBorder(severity: Severity): string {
-  switch (severity) {
-    case 'critical':
-      return 'border-red-500/30';
-    case 'warning':
-      return 'border-yellow-500/30';
-    case 'info':
-      return 'border-blue-500/30';
+      return <Info size={16} className="agent-accent" />;
   }
 }
 
@@ -45,31 +34,24 @@ function FindingCard({ finding }: { finding: Finding }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div
-      className={`border rounded-md p-3 mb-2 bg-[var(--color-bg-secondary)] ${severityBorder(finding.severity)}`}
-    >
-      <div
-        className="flex items-center gap-2 cursor-pointer"
-        onClick={() => setExpanded(!expanded)}
-      >
+    <div className={`agent-finding sev-${finding.severity}`}>
+      <div className="agent-finding-head" onClick={() => setExpanded(!expanded)}>
         {severityIcon(finding.severity)}
-        <span className="flex-1 font-medium text-sm">{finding.title}</span>
+        <span className="agent-finding-title">{finding.title}</span>
         {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
       </div>
       {expanded && (
-        <div className="mt-2 text-sm text-[var(--color-text-secondary)]">
-          <pre className="whitespace-pre-wrap font-mono text-xs">{finding.detail}</pre>
+        <div className="agent-finding-detail">
+          <pre>{finding.detail}</pre>
           {finding.suggested_command && (
-            <div className="mt-2 flex items-center gap-2">
-              <code className="bg-[var(--color-bg-tertiary)] px-2 py-1 rounded text-xs">
-                {finding.suggested_command}
-              </code>
+            <div className="agent-finding-cmd">
+              <code>{finding.suggested_command}</code>
               <button
+                className="agent-icon-btn"
                 onClick={(e) => {
                   e.stopPropagation();
                   navigator.clipboard.writeText(finding.suggested_command!);
                 }}
-                className="p-1 hover:bg-[var(--color-bg-tertiary)] rounded"
                 title="Copy command"
               >
                 <Copy size={12} />
@@ -88,7 +70,6 @@ export default function AgentPanel({ runId, projectId, isFailed }: AgentPanelPro
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
-  // Chat state
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'agent'; text: string }[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
@@ -110,10 +91,14 @@ export default function AgentPanel({ runId, projectId, isFailed }: AgentPanelPro
     if (!chatInput.trim()) return;
     const msg = chatInput.trim();
     setChatInput('');
+    const history: ChatTurn[] = chatMessages.map((m) => ({
+      role: m.role === 'agent' ? 'assistant' : 'user',
+      content: m.text,
+    }));
     setChatMessages((prev) => [...prev, { role: 'user', text: msg }]);
     setChatLoading(true);
     try {
-      const response = await agentChat(msg, projectId, runId);
+      const response = await agentChat(msg, history, projectId, runId);
       setChatMessages((prev) => [...prev, { role: 'agent', text: response.message }]);
     } catch (err) {
       setChatMessages((prev) => [...prev, { role: 'agent', text: `Error: ${String(err)}` }]);
@@ -123,16 +108,12 @@ export default function AgentPanel({ runId, projectId, isFailed }: AgentPanelPro
   }
 
   return (
-    <div className="mt-4 border border-[var(--color-border)] rounded-lg overflow-hidden">
-      {/* Header */}
-      <div
-        className="flex items-center gap-2 px-4 py-2 bg-[var(--color-bg-secondary)] cursor-pointer"
-        onClick={() => setCollapsed(!collapsed)}
-      >
-        <Bot size={16} className="text-purple-400" />
-        <span className="font-medium text-sm flex-1">CI/CD Agent</span>
+    <div className="agent-panel">
+      <div className="agent-panel-header" onClick={() => setCollapsed(!collapsed)}>
+        <Bot size={16} className="agent-accent" />
+        <span className="agent-panel-title">CI/CD Agent</span>
         {analysis && (
-          <span className="text-xs text-[var(--color-text-secondary)]">
+          <span className="agent-drawer-tag">
             {analysis.findings.length} finding{analysis.findings.length !== 1 ? 's' : ''}
           </span>
         )}
@@ -140,101 +121,95 @@ export default function AgentPanel({ runId, projectId, isFailed }: AgentPanelPro
       </div>
 
       {!collapsed && (
-        <div className="p-4">
-          {/* Analyze button */}
+        <div className="agent-panel-body">
           {!analysis && !loading && (
-            <div className="text-center">
-              <button
-                onClick={handleAnalyze}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-md text-sm transition-colors"
-              >
+            <div className="agent-panel-center">
+              <button className="btn btn-primary btn-sm" onClick={handleAnalyze}>
                 <Sparkles size={14} />
                 {isFailed ? 'Analyze Failure' : 'Analyze Run'}
               </button>
-              <p className="text-xs text-[var(--color-text-secondary)] mt-2">
+              <p className="agent-drawer-tag" style={{ marginTop: 'var(--space-sm)' }}>
                 Ask the agent to analyze this pipeline run
               </p>
             </div>
           )}
 
-          {/* Loading */}
           {loading && (
-            <div className="flex items-center gap-2 justify-center py-4">
-              <Loader2 size={16} className="animate-spin text-purple-400" />
-              <span className="text-sm text-[var(--color-text-secondary)]">Analyzing...</span>
+            <div className="agent-loading" style={{ justifyContent: 'center' }}>
+              <Loader2 size={16} className="agent-spin" />
+              <span>Analyzing...</span>
             </div>
           )}
 
-          {/* Error */}
-          {error && (
-            <div className="text-red-400 text-sm bg-red-400/10 rounded-md p-3">{error}</div>
-          )}
+          {error && <div className="agent-error">{error}</div>}
 
-          {/* Analysis results */}
           {analysis && (
             <div>
-              {/* Summary */}
-              <p className="text-sm mb-3">{analysis.summary}</p>
+              <p className="agent-msg" style={{ marginBottom: 'var(--space-md)' }}>
+                {analysis.summary}
+              </p>
 
-              {/* Findings */}
               {analysis.findings.map((f, i) => (
                 <FindingCard key={i} finding={f} />
               ))}
 
-              {/* Suggested actions */}
               {analysis.suggested_actions.length > 0 && (
-                <div className="mt-3">
-                  <h4 className="text-xs font-medium text-[var(--color-text-secondary)] uppercase mb-1">
-                    Suggested Actions
-                  </h4>
-                  <ol className="list-decimal list-inside text-sm space-y-1">
+                <div style={{ marginTop: 'var(--space-md)' }}>
+                  <h4 className="agent-drawer-tag">Suggested Actions</h4>
+                  <ol style={{ paddingLeft: 'var(--space-lg)' }}>
                     {analysis.suggested_actions.map((action, i) => (
-                      <li key={i}>{action}</li>
+                      <li key={i} className="agent-msg">
+                        {action}
+                      </li>
                     ))}
                   </ol>
                 </div>
               )}
 
               {/* Follow-up chat */}
-              <div className="mt-4 border-t border-[var(--color-border)] pt-3">
-                <h4 className="text-xs font-medium text-[var(--color-text-secondary)] uppercase mb-2">
-                  Ask Follow-up
-                </h4>
+              <div
+                style={{
+                  marginTop: 'var(--space-lg)',
+                  borderTop: '1px solid var(--color-border)',
+                  paddingTop: 'var(--space-md)',
+                }}
+              >
+                <h4 className="agent-drawer-tag">Ask Follow-up</h4>
 
-                {/* Chat messages */}
                 {chatMessages.length > 0 && (
-                  <div className="space-y-2 mb-3 max-h-48 overflow-y-auto">
+                  <div
+                    className="agent-messages"
+                    style={{ maxHeight: 200, padding: 0, marginBottom: 'var(--space-sm)' }}
+                  >
                     {chatMessages.map((msg, i) => (
                       <div
                         key={i}
-                        className={`text-sm p-2 rounded ${
-                          msg.role === 'user'
-                            ? 'bg-[var(--color-bg-tertiary)] ml-8'
-                            : 'bg-purple-500/10 mr-8'
-                        }`}
+                        className={`agent-msg ${msg.role === 'user' ? 'agent-msg-user' : 'agent-msg-assistant'}`}
                       >
-                        <pre className="whitespace-pre-wrap font-mono text-xs">{msg.text}</pre>
+                        <div className="agent-bubble">
+                          <pre>{msg.text}</pre>
+                        </div>
                       </div>
                     ))}
                   </div>
                 )}
 
-                <div className="flex gap-2">
+                <div className="agent-input-row" style={{ padding: 0, border: 'none' }}>
                   <input
+                    className="input"
                     type="text"
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleChat()}
                     placeholder="Ask about this run..."
-                    className="flex-1 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-md px-3 py-1.5 text-sm"
                     disabled={chatLoading}
                   />
                   <button
+                    className="btn btn-primary btn-sm"
                     onClick={handleChat}
                     disabled={chatLoading || !chatInput.trim()}
-                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-md text-sm transition-colors"
                   >
-                    {chatLoading ? <Loader2 size={14} className="animate-spin" /> : 'Ask'}
+                    {chatLoading ? <Loader2 size={14} className="agent-spin" /> : 'Ask'}
                   </button>
                 </div>
               </div>
