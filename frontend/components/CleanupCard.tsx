@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Trash2, Loader2 } from 'lucide-react';
+import HelpTip from './HelpTip';
+import { HELP } from './project-detail/helpText';
 import { loadCleanupConfig, runCleanup, saveCleanupConfig } from '../services/api';
 import { notifyError, notifySuccess } from '../services/notify';
 import type { CleanupConfig, CleanupResult } from '../types';
@@ -62,6 +64,7 @@ function CleanupCard({ repoPath }: Props) {
       <div className="feature-card-header">
         <div className="feature-card-title">
           <Trash2 size={16} /> Cleanup
+          <HelpTip label="Cleanup">{HELP.cleanup}</HelpTip>
         </div>
         <div className="feature-card-actions">
           <button className="btn btn-sm btn-secondary" onClick={handleSave} disabled={saving}>

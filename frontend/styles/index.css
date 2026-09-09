@@ -1005,9 +1005,19 @@ select.input {
   white-space: nowrap;
 }
 
-.template-row-actions {
+.template-row-actions,
+.project-row-actions {
   display: flex;
   gap: var(--space-sm);
+}
+
+.project-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin-top: var(--space-xs);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
 }
 
 /* Agent drawer: Advise/Act mode toggle above the input */
@@ -2378,6 +2388,57 @@ select.input {
   color: var(--color-primary);
 }
 
+.section-toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.section-toggle-wrap .section-toggle {
+  flex: 1;
+  width: auto;
+}
+
+/* --- Help tip ("?" popover) --- */
+
+.help-tip {
+  display: inline-flex;
+}
+
+.help-tip-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.help-tip-btn:hover,
+.help-tip-btn:focus-visible {
+  color: var(--color-primary);
+  outline: none;
+}
+
+.help-tip-pop {
+  position: fixed;
+  z-index: 1100;
+  max-width: 260px;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px color-mix(in srgb, black 35%, transparent);
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  font-weight: 400;
+  line-height: 1.45;
+}
+
 /* Environment cards */
 .env-list {
   display: flex;
@@ -2395,6 +2456,24 @@ select.input {
 .env-card-adding {
   border-color: var(--color-primary);
   border-style: dashed;
+}
+
+.env-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+}
+
+.env-add-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-md);
+}
+
+.env-add-port {
+  flex: 0 0 100px;
 }
 
 .env-card-header {
@@ -2580,11 +2659,57 @@ select.input {
 }
 
 .secret-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
   background: var(--color-surface);
   border: 1px dashed var(--color-primary);
   border-radius: var(--radius-md);
-  padding: var(--space-md) var(--space-lg);
+  padding: var(--space-lg);
   margin-bottom: var(--space-md);
+}
+
+.secret-add-label {
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.secret-env-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.secret-env-chip {
+  padding: var(--space-xs) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    color 0.15s;
+}
+
+.secret-env-chip:hover {
+  border-color: var(--color-primary);
+  color: var(--color-text);
+}
+
+.secret-env-chip-active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+}
+
+.secret-add-actions {
+  display: flex;
+  gap: var(--space-sm);
 }
 
 .secret-set-value {

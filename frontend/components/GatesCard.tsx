@@ -9,6 +9,8 @@ import {
   Copy,
   X,
 } from 'lucide-react';
+import HelpTip from './HelpTip';
+import { HELP } from './project-detail/helpText';
 import {
   createSecretScanBaseline,
   loadGatesConfig,
@@ -280,6 +282,7 @@ function GatesCard({ repoPath }: Props) {
       <div className="feature-card-header">
         <div className="feature-card-title">
           <Shield size={16} /> Security &amp; Quality Gates
+          <HelpTip label="Security &amp; Quality Gates">{HELP.gates}</HelpTip>
         </div>
         <div className="feature-card-actions">
           <button className="btn btn-sm btn-secondary" onClick={handleSave} disabled={saving}>

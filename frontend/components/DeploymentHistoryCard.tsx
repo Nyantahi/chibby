@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { History, Loader2 } from 'lucide-react';
+import HelpTip from './HelpTip';
+import { HELP } from './project-detail/helpText';
 import { Link } from 'react-router-dom';
 import { getDeploymentHistory } from '../services/api';
 import { notifyError } from '../services/notify';
@@ -40,6 +42,7 @@ function DeploymentHistoryCard({ repoPath, environments }: Props) {
       <div className="feature-card-header">
         <div className="feature-card-title">
           <History size={16} /> Deployment history
+          <HelpTip label="Deployment history">{HELP.deploymentHistory}</HelpTip>
         </div>
       </div>
       <div className="feature-card-body">

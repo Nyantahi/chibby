@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Package, Loader2, FolderOpen, FileSignature } from 'lucide-react';
+import HelpTip from './HelpTip';
+import { HELP } from './project-detail/helpText';
 import {
   checkSigningTools,
   collectArtifacts,
@@ -116,6 +118,7 @@ function ArtifactsCard({ repoPath }: Props) {
       <div className="feature-card-header">
         <div className="feature-card-title">
           <Package size={16} /> Artifacts &amp; Signing
+          <HelpTip label="Artifacts &amp; Signing">{HELP.artifactsSigning}</HelpTip>
         </div>
         <div className="feature-card-actions">
           <button

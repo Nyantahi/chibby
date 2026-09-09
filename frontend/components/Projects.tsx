@@ -8,9 +8,11 @@ import {
   Loader2,
   LayoutGrid,
   Table as TableIcon,
+  Play,
+  Trash2,
 } from 'lucide-react';
-import { listProjects, getAllRuns } from '../services/api';
-import { useActiveRuns } from '../services/runStore';
+import { listProjects, getAllRuns, loadPipeline, removeProject } from '../services/api';
+import { useActiveRuns, startRun, isRepoRunning } from '../services/runStore';
 import { usePref, PREF_PROJECTS_VIEW, type ProjectsView } from '../services/prefs';
 import { formatDate, statusClass, capitalize } from '../utils/format';
 import type { ProjectInfo, PipelineRun } from '../types';
@@ -78,6 +80,39 @@ function Projects() {
 
     return { totalProjects: projects.length, runsToday: todayTotal, successRate, needsAttention };
   }, [projects, runs]);
+
+  // Run a project's default pipeline straight from the list. Stops the click
+  // from bubbling to the card/row navigation.
+  async function handleRun(e: React.MouseEvent, project: ProjectInfo['project']) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isRepoRunning(project.path)) return;
+    try {
+      setError(null);
+      const pipeline = await loadPipeline(project.path);
+      startRun({
+        repoPath: project.path,
+        pipeline,
+        projectId: project.id,
+        projectName: project.name,
+      });
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function handleDelete(e: React.MouseEvent, project: ProjectInfo['project']) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!window.confirm(`Delete project "${project.name}"? This cannot be undone.`)) return;
+    try {
+      setError(null);
+      await removeProject(project.id);
+      await loadData();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
 
   function statusIcon(status?: string) {
     switch (status) {
@@ -204,6 +239,27 @@ function Projects() {
                     </div>
                   )}
                 </div>
+                <div className="project-card-actions">
+                  <button
+                    type="button"
+                    className="btn-icon btn-sm"
+                    onClick={(e) => handleRun(e, project)}
+                    disabled={!has_pipeline || isRunning}
+                    title="Run pipeline"
+                    aria-label="Run pipeline"
+                  >
+                    {isRunning ? <Loader2 size={15} className="spin" /> : <Play size={15} />}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-icon btn-sm btn-danger-icon"
+                    onClick={(e) => handleDelete(e, project)}
+                    title="Delete project"
+                    aria-label="Delete project"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
               </Link>
             );
           })}
@@ -217,6 +273,7 @@ function Projects() {
               <th>Pipeline</th>
               <th>Status</th>
               <th>Last Run</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -256,6 +313,29 @@ function Projects() {
                   </td>
                   <td className="project-row-dim">
                     {!isRunning && project.last_run_at ? formatDate(project.last_run_at) : '—'}
+                  </td>
+                  <td>
+                    <div className="project-row-actions">
+                      <button
+                        type="button"
+                        className="btn-icon btn-sm"
+                        onClick={(e) => handleRun(e, project)}
+                        disabled={!has_pipeline || isRunning}
+                        title="Run pipeline"
+                        aria-label="Run pipeline"
+                      >
+                        {isRunning ? <Loader2 size={15} className="spin" /> : <Play size={15} />}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-icon btn-sm btn-danger-icon"
+                        onClick={(e) => handleDelete(e, project)}
+                        title="Delete project"
+                        aria-label="Delete project"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );

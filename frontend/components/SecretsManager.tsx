@@ -69,6 +69,18 @@ function SecretsManager({ repoPath, config, environments, onSaved }: Props) {
     setAdding(false);
   }
 
+  function handleToggleDraftEnv(name: string) {
+    setDraftEnvs((prev) =>
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
+    );
+  }
+
+  function handleCancelAdd() {
+    setAdding(false);
+    setDraftName('');
+    setDraftEnvs([]);
+  }
+
   function handleRemoveSecret(name: string) {
     setSecrets(secrets.filter((s) => s.name !== name));
   }
@@ -130,42 +142,53 @@ function SecretsManager({ repoPath, config, environments, onSaved }: Props) {
       {/* Add new secret ref */}
       {adding && (
         <div className="secret-add-form">
-          <div className="env-card-row">
+          <div className="form-group-inline">
+            <label className="secret-add-label">Secret name</label>
             <input
-              className="input input-sm"
+              className="input"
               placeholder="SECRET_NAME"
               value={draftName}
+              autoFocus
               onChange={(e) => setDraftName(e.target.value.toUpperCase())}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
             />
-            <select
-              className="input input-sm"
-              multiple
-              value={draftEnvs}
-              onChange={(e) => setDraftEnvs(Array.from(e.target.selectedOptions, (o) => o.value))}
-            >
-              {environments.map((env) => (
-                <option key={env.name} value={env.name}>
-                  {env.name}
-                </option>
-              ))}
-            </select>
-            <button className="btn btn-primary btn-sm" onClick={handleAdd}>
-              Add
-            </button>
+          </div>
+
+          {environments.length > 0 && (
+            <div className="form-group-inline">
+              <label className="secret-add-label">Environments</label>
+              <div className="secret-env-chips">
+                {environments.map((env) => {
+                  const selected = draftEnvs.includes(env.name);
+                  return (
+                    <button
+                      key={env.name}
+                      type="button"
+                      className={`secret-env-chip ${selected ? 'secret-env-chip-active' : ''}`}
+                      aria-pressed={selected}
+                      onClick={() => handleToggleDraftEnv(env.name)}
+                    >
+                      {env.name}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-muted text-xs">Leave empty to apply to all environments.</p>
+            </div>
+          )}
+
+          <div className="secret-add-actions">
             <button
-              className="btn btn-icon btn-sm"
-              onClick={() => {
-                setAdding(false);
-                setDraftName('');
-                setDraftEnvs([]);
-              }}
+              className="btn btn-primary btn-sm"
+              onClick={handleAdd}
+              disabled={!draftName.trim()}
             >
-              <X size={14} />
+              <Plus size={14} /> Add secret
+            </button>
+            <button className="btn btn-secondary btn-sm" onClick={handleCancelAdd}>
+              Cancel
             </button>
           </div>
-          <p className="text-muted text-xs">
-            Leave environments empty to apply to all. Ctrl/Cmd-click to select multiple.
-          </p>
         </div>
       )}
 

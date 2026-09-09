@@ -198,43 +198,62 @@ function EnvironmentEditor({ repoPath, config, onSaved }: Props) {
 
       {/* Add new environment */}
       {adding && (
-        <div className="env-card env-card-adding">
-          <div className="env-card-row">
-            <input
-              className="input input-sm"
-              placeholder="Environment name (e.g. production)"
-              value={draft.name}
-              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-            />
-            <input
-              className="input input-sm"
-              placeholder="SSH host (user@host)"
-              value={draft.ssh_host ?? ''}
-              onChange={(e) => setDraft({ ...draft, ssh_host: e.target.value || undefined })}
-            />
-            <input
-              className="input input-sm input-narrow"
-              placeholder="Port"
-              type="number"
-              value={draft.ssh_port ?? ''}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  ssh_port: e.target.value ? Number(e.target.value) : undefined,
-                })
-              }
-            />
-            <button className="btn btn-primary btn-sm" onClick={handleAdd}>
-              Add
+        <div className="env-card env-card-adding env-add-form">
+          <div className="env-add-fields">
+            <div className="form-group-inline">
+              <label>Name</label>
+              <input
+                className="input"
+                placeholder="production"
+                value={draft.name}
+                autoFocus
+                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+              />
+            </div>
+            <div className="form-group-inline">
+              <label>SSH host</label>
+              <input
+                className="input"
+                placeholder="user@host"
+                value={draft.ssh_host ?? ''}
+                onChange={(e) => setDraft({ ...draft, ssh_host: e.target.value || undefined })}
+                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+              />
+            </div>
+            <div className="form-group-inline env-add-port">
+              <label>Port</label>
+              <input
+                className="input"
+                placeholder="22"
+                type="number"
+                value={draft.ssh_port ?? ''}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    ssh_port: e.target.value ? Number(e.target.value) : undefined,
+                  })
+                }
+                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+              />
+            </div>
+          </div>
+          <div className="secret-add-actions">
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={handleAdd}
+              disabled={!draft.name.trim()}
+            >
+              <Plus size={14} /> Add environment
             </button>
             <button
-              className="btn btn-icon btn-sm"
+              className="btn btn-secondary btn-sm"
               onClick={() => {
                 setAdding(false);
                 setDraft(emptyEnv());
               }}
             >
-              <X size={14} />
+              Cancel
             </button>
           </div>
         </div>

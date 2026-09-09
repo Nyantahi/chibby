@@ -2,6 +2,8 @@ import { Server, Key, ChevronDown, ChevronRight, Wand2, Download, Upload } from 
 import type { EnvironmentsConfig, SecretsConfig } from '../../types';
 import EnvironmentEditor from '../EnvironmentEditor';
 import SecretsManager from '../SecretsManager';
+import HelpTip from '../HelpTip';
+import { HELP } from './helpText';
 
 interface EnvironmentsTabProps {
   repoPath: string;
@@ -40,6 +42,7 @@ function EnvironmentsTab({
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Server size={16} />
             <strong>Bootstrap & Import</strong>
+            <HelpTip label="Bootstrap & Import">{HELP.bootstrapImport}</HelpTip>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn-sm btn-secondary" onClick={onShowBootstrap}>
@@ -74,12 +77,15 @@ function EnvironmentsTab({
 
       {/* Environments section */}
       <section className="section">
-        <button className="section-toggle" onClick={onToggleEnvSection}>
-          {showEnvSection ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-          <Server size={16} />
-          Environments
-          <span className="badge badge-neutral">{envsConfig?.environments?.length}</span>
-        </button>
+        <div className="section-toggle-wrap">
+          <button className="section-toggle" onClick={onToggleEnvSection}>
+            {showEnvSection ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            <Server size={16} />
+            Environments
+            <span className="badge badge-neutral">{envsConfig?.environments?.length}</span>
+          </button>
+          <HelpTip label="Environments">{HELP.environments}</HelpTip>
+        </div>
         {showEnvSection && (
           <EnvironmentEditor repoPath={repoPath} config={envsConfig} onSaved={onReload} />
         )}
@@ -87,12 +93,15 @@ function EnvironmentsTab({
 
       {/* Secrets section */}
       <section className="section">
-        <button className="section-toggle" onClick={onToggleSecretsSection}>
-          {showSecretsSection ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-          <Key size={16} />
-          Secrets
-          <span className="badge badge-neutral">{secretsConfig?.secrets?.length}</span>
-        </button>
+        <div className="section-toggle-wrap">
+          <button className="section-toggle" onClick={onToggleSecretsSection}>
+            {showSecretsSection ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            <Key size={16} />
+            Secrets
+            <span className="badge badge-neutral">{secretsConfig?.secrets?.length}</span>
+          </button>
+          <HelpTip label="Secrets">{HELP.secrets}</HelpTip>
+        </div>
         {showSecretsSection && (
           <SecretsManager
             repoPath={repoPath}

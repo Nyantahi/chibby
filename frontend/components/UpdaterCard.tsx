@@ -8,6 +8,8 @@ import {
   ShieldCheck,
   AlertTriangle,
 } from 'lucide-react';
+import HelpTip from './HelpTip';
+import { HELP } from './project-detail/helpText';
 import {
   checkTauriCli,
   deleteUpdateKey,
@@ -186,6 +188,7 @@ function UpdaterCard({ repoPath }: Props) {
       <div className="feature-card-header">
         <div className="feature-card-title">
           <ArrowUpCircle size={16} /> Auto-updater
+          <HelpTip label="Auto-updater">{HELP.updater}</HelpTip>
         </div>
         <div className="feature-card-actions">
           <button

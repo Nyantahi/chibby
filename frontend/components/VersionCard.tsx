@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Tag, Loader2, Copy } from 'lucide-react';
+import HelpTip from './HelpTip';
+import { HELP } from './project-detail/helpText';
 import { bumpVersion, detectVersions, generateChangelog } from '../services/api';
 import { notifyError, notifySuccess } from '../services/notify';
 import type { BumpLevel, BumpResult, ChangelogEntry, VersionInfo } from '../types';
@@ -73,6 +75,7 @@ function VersionCard({ repoPath }: Props) {
       <div className="feature-card-header">
         <div className="feature-card-title">
           <Tag size={16} /> Version
+          <HelpTip label="Version">{HELP.version}</HelpTip>
         </div>
       </div>
       <div className="feature-card-body">

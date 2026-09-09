@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Bell, Loader2, Plus, Trash2 } from 'lucide-react';
+import HelpTip from './HelpTip';
+import { HELP } from './project-detail/helpText';
 import { loadNotifyConfig, saveNotifyConfig, sendTestNotification } from '../services/api';
 import { notifyError, notifySuccess } from '../services/notify';
 import type { NotifyChannel, NotifyConfig, NotifyOn, NotifyTarget } from '../types';
@@ -73,6 +75,7 @@ function NotifyCard({ repoPath }: Props) {
       <div className="feature-card-header">
         <div className="feature-card-title">
           <Bell size={16} /> Notifications
+          <HelpTip label="Notifications">{HELP.notifications}</HelpTip>
         </div>
         <div className="feature-card-actions">
           <button
