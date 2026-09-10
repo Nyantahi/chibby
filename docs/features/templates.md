@@ -1,6 +1,6 @@
 # Pipeline Templates
 
-Chibby's template system lets you create, share, and reuse pipeline configurations across projects. Templates come in two flavors: **full pipelines** (complete multi-stage configurations) and **stage snippets** (individual stages you can add to any pipeline). Chibby ships with 21 built-in templates.
+Chibby's template system lets you create, share, and reuse pipeline configurations across projects. Templates come in two flavors: **full pipelines** (complete multi-stage configurations) and **stage snippets** (individual stages you can add to any pipeline). Chibby ships with 45 built-in templates (10 full pipelines + 35 stage snippets).
 
 ## Template Resolution
 

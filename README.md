@@ -89,6 +89,14 @@ npm run tauri:build
 Requires Node.js 20+, Rust (stable), and
 [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS.
 
+## Documentation
+
+Full documentation lives in [docs/](docs/README.md) — guides, per-feature reference,
+example pipelines, and the design system.
+
+See the [roadmap](docs/roadmap.md) for the current gap analysis: what's broken, what's
+missing, what's deliberately out of scope, and what's being built now.
+
 ## Quick Start
 
 1. **Add a Project** — Click "Add Project" and select a local repository

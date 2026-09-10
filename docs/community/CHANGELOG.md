@@ -13,13 +13,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`chibby init --ai` and `pipeline generate --ai` now call the real agent** — previously stubs that slept and printed canned success. A shared `agent::build_agent()` plus a new CLI `aigen` module summarizes the project, generates a pipeline, and writes `.chibby/pipeline.toml`.
 - **Per-project Run & Delete quick actions** on the Projects page — both Cards and Table views now expose Run-pipeline and Delete buttons on each project, so you can run or remove a project without opening it.
 - **Section help tooltips** — a "?" affordance on each major section of the Environments, Release, and Quality tabs explains what it does (and how to use it) on hover or click.
+- **Local triggers** — Chibby can now run itself. `.chibby/triggers.toml` (layered with a gitignored `.chibby/triggers.local.toml` for per-machine overrides) defines **cron schedules** (5- and 6-field), **file watches** (glob include/exclude with debounce), and **git hooks** (`pre-push` / `pre-commit`). New `chibby schedule`, `chibby watch`, `chibby hooks` and `chibby triggers` commands, plus a **Triggers** tab in the project view. Schedules and watches run while the app is open or a `chibby schedule` / `chibby watch` process is; `chibby schedule --once` wires into launchd/systemd. No daemon, no listener, no cloud.
+- **Auto-rollback on failed health check** — a stage or pipeline can set `on_health_failure` to `last_good` (replay the last known-good deployment) or `commands` (run the stage's own `rollback_commands`). "Last known good" requires that the deploy stage actually ran, succeeded and passed its health check, so a lint-only run can never become a rollback target. Guarded against loops and flapping; a refused rollback records why, because that is the case where the bad release is still live.
+- **Per-stage timeouts** — `timeout_secs` bounds a stage; on expiry the child is killed and the stage records the new `TimedOut` status. Previously a hung command hung the run forever.
+- **Per-stage retry** — `retry` with attempts, delay and fixed or exponential backoff. Health-check failures deliberately do not trigger a stage retry.
+- **Stage conditions** — `when` runs a stage only on matching git branches or environments (glob patterns, with `_not` exclusions). Skipped stages record the reason.
+- **Per-stage environment overlay** — `env` on a stage, scoped to that stage only.
+- **Working `chibby cancel`** — previously a no-op that printed "press Ctrl-C". A cross-process run lock also prevents the desktop app and a headless trigger process from double-firing the same run.
+- **Unattended failure escalation** — failures from scheduled and watch runs notify regardless of notification config, since nobody is watching the screen.
+- **Roadmap and docs index** — `docs/roadmap.md` (ranked gap analysis) and `docs/README.md`.
 
 ### Changed
 
 - **Cleaner Environments & Secrets add-forms** — labeled, full-size inputs instead of cramped placeholders; environments are now selected with toggle chips rather than a small multi-select.
+- Runs now record `run_kind` for scheduled / watch / hook triggers, plus the `trigger_id` that caused them.
+
+### Security
+
+- **Secrets are redacted from pipeline logs** — secret values are masked at ingest, so `runs/<uuid>.json` no longer stores them in plaintext. Previously any command that echoed a secret persisted it to disk permanently. Add `mask_secrets_in_logs` to app settings to opt out.
 
 ### Fixed
 
+- **Runs record git provenance** — `branch` and `commit` were declared but never populated, so run history and deployment records could not answer "what shipped where".
+- **The GUI now runs preflight** like the CLI always did; the same pipeline no longer behaves differently depending on where it was launched from.
+- **`--color-error`** was referenced by four failure-state CSS rules but never defined, so failed stage cards had no error styling.
 - **`NO_COLOR` handling** — honor the [`NO_COLOR`](https://no-color.org/) standard and no longer crash when `NO_COLOR=1`.
 - **npm audit** — patched 6 advisories (react-router, postcss, nanoid, brace-expansion, babel).
 
