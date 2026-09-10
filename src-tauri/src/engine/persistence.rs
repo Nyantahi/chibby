@@ -1,4 +1,5 @@
 use crate::engine::models::{DeploymentRecord, PipelineRun, Project, RunStatus, StageStatus};
+use crate::engine::run_index;
 use anyhow::{Context, Result};
 
 // The cross-process run lock and per-trigger state live in the data directory
@@ -91,7 +92,7 @@ fn projects_file() -> Result<PathBuf> {
 }
 
 /// Path to the runs directory.
-fn runs_dir() -> Result<PathBuf> {
+pub(crate) fn runs_dir() -> Result<PathBuf> {
     let dir = data_dir()?.join("runs");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
@@ -153,13 +154,23 @@ pub fn remove_project(id: &str) -> Result<()> {
 // Run history persistence
 // ---------------------------------------------------------------------------
 
-/// Save a pipeline run record.
+/// Save a pipeline run record, keeping the run index in step.
 pub fn save_run(run: &PipelineRun) -> Result<()> {
     let dir = runs_dir()?;
     let file = dir.join(format!("{}.json", run.id));
     let content = serde_json::to_string_pretty(run)?;
     std::fs::write(&file, content)?;
+    index_best_effort("upsert", &run.id, run_index::upsert(run));
     Ok(())
+}
+
+/// The run index is derived state for the metrics views. A failure to update
+/// it must never fail a run, so it is logged and swallowed — the next
+/// `run_index::load` notices the drift and rebuilds.
+fn index_best_effort(action: &str, run_id: &str, result: Result<()>) {
+    if let Err(e) = result {
+        log::warn!("Run index {action} failed for {run_id}: {e}");
+    }
 }
 
 /// Load all runs, newest first.
@@ -206,8 +217,29 @@ pub fn load_run(id: &str) -> Result<Option<PipelineRun>> {
     Ok(Some(run))
 }
 
-/// Delete a single run by ID.
+/// Delete a single run by ID: the record *and* its index entry.
+///
+/// This is the explicit "delete this run" path — a run the user deleted
+/// should disappear from the metrics too. Retention pruning wants the
+/// opposite; see [`prune_run_payload`].
 pub fn delete_run(id: &str) -> Result<()> {
+    remove_run_file(id)?;
+    index_best_effort("remove", id, run_index::remove(id));
+    Ok(())
+}
+
+/// Delete a run's record but keep its index summary.
+///
+/// Used by retention pruning: the logs are the expensive part, the summary is
+/// a few hundred bytes, so trends survive long after the output is gone.
+pub fn prune_run_payload(id: &str) -> Result<()> {
+    remove_run_file(id)?;
+    index_best_effort("forget_payload", id, run_index::forget_payload(id));
+    Ok(())
+}
+
+/// Remove the on-disk record, leaving the index alone.
+pub(crate) fn remove_run_file(id: &str) -> Result<()> {
     let file = runs_dir()?.join(format!("{}.json", id));
     if file.exists() {
         std::fs::remove_file(&file)
@@ -221,9 +253,14 @@ pub fn clear_runs_for_project(repo_path: &str) -> Result<u32> {
     let runs = load_runs_for_project(repo_path)?;
     let mut count = 0u32;
     for run in &runs {
-        delete_run(&run.id)?;
+        remove_run_file(&run.id)?;
         count += 1;
     }
+    index_best_effort(
+        "remove_for_project",
+        repo_path,
+        run_index::remove_for_project(repo_path).map(|_| ()),
+    );
     Ok(count)
 }
 
@@ -358,6 +395,7 @@ pub fn recover_interrupted_runs() -> Result<u32> {
 
                 let updated = serde_json::to_string_pretty(&run)?;
                 std::fs::write(&path, updated)?;
+                index_best_effort("upsert", &run.id, run_index::upsert(&run));
                 count += 1;
                 log::info!("Recovered interrupted run: {}", run.id);
             }

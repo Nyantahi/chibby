@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Run retention no longer starves quiet projects** — retention was applied globally across all projects, so running one project heavily deleted every other project's history. It is now per project, and the default rose from 50 to 200. Existing installs keep their saved value.
+- **A run whose logs were pruned no longer hangs the run detail view** — it now says so, instead of showing "Loading run…" forever.
 - **Runs record git provenance** — `branch` and `commit` were declared but never populated, so run history and deployment records could not answer "what shipped where".
 - **The GUI now runs preflight** like the CLI always did; the same pipeline no longer behaves differently depending on where it was launched from.
 - **`--color-error`** was referenced by four failure-state CSS rules but never defined, so failed stage cards had no error styling.

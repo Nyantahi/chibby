@@ -1,5 +1,6 @@
 use crate::engine::app_settings;
 use crate::engine::models::{ArtifactConfig, CleanupConfig, CleanupResult};
+use crate::engine::run_index;
 use crate::engine::{artifacts, persistence};
 use anyhow::{Context, Result};
 use std::path::Path;
@@ -55,6 +56,7 @@ pub fn resolve_cleanup_config(repo_path: &Path) -> Result<CleanupConfig> {
         artifact_retention: app.default_artifact_retention,
         run_retention: app.default_run_retention,
         prune_remote_docker: false,
+        ..CleanupConfig::default()
     })
 }
 
@@ -74,6 +76,9 @@ pub fn run_cleanup(
         artifacts_removed: 0,
         runs_removed: 0,
         bytes_freed: 0,
+        index_entries_pruned: 0,
+        index_entries: 0,
+        index_bytes: 0,
         details: Vec::new(),
     };
 
@@ -86,21 +91,31 @@ pub fn run_cleanup(
         &mut result,
     )?;
 
-    // 2. Prune old run history
-    prune_run_history(cleanup_config.run_retention, dry_run, &mut result)?;
+    // 2. Prune old run records for this project
+    prune_run_history(
+        repo_path,
+        cleanup_config.run_retention,
+        dry_run,
+        &mut result,
+    )?;
+
+    // 3. Prune the run index by its own, much longer, bounds
+    prune_run_index(cleanup_config, dry_run, &mut result)?;
 
     if dry_run {
         log::info!(
-            "Cleanup dry run: would remove {} artifacts, {} runs, free {} bytes",
+            "Cleanup dry run: would remove {} artifacts, {} runs, {} index entries, free {} bytes",
             result.artifacts_removed,
             result.runs_removed,
+            result.index_entries_pruned,
             result.bytes_freed
         );
     } else {
         log::info!(
-            "Cleanup complete: removed {} artifacts, {} runs, freed {} bytes",
+            "Cleanup complete: removed {} artifacts, {} runs, {} index entries, freed {} bytes",
             result.artifacts_removed,
             result.runs_removed,
+            result.index_entries_pruned,
             result.bytes_freed
         );
     }
@@ -151,35 +166,83 @@ fn prune_artifacts(
     Ok(())
 }
 
-/// Prune old run history entries beyond the retention limit.
-fn prune_run_history(retention: u32, dry_run: bool, result: &mut CleanupResult) -> Result<()> {
-    let runs = persistence::load_runs()?;
+/// Prune run records beyond the retention limit, **per project**.
+///
+/// Per project, not globally: a project run fifty times in an afternoon must
+/// not evict every other project's history. The run index drives this — it
+/// carries `repo_path` and `started_at` without the logs, so deciding what to
+/// drop costs one small JSON parse instead of deserializing every run.
+///
+/// Only the heavy record is deleted; the summary stays in the index so trends
+/// survive (see [`persistence::prune_run_payload`]).
+fn prune_run_history(
+    repo_path: &Path,
+    retention: u32,
+    dry_run: bool,
+    result: &mut CleanupResult,
+) -> Result<()> {
+    // Only this project. `retention` comes from this project's cleanup.toml,
+    // so applying it to other projects would let whichever project ran last
+    // dictate everyone else's history depth.
+    let repo = repo_path.to_string_lossy();
+    let summaries = run_index::load()?;
+    let mut kept = 0u32;
 
-    if runs.len() <= retention as usize {
-        return Ok(());
-    }
+    // Newest first, so the quota is filled by the newest runs.
+    for summary in summaries
+        .iter()
+        .filter(|s| !s.logs_pruned && s.repo_path == repo)
+    {
+        if kept < retention {
+            kept += 1;
+            continue;
+        }
 
-    let to_remove = runs.len() - retention as usize;
-
-    // Runs are sorted newest-first, so we remove from the end
-    for run in runs.iter().skip(retention as usize).take(to_remove) {
         if dry_run {
             result.details.push(format!(
                 "Would remove run: {} ({})",
-                run.id,
-                run.started_at.format("%Y-%m-%d %H:%M")
+                summary.id,
+                summary.started_at.format("%Y-%m-%d %H:%M")
             ));
         } else {
-            if let Err(e) = persistence::delete_run(&run.id) {
-                log::warn!("Failed to delete run {}: {e}", run.id);
+            if let Err(e) = persistence::prune_run_payload(&summary.id) {
+                log::warn!("Failed to prune run {}: {e}", summary.id);
                 continue;
             }
-            result.details.push(format!("Removed run: {}", run.id));
+            result
+                .details
+                .push(format!("Removed run logs: {} (summary kept)", summary.id));
         }
 
         result.runs_removed += 1;
     }
 
+    Ok(())
+}
+
+/// Apply the index's own retention bounds and report its size, so the file
+/// never grows unnoticed.
+fn prune_run_index(
+    config: &CleanupConfig,
+    dry_run: bool,
+    result: &mut CleanupResult,
+) -> Result<()> {
+    let (days, max) = (config.index_retention_days, config.index_max_entries);
+
+    result.index_entries_pruned = match dry_run {
+        true => run_index::prune_preview(days, max)?,
+        false => run_index::prune(days, max)?,
+    };
+    if dry_run && result.index_entries_pruned > 0 {
+        result.details.push(format!(
+            "Would remove {} run index entries",
+            result.index_entries_pruned
+        ));
+    }
+
+    let stats = run_index::stats()?;
+    result.index_entries = stats.entries;
+    result.index_bytes = stats.bytes;
     Ok(())
 }
 
@@ -201,4 +264,151 @@ fn dir_size(path: &Path) -> Result<u64> {
     }
 
     Ok(total)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::models::{PipelineRun, RunStatus};
+    use crate::engine::persistence::scoped_test_data_dir;
+    use chrono::{Duration, Utc};
+
+    fn empty_result() -> CleanupResult {
+        CleanupResult {
+            artifacts_removed: 0,
+            runs_removed: 0,
+            bytes_freed: 0,
+            index_entries_pruned: 0,
+            index_entries: 0,
+            index_bytes: 0,
+            details: Vec::new(),
+        }
+    }
+
+    const REPO: &str = "/tmp/chibby-cleanup";
+
+    fn save(id: &str, minutes_ago: i64) {
+        save_in(id, REPO, minutes_ago);
+    }
+
+    fn save_in(id: &str, repo_path: &str, minutes_ago: i64) {
+        let mut run = PipelineRun::new_with_id(id, "ci", repo_path, None);
+        run.status = RunStatus::Success;
+        run.started_at = Utc::now() - Duration::minutes(minutes_ago);
+        persistence::save_run(&run).unwrap();
+    }
+
+    fn surviving_ids() -> Vec<String> {
+        run_index::load()
+            .unwrap()
+            .into_iter()
+            .filter(|s| !s.logs_pruned)
+            .map(|s| s.id)
+            .collect()
+    }
+
+    /// The starvation bug: a busy project used to consume the whole global
+    /// quota and delete every other project's history.
+    #[test]
+    fn test_run_retention_is_per_project() {
+        let (_dir, _lock) = scoped_test_data_dir();
+        for (i, id) in ["busy1", "busy2", "busy3", "busy4"].iter().enumerate() {
+            save_in(id, "/tmp/busy", i as i64);
+        }
+        save_in("quiet1", "/tmp/quiet", 10);
+        save_in("quiet2", "/tmp/quiet", 20);
+
+        // A third quiet run, so the quiet project is ABOVE the busy project's
+        // retention. If retention were applied globally rather than to the
+        // project being cleaned, this run would be pruned too.
+        save_in("quiet3", "/tmp/quiet", 30);
+
+        let mut result = empty_result();
+        prune_run_history(Path::new("/tmp/busy"), 2, false, &mut result).unwrap();
+
+        let mut survivors = surviving_ids();
+        survivors.sort();
+        assert_eq!(result.runs_removed, 2, "only the busy project is pruned");
+        assert_eq!(
+            survivors,
+            vec![
+                "busy1".to_string(),
+                "busy2".to_string(),
+                "quiet1".to_string(),
+                "quiet2".to_string(),
+                "quiet3".to_string()
+            ],
+            "cleaning one project must not touch another project's history"
+        );
+    }
+
+    #[test]
+    fn test_pruning_keeps_the_summary_and_drops_only_the_record() {
+        let (_dir, _lock) = scoped_test_data_dir();
+        save("new", 1);
+        save("old", 100);
+
+        let mut result = empty_result();
+        prune_run_history(Path::new(REPO), 1, false, &mut result).unwrap();
+
+        assert_eq!(result.runs_removed, 1);
+        assert!(persistence::load_run("old").unwrap().is_none());
+        let summaries = run_index::load().unwrap();
+        assert_eq!(summaries.len(), 2);
+        assert!(summaries.iter().any(|s| s.id == "old" && s.logs_pruned));
+    }
+
+    #[test]
+    fn test_a_project_below_the_limit_is_untouched() {
+        let (_dir, _lock) = scoped_test_data_dir();
+        save("a", 1);
+        save("b", 2);
+
+        let mut result = empty_result();
+        prune_run_history(Path::new(REPO), 50, false, &mut result).unwrap();
+
+        assert_eq!(result.runs_removed, 0);
+        assert_eq!(surviving_ids().len(), 2);
+    }
+
+    #[test]
+    fn test_dry_run_reports_without_deleting() {
+        let (_dir, _lock) = scoped_test_data_dir();
+        save("new", 1);
+        save("old", 100);
+
+        let mut result = empty_result();
+        prune_run_history(Path::new(REPO), 1, true, &mut result).unwrap();
+
+        assert_eq!(result.runs_removed, 1);
+        assert!(result.details[0].starts_with("Would remove run: old"));
+        assert!(persistence::load_run("old").unwrap().is_some());
+    }
+
+    #[test]
+    fn test_index_pruning_reports_size_and_respects_its_own_bounds() {
+        let (_dir, _lock) = scoped_test_data_dir();
+        save("recent", 1);
+        save("ancient", 60 * 24 * 400);
+
+        let config = CleanupConfig {
+            index_retention_days: 180,
+            ..CleanupConfig::default()
+        };
+
+        let mut preview = empty_result();
+        prune_run_index(&config, true, &mut preview).unwrap();
+        assert_eq!(preview.index_entries_pruned, 1);
+        assert_eq!(preview.index_entries, 2);
+        assert!(preview.index_bytes > 0);
+        assert!(preview
+            .details
+            .iter()
+            .any(|d| d == "Would remove 1 run index entries"));
+
+        let mut applied = empty_result();
+        prune_run_index(&config, false, &mut applied).unwrap();
+        assert_eq!(applied.index_entries_pruned, 1);
+        assert_eq!(applied.index_entries, 1);
+    }
 }

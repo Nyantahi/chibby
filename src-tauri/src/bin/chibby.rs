@@ -25,6 +25,8 @@ mod args;
 mod env;
 #[path = "chibby/import_export.rs"]
 mod import_export;
+#[path = "chibby/insights.rs"]
+mod insights;
 #[path = "chibby/runs.rs"]
 mod runs;
 #[path = "chibby/scan.rs"]
@@ -91,6 +93,14 @@ async fn main() {
         Some(Commands::Projects(cmd)) => handle_projects(&printer, cmd).await,
 
         Some(Commands::Pipeline(cmd)) => runs::handle_pipeline(&printer, cmd).await,
+
+        Some(Commands::Insights {
+            project,
+            days,
+            json,
+            rebuild,
+            prune,
+        }) => insights::show_insights(&printer, project.as_ref(), *days, *json, *rebuild, *prune),
 
         Some(Commands::History {
             project,
@@ -483,6 +493,10 @@ async fn doctor(printer: &Printer, project: Option<&PathBuf>) -> anyhow::Result<
     printer.preflight_check("environments.toml present", envs_present, None);
     let secrets_present = chibby_dir.join("secrets.toml").exists();
     printer.preflight_check("secrets.toml present", secrets_present, None);
+    printer.newline();
+
+    // Run index health: cheap history the metrics views depend on.
+    insights::print_index_health(printer);
     printer.newline();
 
     if !envs_present {

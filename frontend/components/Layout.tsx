@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
-import { FolderGit2, PlusCircle, Settings, Layers, Sun, Moon } from 'lucide-react';
+import { FolderGit2, PlusCircle, Settings, Layers, BarChart3, Sun, Moon } from 'lucide-react';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { getAppVersion } from '../services/api';
 import { initRunStore } from '../services/runStore';
@@ -66,6 +66,10 @@ function Layout() {
           <NavLink to="/add-project" className="nav-link">
             <PlusCircle size={16} />
             <span>Add Project</span>
+          </NavLink>
+          <NavLink to="/insights" className="nav-link">
+            <BarChart3 size={16} />
+            <span>Insights</span>
           </NavLink>
           <NavLink to="/templates" className="nav-link">
             <Layers size={16} />

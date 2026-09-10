@@ -94,6 +94,29 @@ pub enum Commands {
     #[command(subcommand)]
     Pipeline(PipelineCmd),
 
+    /// Run metrics: deploy health, flaky stages, duration trends
+    Insights {
+        /// Project path (defaults to every tracked project)
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+
+        /// Window size in days (compared against the preceding window)
+        #[arg(short, long, default_value = "7")]
+        days: u32,
+
+        /// Print the raw report as JSON, for scripting
+        #[arg(long)]
+        json: bool,
+
+        /// Regenerate the run index from runs/ before reporting
+        #[arg(long)]
+        rebuild: bool,
+
+        /// Apply index retention now, before reporting
+        #[arg(long)]
+        prune: bool,
+    },
+
     /// View run history
     History {
         /// Project path

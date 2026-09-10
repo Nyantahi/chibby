@@ -13,6 +13,7 @@ export const PREF_THEME = 'chibby.theme';
 export const PREF_PROJECTS_VIEW = 'chibby.projectsView';
 export const PREF_TEMPLATES_VIEW = 'chibby.templatesView';
 export const PREF_AGENT_MODE = 'chibby.agentMode';
+export const PREF_INSIGHTS_WINDOW = 'chibby.insightsWindow';
 
 export function getPref<T>(key: string, fallback: T): T {
   try {

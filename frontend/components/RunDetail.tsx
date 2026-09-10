@@ -19,6 +19,7 @@ import {
   TimerOff,
   RotateCw,
   TriangleAlert,
+  Archive,
 } from 'lucide-react';
 import { getAppDataDir, getRun, retryRun, rollbackToRun, cancelPipeline } from '../services/api';
 import { openPath } from '../services/openExternal';
@@ -54,6 +55,9 @@ function RunDetail() {
   const [run, setRun] = useState<PipelineRun | null>(null);
   const [selectedStage, setSelectedStage] = useState<StageResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Run summaries outlive their logs: a link from Insights can point at a run
+  // whose record has been pruned. That is expected history, not a crash.
+  const [notFound, setNotFound] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
 
@@ -69,6 +73,7 @@ function RunDetail() {
     getRun(runId)
       .then((data) => {
         if (ignore) return;
+        setNotFound(data == null);
         setRun(data);
         if (data && data.stage_results.length > 0) {
           setSelectedStage(data.stage_results[0]);
@@ -198,6 +203,23 @@ function RunDetail() {
   }
 
   if (!run) {
+    if (notFound || error) {
+      return (
+        <div className="page">
+          <Link to={projectId ? `/project/${projectId}` : '/'} className="back-link">
+            <ArrowLeft size={16} /> Back
+          </Link>
+          <div className="empty-state">
+            <Archive size={24} strokeWidth={1} />
+            <h3>This run is no longer available</h3>
+            <p className="text-muted">
+              Its logs were pruned by retention. The run still counts toward metrics on the Insights
+              page, but there is nothing left to open.
+            </p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="page">
         <div className="loading">Loading run...</div>

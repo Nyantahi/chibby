@@ -54,6 +54,13 @@ describe('Layout', () => {
     expect(addProjectLink).toHaveAttribute('href', '/add-project');
   });
 
+  it('renders Insights nav link', () => {
+    renderLayout();
+
+    const insightsLink = screen.getByRole('link', { name: /insights/i });
+    expect(insightsLink).toHaveAttribute('href', '/insights');
+  });
+
   it('renders child content via Outlet', () => {
     renderLayout('/');
 

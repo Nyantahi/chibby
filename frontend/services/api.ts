@@ -61,6 +61,8 @@ import type {
   HookState,
   HookSpec,
   InstallMode,
+  InsightsReport,
+  IndexStats,
 } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -963,4 +965,34 @@ export async function getTriggerState(
   repoPath: string
 ): Promise<Record<string, TriggerStateEntry>> {
   return invoke<Record<string, TriggerStateEntry>>('get_trigger_state', { repoPath });
+}
+
+// ---------------------------------------------------------------------------
+// Insights commands — run metrics and the run index behind them
+// ---------------------------------------------------------------------------
+
+/** Metrics for one project, or every project when `repoPath` is null. */
+export async function getInsights(
+  repoPath: string | null,
+  windowDays: number | null
+): Promise<InsightsReport> {
+  return invoke<InsightsReport>('get_insights', { repoPath, windowDays });
+}
+
+/** Regenerate the run index from `runs/`. Returns the resulting entry count. */
+export async function rebuildRunIndex(): Promise<number> {
+  return invoke<number>('rebuild_run_index');
+}
+
+/** Apply the index's retention bounds now. Returns how many entries were dropped. */
+export async function pruneRunIndex(
+  retentionDays: number | null,
+  maxEntries: number | null
+): Promise<number> {
+  return invoke<number>('prune_run_index', { retentionDays, maxEntries });
+}
+
+/** Entry count and on-disk size of the run index. */
+export async function getRunIndexStats(): Promise<IndexStats> {
+  return invoke<IndexStats>('get_run_index_stats');
 }

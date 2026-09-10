@@ -43,6 +43,7 @@ Running `chibby` without arguments displays an ASCII banner:
 | `projects` | Manage projects (list, add, remove, info) |
 | `pipeline` | Manage pipelines (generate, validate, show, edit) |
 | `history` | View run history |
+| `insights` | Run metrics: deploy health, flaky stages, duration trends |
 | `retry` | Retry a failed run |
 | `rollback` | Rollback to a previous successful run |
 | `secrets` | Manage environment variables and secrets |
@@ -211,6 +212,30 @@ chibby audit show STRIPE_KEY --env production
 ```
 
 Audit records are written best-effort — failures are logged but never block the underlying secret operation.
+
+### Insights
+
+Run metrics computed from the run index — a compact summary of every run kept
+alongside `runs/`, so reports never parse pipeline logs. Numbers and tables only,
+no charts: counts, rates, durations and deltas versus the preceding window.
+
+```bash
+chibby insights                        # all projects, last 7 days
+chibby insights -p /path/to/project --days 30
+chibby insights --json                 # raw report, for scripting
+chibby insights --rebuild              # regenerate the index from runs/
+chibby insights --prune                # apply index retention now
+```
+
+Sections: totals versus the previous window, the project × environment deploy
+matrix (what is live, and whether deploys have failed since), stage reliability
+(failure rate, timeouts, and flaky passes — stages that only go green after a
+retry), per-stage duration change, failure hotspots, and a row per day.
+
+Retention is two-tier: `run_retention` (default 200, **per project**) bounds the
+full run records, while the index keeps summaries under `index_retention_days`
+(180) and `index_max_entries` (5000) — so trends survive long after the logs are
+pruned. `chibby doctor` reports the index's entry count and size.
 
 ### Doctor
 

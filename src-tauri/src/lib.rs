@@ -14,6 +14,8 @@ use commands::env_commands;
 #[cfg(feature = "gui")]
 use commands::gate_commands;
 #[cfg(feature = "gui")]
+use commands::insights_commands;
+#[cfg(feature = "gui")]
 use commands::notify_commands;
 #[cfg(feature = "gui")]
 use commands::pipeline_commands;
@@ -121,6 +123,11 @@ pub fn run() {
             run_commands::get_deployment_history,
             run_commands::delete_run,
             run_commands::clear_run_history,
+            // Run metrics + the index behind them
+            insights_commands::get_insights,
+            insights_commands::rebuild_run_index,
+            insights_commands::prune_run_index,
+            insights_commands::get_run_index_stats,
             // Environment & secrets commands
             env_commands::load_environments,
             env_commands::load_environments_layered,

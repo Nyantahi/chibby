@@ -83,6 +83,7 @@ pub mod icons {
     pub const NOTIFY: &str = "🔔";
     pub const CLEAN: &str = "🧹";
     pub const VERSION: &str = "🏷";
+    pub const CHART: &str = "📊";
 
     // Decorative
     pub const DOT: &str = "·";

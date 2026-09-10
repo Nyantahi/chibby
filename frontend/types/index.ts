@@ -1114,3 +1114,121 @@ export interface TriggerStateEntry {
   last_run_id?: string;
   last_skip_reason?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Insights — metrics computed from the run index (numbers and tables, no charts)
+// ---------------------------------------------------------------------------
+
+/** Aggregate outcome of one time window's terminal runs. */
+export interface PeriodStats {
+  runs: number;
+  succeeded: number;
+  failed: number;
+  cancelled: number;
+  /** `succeeded / (succeeded + failed)`, 0..1. Cancelled runs are excluded. */
+  success_rate: number;
+  avg_duration_ms: number | null;
+  p95_duration_ms: number | null;
+  /** Runs nobody was watching (scheduled + file-watch). */
+  unattended_runs: number;
+  unattended_failures: number;
+}
+
+/** One window against the equal-length window before it. */
+export interface TrendComparison {
+  current: PeriodStats;
+  previous: PeriodStats;
+  /**
+   * Percentage *points*, not percent: 0.80 -> 0.90 is `+10.0`.
+   * `null` when the previous window had no runs — there is no baseline, and
+   * rendering `+0.0` there fabricates an improvement. Render a dash instead.
+   */
+  success_rate_delta: number | null;
+  /** Percent change in average duration. `null` when there is no baseline. */
+  avg_duration_delta_pct: number | null;
+}
+
+/** One row of the daily table (a row per day, not a plot point). */
+export interface DailyCount {
+  /** `YYYY-MM-DD`. */
+  date: string;
+  runs: number;
+  succeeded: number;
+  failed: number;
+}
+
+/** What is currently live on one project's environment. */
+export interface EnvironmentStatus {
+  repo_path: string;
+  project_name: string;
+  environment: string;
+  /** Newest successful deployment — what is live. */
+  current_run_id: string | null;
+  commit: string | null;
+  branch: string | null;
+  deployed_at: string | null;
+  /** Deploys have failed since the live one, so this environment is behind. */
+  is_stale: boolean;
+  failed_since: number;
+  last_rollback_at: string | null;
+  last_rollback_outcome: RollbackOutcome | null;
+}
+
+/** How one stage behaves across the window. */
+export interface StageReliability {
+  stage_name: string;
+  runs: number;
+  failures: number;
+  timeouts: number;
+  /** `failures / runs`, 0..1. */
+  failure_rate: number;
+  /** Executions that passed only after a retry — flaky, not healthy. */
+  flaky_passes: number;
+  /** `flaky_passes / runs`, 0..1. Kept apart from `failure_rate` on purpose. */
+  flaky_rate: number;
+  avg_duration_ms: number | null;
+  p95_duration_ms: number | null;
+  slowest_run_id: string | null;
+}
+
+/** Where one project's failures concentrate. */
+export interface FailureHotspot {
+  repo_path: string;
+  project_name: string;
+  top_failing_stage: string | null;
+  stage_failures: number;
+  total_failures: number;
+  /** Runs whose commands passed but whose post-deploy health check did not. */
+  health_check_failures: number;
+  top_health_failure_stage: string | null;
+}
+
+/** How one stage's average duration moved between the two windows. */
+export interface StageDelta {
+  stage_name: string;
+  current_avg_ms: number | null;
+  previous_avg_ms: number | null;
+  /** Percent change; `null` when the stage has no previous-window baseline. */
+  delta_pct: number | null;
+  runs: number;
+}
+
+/** Everything the Insights view renders, in one call. */
+export interface InsightsReport {
+  generated_at: string;
+  window_days: number;
+  totals: TrendComparison;
+  daily: DailyCount[];
+  environments: EnvironmentStatus[];
+  stages: StageReliability[];
+  hotspots: FailureHotspot[];
+  slowest_stages: StageDelta[];
+}
+
+/** Entry count and on-disk size of the run index. */
+export interface IndexStats {
+  entries: number;
+  /** Entries whose run JSON has been pruned (summary-only history). */
+  payloads_pruned: number;
+  bytes: number;
+}

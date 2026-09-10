@@ -4046,7 +4046,7 @@ select.input {
 }
 
 /* ============================================================
-   Dashboard Overview
+   Stat cards & section headers
    ============================================================ */
 
 .stats-bar {
@@ -4086,20 +4086,6 @@ select.input {
   color: var(--color-failed);
 }
 
-.dashboard-content {
-  display: grid;
-  grid-template-columns: 1fr 280px;
-  gap: var(--space-lg);
-}
-
-.recent-runs-section,
-.health-section {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-lg);
-}
-
 .section-header {
   display: flex;
   align-items: center;
@@ -4115,114 +4101,6 @@ select.input {
   font-size: var(--font-size-base);
   font-weight: 600;
   margin-bottom: var(--space-md);
-}
-
-.recent-runs-list {
-  display: flex;
-  flex-direction: column;
-}
-
-.recent-run-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm) 0;
-  border-bottom: 1px solid var(--color-border);
-  font-size: var(--font-size-sm);
-}
-
-.recent-run-row:last-child {
-  border-bottom: none;
-}
-
-.recent-run-project {
-  font-weight: 500;
-  min-width: 120px;
-}
-
-.recent-run-branch {
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-}
-
-.recent-run-duration {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  min-width: 60px;
-  text-align: right;
-}
-
-.recent-run-time {
-  color: var(--color-text-dim);
-  font-size: var(--font-size-xs);
-  min-width: 80px;
-  text-align: right;
-}
-
-.recent-run-actions {
-  margin-left: auto;
-}
-
-.health-list {
-  display: flex;
-  flex-direction: column;
-}
-
-.health-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm) 0;
-  border-bottom: 1px solid var(--color-border);
-  font-size: var(--font-size-sm);
-  text-decoration: none;
-  color: var(--color-text);
-  transition: background 0.15s ease;
-}
-
-.health-item:last-child {
-  border-bottom: none;
-}
-
-.health-item:hover {
-  background: var(--color-surface-hover);
-}
-
-.health-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.health-dot.dot-success {
-  background: var(--color-success);
-}
-
-.health-dot.dot-failed {
-  background: var(--color-failed);
-}
-
-.health-dot.dot-running {
-  background: var(--color-running);
-}
-
-.health-dot.dot-none {
-  background: var(--color-pending);
-}
-
-.health-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.empty-dashboard {
-  text-align: center;
-  padding: var(--space-2xl) 0;
-  color: var(--color-text-muted);
 }
 
 /* ============================================================
@@ -5282,4 +5160,217 @@ select.input {
 
 .notify-unattended .section-hint {
   margin: 0 0 var(--space-xs);
+}
+
+/* ============================================================
+   Insights — stat rows and tables. Deliberately no charts.
+   ============================================================ */
+
+.insights-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
+
+.insights-section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+}
+
+.insights-section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.insights-section-desc {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  margin-bottom: var(--space-lg);
+}
+
+.insights-project-select {
+  max-width: 200px;
+}
+
+/* Stat tiles ------------------------------------------------ */
+
+.insights-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-md);
+}
+
+.insights-stat {
+  text-align: left;
+}
+
+.insights-stat .stat-value {
+  font-size: var(--font-size-lg);
+}
+
+.insights-stat .stat-label {
+  margin-top: var(--space-xs);
+}
+
+.insights-stat-sub {
+  margin-top: var(--space-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-2xs);
+}
+
+.insights-outcomes {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+}
+
+.insights-outcome-ok {
+  color: var(--color-success);
+}
+
+.insights-outcome-failed {
+  color: var(--color-failed);
+}
+
+.insights-outcome-cancelled {
+  color: var(--color-cancelled);
+}
+
+.insights-outcome-sep {
+  color: var(--color-text-dim);
+  font-weight: 400;
+}
+
+/* Trend deltas ---------------------------------------------- */
+
+.insights-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-2xs);
+  font-weight: 600;
+}
+
+.insights-delta-success {
+  color: var(--color-success);
+}
+
+.insights-delta-failed {
+  color: var(--color-failed);
+}
+
+.insights-delta-neutral {
+  color: var(--color-text-dim);
+}
+
+/* Tables ----------------------------------------------------- */
+
+.insights-table-wrap {
+  overflow-x: auto;
+}
+
+.insights-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.insights-table th,
+.insights-table td {
+  padding: var(--space-sm) var(--space-md);
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.insights-table th {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.insights-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.insights-table-compact th,
+.insights-table-compact td {
+  padding: var(--space-xs) var(--space-md);
+}
+
+/* An environment behind what the team thinks is shipped. */
+.insights-row-stale {
+  background: var(--color-failed-bg);
+}
+
+.insights-row-stale td:first-child {
+  box-shadow: inset 2px 0 0 var(--color-failed);
+  font-weight: 600;
+}
+
+/* A stage that only passes on retry — not healthy, however low its failures. */
+.insights-row-flaky {
+  background: var(--color-running-bg);
+}
+
+.insights-row-quiet td {
+  color: var(--color-text-dim);
+}
+
+.insights-cell-failed {
+  color: var(--color-failed);
+  font-weight: 600;
+}
+
+.insights-cell-flaky {
+  color: var(--color-running);
+  font-weight: 600;
+}
+
+.insights-mono {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.insights-run-link {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.insights-badge-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+/* Run index maintenance -------------------------------------- */
+
+.insights-index-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xl);
+}
+
+.insights-index-stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.insights-index-value {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.insights-index-actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
 }

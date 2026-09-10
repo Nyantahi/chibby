@@ -17,7 +17,8 @@ pub struct AppSettings {
     /// Default artifact retention count for new projects.
     #[serde(default = "default_artifact_retention")]
     pub default_artifact_retention: u32,
-    /// Default run history retention count for new projects.
+    /// Default number of full run records to keep **per project**, for new
+    /// projects. Existing installs keep whatever they already saved.
     #[serde(default = "default_run_retention")]
     pub default_run_retention: u32,
     /// Behaviour when adding a project — see `BootstrapMode`.
@@ -93,7 +94,7 @@ fn default_artifact_retention() -> u32 {
 }
 
 fn default_run_retention() -> u32 {
-    50
+    200
 }
 
 /// Default Anthropic model for the agent. Bare id, no date suffix.
@@ -109,7 +110,7 @@ impl Default for AppSettings {
             default_notify_on_success: true,
             default_notify_on_failure: true,
             default_artifact_retention: 5,
-            default_run_retention: 50,
+            default_run_retention: 200,
             bootstrap_mode: BootstrapMode::Confirm,
             agent_mode: AgentMode::default(),
             agent_model: default_agent_model(),

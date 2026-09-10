@@ -79,13 +79,14 @@ failure ([Integrating smoke testing into your CI/CD
 pipeline](https://www.harness.io/harness-devops-academy/integrating-smoke-testing-into-your-ci-cd-pipeline-what-devops-needs-to-know)).
 Chibby has both halves built and no wiring between them.
 
-### 4. No insight beyond four tiles
+### 4. No insight beyond four tiles — ADDRESSED
 
-Success rate is today-only. There are no duration trends, no failure clustering, no
-flaky-stage detection, no environment/version matrix, no log search, no run diffing, and
-no DORA metrics.
+Success rate was today-only, computed inside the Projects component. There were no
+duration trends, no failure clustering, no flaky-stage detection, and no
+environment/version matrix.
 
-An insights dashboard is backlogged as a later phase.
+Now shipped (see [Shipped](#shipped)). Still absent: log search, run diffing, and DORA
+metrics — the last of which is now computable, since runs carry commit and environment.
 
 ## Tier 2 — real, lower urgency for a solo/small-team tool
 
@@ -95,7 +96,7 @@ An insights dashboard is backlogged as a later phase.
 | **Database migrations**             | Widely cited as the single most common failure point for teams automating deploys ([Database migrations in CI/CD pipelines](https://khimananda.com/blog/database-migrations-in-ci-cd-pipelines)). Chibby has no notion of a gated, separately-rollback-able migration stage                                                                                                                                 |
 | **No container execution backend**  | `Backend` is `Local \| Ssh` only. Docker appears as _content_ (compose commands over SSH), but nothing runs _inside_ a container, so Chibby can't offer environment parity — the "works on my machine" problem it is otherwise well positioned to solve ([Why "it worked on my machine" still happens in 2026](https://www.freecodecamp.org/news/why-it-worked-on-my-machine-still-happens-in-2026/))       |
 | **Supply-chain attestation**        | Seven scanning gates, but no SBOM generation and no SLSA/cosign provenance. Regulatory pressure (US EO 14028, EU Cyber Resilience Act) is making this table stakes ([2026 guide to software supply chain security](https://cloudsmith.com/blog/the-2026-guide-to-software-supply-chain-security-from-static-sboms-to-agentic-governance)). Chibby already signs artifacts, so the primitives are half there |
-| **Run history doesn't scale**       | `persistence::load_runs()` deserializes _every_ run file — each with full stdout/stderr inline — then sorts, on every history query. `load_runs_for_project()` filters afterwards. Fine at 50 runs, not 5,000                                                                                                                                                                                               |
+| **Run history doesn't scale** — FIXED | `persistence::load_runs()` deserialized _every_ run file — each with full stdout/stderr inline — then sorted, on every history query. A summary index now backs history and metrics, so nothing parses logs to answer a question about durations                                                                                                                                                                                               |
 | **No audit-log viewer**             | `engine/audit.rs` writes an append-only `audit.log` covering secret changes, runs, and AI interactions. No UI surfaces it                                                                                                                                                                                                                                                                                   |
 | **Credential/cert expiry warnings** | Apple signing certs and update signing keys expire. Nothing warns before they do                                                                                                                                                                                                                                                                                                                            |
 
@@ -179,9 +180,34 @@ real — it previously just printed "press Ctrl-C", because there was no daemon 
 `chibby watch` in a terminal. There is no background daemon. `chibby schedule --once` is
 the hook for launchd / systemd / Task Scheduler.
 
+### 4. Insights
+
+An **Insights** view answering the three questions the four tiles could not: what is live
+where, what keeps breaking, and is this getting slower. Tables and numbers throughout — no
+charts, deliberately, for a tool whose users have tens of runs rather than millions of
+datapoints.
+
+- **Deploy health matrix** — the commit and branch live on each environment, when it
+  landed, and whether it is stale (an old commit with failed deploys behind it).
+- **Stage reliability** — failure rate, timeouts, and **flaky passes** tracked separately.
+  A stage that always passes but only on its third attempt has a 0% failure rate and is
+  not healthy; that distinction is only computable because stages now record `attempts`.
+- **Failure hotspots** — worst failing stage per project, with health-check failures
+  counted apart from command failures, since they are different problems.
+- **Trends** — period-over-period success rate and duration, per-stage slowdowns, and a
+  daily table. Where the previous window has no runs there is **no delta at all** rather
+  than a fabricated improvement.
+
+Backing it is a **run summary index** (`runs-index.json`), which also fixes two older
+problems. Run retention was global rather than per-project, so a busy project silently
+deleted every other project's history; it is now per-project and the default rose from 50
+to 200. And because a summary is a fraction of a run's size, summaries outlive the logs
+they describe — trends survive log pruning, bounded separately by
+`index_retention_days` / `index_max_entries`. `chibby insights --rebuild` / `--prune`, and
+equivalents in the UI, keep it inspectable and repairable.
+
 ## Still open
 
-The Tier-0 rows not marked FIXED, all of Tier 1 #4 (insight), and all of Tier 2. The
-insight work is the natural next step: it needs the git provenance that now exists, and it
-can reuse `DashboardOverview.tsx`, but it also wants a charting decision and a fix for the
-`load_runs()` scaling problem first.
+The Tier-0 rows not marked FIXED, and Tier 2 apart from the scaling row. Nearest next
+steps: log search and run diffing (the two remaining pieces of Tier 1 #4), and DORA
+metrics, which the run index now makes cheap to compute.

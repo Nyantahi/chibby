@@ -178,3 +178,25 @@ describe('RunDetail without provenance', () => {
     expect(screen.queryByText('abcdef12')).not.toBeInTheDocument();
   });
 });
+
+// Run summaries outlive their logs, so an Insights link can point at a run
+// whose record is gone. That is expected history, not an error.
+describe('RunDetail for a pruned run', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('degrades to a "no longer available" state instead of loading forever', async () => {
+    vi.mocked(api.getRun).mockResolvedValue(null);
+    render(
+      <MemoryRouter initialEntries={['/run/gone']}>
+        <Routes>
+          <Route path="/run/:runId" element={<RunDetail />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText(/no longer available/i)).toBeInTheDocument();
+    expect(screen.queryByText('Loading run...')).not.toBeInTheDocument();
+  });
+});
