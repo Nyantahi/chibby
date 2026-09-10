@@ -1,6 +1,6 @@
 import type { PipelineRun } from '../../types';
 
-export type TabId = 'pipeline' | 'history' | 'environments' | 'release' | 'quality';
+export type TabId = 'pipeline' | 'history' | 'environments' | 'triggers' | 'release' | 'quality';
 
 /** Determine whether a run was full pipeline or partial (single/few stages). */
 export function runScopeLabel(run: PipelineRun): { label: string; isPartial: boolean } {

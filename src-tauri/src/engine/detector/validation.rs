@@ -5,7 +5,8 @@ use super::*;
 #[allow(unused_imports)]
 use crate::engine::models::{
     Backend, DeploymentConfig, DeploymentMethod, Environment, EnvironmentsConfig, FileConflict,
-    HealthCheck, Pipeline, PipelineValidation, PipelineWarning, Stage, WarningSeverity,
+    HealthCheck, Pipeline, PipelineValidation, PipelineWarning, RollbackMode, RollbackPolicy,
+    Stage, StageWhen, WarningSeverity,
 };
 use std::collections::HashSet;
 use std::path::Path;
@@ -132,6 +133,8 @@ pub fn validate_pipeline(pipeline: &Pipeline, repo_path: &Path) -> PipelineValid
         }
     }
 
+    warnings.extend(check_rollback_config(pipeline));
+
     let has_errors = warnings
         .iter()
         .any(|w| w.severity == WarningSeverity::Error);
@@ -141,6 +144,83 @@ pub fn validate_pipeline(pipeline: &Pipeline, repo_path: &Path) -> PipelineValid
         file_conflicts,
         is_valid: !has_errors,
     }
+}
+
+/// Flag auto-rollback configuration that cannot work as written.
+fn check_rollback_config(pipeline: &Pipeline) -> Vec<PipelineWarning> {
+    let mut warnings = Vec::new();
+    let mut wants_last_good = false;
+
+    for stage in &pipeline.stages {
+        let policy = pipeline.rollback_policy_for(stage);
+
+        if policy.mode == RollbackMode::Off {
+            continue;
+        }
+
+        if policy.mode == RollbackMode::LastGood {
+            wants_last_good = true;
+        }
+
+        // A rollback that has nothing to run will fail every time it fires.
+        if policy.mode == RollbackMode::Commands
+            && stage
+                .rollback_commands
+                .as_deref()
+                .unwrap_or_default()
+                .is_empty()
+        {
+            warnings.push(PipelineWarning {
+                stage_name: stage.name.clone(),
+                command: "on_health_failure".to_string(),
+                message: format!(
+                    "Stage '{}' rolls back with mode = \"commands\" but defines no rollback_commands",
+                    stage.name
+                ),
+                suggestion: Some("Add rollback_commands to the stage, or switch the mode to \"last_good\".".to_string()),
+                severity: WarningSeverity::Error,
+            });
+        }
+
+        // Auto-rollback only ever fires from a failed health check.
+        if stage.on_health_failure.is_some() && stage.health_check.is_none() {
+            warnings.push(PipelineWarning {
+                stage_name: stage.name.clone(),
+                command: "on_health_failure".to_string(),
+                message: format!(
+                    "Stage '{}' configures on_health_failure but has no health_check, so it can never trigger",
+                    stage.name
+                ),
+                suggestion: Some(
+                    "Add a health_check to the stage, or remove on_health_failure.".to_string(),
+                ),
+                severity: WarningSeverity::Warning,
+            });
+        }
+    }
+
+    // "Last known good" is resolved per environment; a pipeline that never
+    // scopes a stage to one is probably run without `--env` and will skip.
+    let has_environment_scope = pipeline
+        .stages
+        .iter()
+        .any(|s| s.when.as_ref().is_some_and(|w| !w.environment.is_empty()));
+
+    if wants_last_good && !has_environment_scope {
+        warnings.push(PipelineWarning {
+            stage_name: pipeline.name.clone(),
+            command: "on_health_failure".to_string(),
+            message:
+                "mode = \"last_good\" needs a target environment, but no stage is scoped to one"
+                    .to_string(),
+            suggestion: Some(
+                "Run with `--env <name>`, or scope a stage with `when.environment`.".to_string(),
+            ),
+            severity: WarningSeverity::Warning,
+        });
+    }
+
+    warnings
 }
 
 /// Detect duplicate or conflicting configuration files in a repository.
@@ -596,17 +676,110 @@ mod tests {
         );
     }
 
+    /// `mode = "commands"` with nothing to run would fail every time it fires.
+    #[test]
+    fn test_commands_mode_without_rollback_commands_is_an_error() {
+        let pipeline = Pipeline {
+            name: "Test".to_string(),
+            on_health_failure: None,
+            stages: vec![Stage {
+                name: "deploy".to_string(),
+                commands: vec!["echo deploy".to_string()],
+                health_check: Some(HealthCheck {
+                    command: "echo ok".to_string(),
+                    retries: 1,
+                    delay_secs: 1,
+                }),
+                on_health_failure: Some(RollbackPolicy {
+                    mode: RollbackMode::Commands,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+        };
+
+        let temp = TempDir::new().unwrap();
+        let validation = validate_pipeline(&pipeline, temp.path());
+
+        assert!(!validation.is_valid);
+        assert!(validation
+            .warnings
+            .iter()
+            .any(|w| w.severity == WarningSeverity::Error
+                && w.message.contains("no rollback_commands")));
+    }
+
+    /// Auto-rollback only fires from a health check, so configuring it without
+    /// one is dead config.
+    #[test]
+    fn test_rollback_policy_without_health_check_warns() {
+        let pipeline = Pipeline {
+            name: "Test".to_string(),
+            on_health_failure: None,
+            stages: vec![Stage {
+                name: "deploy".to_string(),
+                commands: vec!["echo deploy".to_string()],
+                when: Some(StageWhen {
+                    environment: vec!["prod".to_string()],
+                    ..Default::default()
+                }),
+                on_health_failure: Some(RollbackPolicy {
+                    mode: RollbackMode::LastGood,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+        };
+
+        let temp = TempDir::new().unwrap();
+        let validation = validate_pipeline(&pipeline, temp.path());
+
+        // A warning, not an error: the pipeline still runs.
+        assert!(validation.is_valid);
+        assert_eq!(validation.warnings.len(), 1);
+        assert!(validation.warnings[0].message.contains("no health_check"));
+    }
+
+    /// `last_good` resolves per environment; warn when nothing scopes one.
+    #[test]
+    fn test_last_good_without_environment_scope_warns() {
+        let pipeline = Pipeline {
+            name: "Test".to_string(),
+            on_health_failure: Some(RollbackPolicy {
+                mode: RollbackMode::LastGood,
+                ..Default::default()
+            }),
+            stages: vec![Stage {
+                name: "deploy".to_string(),
+                commands: vec!["echo deploy".to_string()],
+                health_check: Some(HealthCheck {
+                    command: "echo ok".to_string(),
+                    retries: 1,
+                    delay_secs: 1,
+                }),
+                ..Default::default()
+            }],
+        };
+
+        let temp = TempDir::new().unwrap();
+        let validation = validate_pipeline(&pipeline, temp.path());
+
+        assert!(validation.is_valid);
+        assert!(validation
+            .warnings
+            .iter()
+            .any(|w| w.message.contains("no stage is scoped to one")));
+    }
+
     #[test]
     fn test_validate_pipeline_no_issues() {
         let pipeline = Pipeline {
             name: "Test".to_string(),
+            on_health_failure: None,
             stages: vec![Stage {
                 name: "build".to_string(),
                 commands: vec!["echo building".to_string()],
-                backend: Backend::Local,
-                working_dir: None,
-                fail_fast: true,
-                health_check: None,
+                ..Default::default()
             }],
         };
 
@@ -622,13 +795,11 @@ mod tests {
     fn test_validate_pipeline_npm_missing_script() {
         let pipeline = Pipeline {
             name: "Test".to_string(),
+            on_health_failure: None,
             stages: vec![Stage {
                 name: "test".to_string(),
                 commands: vec!["npm run nonexistent".to_string()],
-                backend: Backend::Local,
-                working_dir: None,
-                fail_fast: true,
-                health_check: None,
+                ..Default::default()
             }],
         };
 
@@ -653,13 +824,11 @@ mod tests {
     fn test_validate_pipeline_missing_script() {
         let pipeline = Pipeline {
             name: "Test".to_string(),
+            on_health_failure: None,
             stages: vec![Stage {
                 name: "deploy".to_string(),
                 commands: vec!["./deploy.sh".to_string()],
-                backend: Backend::Local,
-                working_dir: None,
-                fail_fast: true,
-                health_check: None,
+                ..Default::default()
             }],
         };
 
@@ -682,13 +851,11 @@ mod tests {
 
         let pipeline = Pipeline {
             name: "Test".to_string(),
+            on_health_failure: None,
             stages: vec![Stage {
                 name: "build".to_string(),
                 commands: vec!["./build.sh".to_string()],
-                backend: Backend::Local,
-                working_dir: None,
-                fail_fast: true,
-                health_check: None,
+                ..Default::default()
             }],
         };
 

@@ -463,6 +463,7 @@ const GITIGNORE_MARKER: &str = "# Chibby — local overrides (never commit)";
 const GITIGNORE_LINES: &[&str] = &[
     ".chibby/environments.local.toml",
     ".chibby/secrets.local.toml",
+    ".chibby/triggers.local.toml",
 ];
 
 /// Ensure the repo's `.gitignore` contains entries for Chibby-managed local
@@ -514,22 +515,17 @@ mod tests {
     fn sample_pipeline() -> Pipeline {
         Pipeline {
             name: "Test Pipeline".to_string(),
+            on_health_failure: None,
             stages: vec![
                 Stage {
                     name: "build".to_string(),
                     commands: vec!["npm run build".to_string()],
-                    backend: Backend::Local,
-                    working_dir: None,
-                    fail_fast: true,
-                    health_check: None,
+                    ..Default::default()
                 },
                 Stage {
                     name: "test".to_string(),
                     commands: vec!["npm test".to_string()],
-                    backend: Backend::Local,
-                    working_dir: None,
-                    fail_fast: true,
-                    health_check: None,
+                    ..Default::default()
                 },
             ],
         }
@@ -672,6 +668,7 @@ mod tests {
 
         let pipeline = Pipeline {
             name: "Complex Pipeline".to_string(),
+            on_health_failure: None,
             stages: vec![Stage {
                 name: "deploy".to_string(),
                 commands: vec![
@@ -681,7 +678,7 @@ mod tests {
                 backend: Backend::Ssh,
                 working_dir: Some("./services".to_string()),
                 fail_fast: false,
-                health_check: None,
+                ..Default::default()
             }],
         };
 

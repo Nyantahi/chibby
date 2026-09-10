@@ -40,9 +40,7 @@ pub fn generate_deployment_pipeline(
                 name: "deploy".to_string(),
                 commands: vec![compose_cmd],
                 backend: Backend::Ssh,
-                working_dir: None,
-                fail_fast: true,
-                health_check: None,
+                ..Default::default()
             });
 
             // Add health check if configured
@@ -51,13 +49,12 @@ pub fn generate_deployment_pipeline(
                     name: "health-check".to_string(),
                     commands: vec![format!("curl -sf http://localhost{} || exit 1", health_url)],
                     backend: Backend::Ssh,
-                    working_dir: None,
-                    fail_fast: true,
                     health_check: Some(HealthCheck {
                         command: format!("curl -sf http://localhost{}", health_url),
                         retries: 5,
                         delay_secs: 10,
                     }),
+                    ..Default::default()
                 });
             }
         }
@@ -86,9 +83,7 @@ pub fn generate_deployment_pipeline(
                     format!("docker run -d --name {} {}", repo_name, image_name),
                 ],
                 backend: Backend::Ssh,
-                working_dir: None,
-                fail_fast: true,
-                health_check: None,
+                ..Default::default()
             });
         }
 
@@ -102,10 +97,7 @@ pub fn generate_deployment_pipeline(
             stages.push(Stage {
                 name: "cargo-publish".to_string(),
                 commands,
-                backend: Backend::Local,
-                working_dir: None,
-                fail_fast: true,
-                health_check: None,
+                ..Default::default()
             });
         }
 
@@ -119,10 +111,7 @@ pub fn generate_deployment_pipeline(
             stages.push(Stage {
                 name: "npm-publish".to_string(),
                 commands,
-                backend: Backend::Local,
-                working_dir: None,
-                fail_fast: true,
-                health_check: None,
+                ..Default::default()
             });
         }
 
@@ -136,10 +125,7 @@ pub fn generate_deployment_pipeline(
                     "gh release create v$({}) --generate-notes --draft ./dist/*",
                     version_cmd
                 )],
-                backend: Backend::Local,
-                working_dir: None,
-                fail_fast: true,
-                health_check: None,
+                ..Default::default()
             });
         }
 
@@ -155,9 +141,7 @@ pub fn generate_deployment_pipeline(
                 name: "restart".to_string(),
                 commands: vec!["systemctl --user restart myapp || pm2 restart all".to_string()],
                 backend: Backend::Ssh,
-                working_dir: None,
-                fail_fast: true,
-                health_check: None,
+                ..Default::default()
             });
         }
 
@@ -264,6 +248,7 @@ pub fn generate_deployment_pipeline(
                         working_dir: stage.working_dir,
                         fail_fast: stage.fail_fast,
                         health_check: stage.health_check,
+                        ..Default::default()
                     });
                 }
             }
@@ -278,9 +263,7 @@ pub fn generate_deployment_pipeline(
                         "docker compose up -d --remove-orphans".to_string(),
                     ],
                     backend: Backend::Ssh,
-                    working_dir: None,
-                    fail_fast: true,
-                    health_check: None,
+                    ..Default::default()
                 });
             }
         }
@@ -296,6 +279,7 @@ pub fn generate_deployment_pipeline(
 
     Some(Pipeline {
         name: format!("{} Deploy", repo_name),
+        on_health_failure: None,
         stages,
     })
 }

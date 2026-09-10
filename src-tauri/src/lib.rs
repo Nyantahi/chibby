@@ -26,6 +26,8 @@ use commands::settings_commands;
 #[cfg(feature = "gui")]
 use commands::template_commands;
 #[cfg(feature = "gui")]
+use commands::trigger_commands;
+#[cfg(feature = "gui")]
 use commands::updater_commands;
 #[cfg(feature = "gui")]
 use commands::version_commands;
@@ -206,6 +208,15 @@ pub fn run() {
             agent_commands::rebuild_agent,
             agent_commands::agent_run_tool_session,
             agent_commands::approve_agent_action,
+            // Local trigger commands (schedules, watches, git hooks)
+            trigger_commands::load_triggers,
+            trigger_commands::save_triggers,
+            trigger_commands::next_run_times,
+            trigger_commands::fire_trigger_now,
+            trigger_commands::install_git_hooks,
+            trigger_commands::uninstall_git_hooks,
+            trigger_commands::git_hook_status,
+            trigger_commands::get_trigger_state,
             // App settings commands
             settings_commands::load_app_settings,
             settings_commands::save_app_settings,
@@ -217,6 +228,19 @@ pub fn run() {
             settings_commands::get_crash_log,
             settings_commands::clear_crash_log,
         ])
+        .setup(|app| {
+            use tauri::Manager;
+            // Local triggers run while the app is open. Nothing listens on a
+            // socket: schedules follow this machine's clock, watches its
+            // filesystem. `chibby schedule --once` covers the app being closed.
+            let pipeline_state = app.state::<state::SharedPipelineState>().inner().clone();
+            tauri::async_runtime::spawn(
+                engine::triggers::runner::TriggerRunner::new()
+                    .with_pipeline_state(pipeline_state)
+                    .run_forever(),
+            );
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running Chibby");
 }

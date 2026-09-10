@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Copy, Check } from 'lucide-react';
-import { capitalize, formatDuration } from '../utils/format';
+import { formatDuration, statusClass, statusLabel } from '../utils/format';
 import type { StageResult } from '../types';
 
 interface LogViewerProps {
@@ -34,7 +34,9 @@ function LogViewer({ stage }: LogViewerProps) {
     <div className="log-viewer">
       <div className="log-header">
         <strong>{stage.stage_name}</strong>
-        <span className={`badge badge-${stage.status}`}>{capitalize(stage.status)}</span>
+        <span className={`badge badge-${statusClass(stage.status)}`}>
+          {statusLabel(stage.status)}
+        </span>
         <span className="log-duration">{formatDuration(stage.duration_ms)}</span>
         {stage.exit_code !== undefined && stage.exit_code !== null && (
           <span className="log-exit-code">Exit: {stage.exit_code}</span>

@@ -403,9 +403,7 @@ pub fn generate_draft_pipeline(
                 "docker compose up -d".to_string(),
             ],
             backend: Backend::Ssh,
-            working_dir: None,
-            fail_fast: true,
-            health_check: None,
+            ..Default::default()
         });
     }
 
@@ -425,6 +423,7 @@ pub fn generate_draft_pipeline(
 
     Pipeline {
         name: format!("{} Pipeline", repo_name),
+        on_health_failure: None,
         stages,
     }
 }

@@ -26,6 +26,7 @@ import type {
 import TemplateBrowser from './TemplateBrowser';
 import TemplateVariableDialog from './TemplateVariableDialog';
 import SaveAsTemplate from './SaveAsTemplate';
+import StageAdvancedFields from './pipeline-editor/StageAdvancedFields';
 
 interface Props {
   repoPath: string;
@@ -150,10 +151,14 @@ function PipelineEditor({ repoPath, pipeline, onSaved }: Props) {
       setError(null);
       const p: Pipeline = {
         name: name.trim() || 'Pipeline',
-        stages: cleaned.map((s) => ({
-          ...s,
-          commands: s.commands.filter((c) => c.trim()),
-        })),
+        stages: cleaned.map((s) => {
+          const rollbackCommands = s.rollback_commands?.filter((c) => c.trim());
+          return {
+            ...s,
+            commands: s.commands.filter((c) => c.trim()),
+            rollback_commands: rollbackCommands?.length ? rollbackCommands : undefined,
+          };
+        }),
       };
       await savePipeline(repoPath, p);
       onSaved();
@@ -605,6 +610,12 @@ function PipelineEditor({ repoPath, pipeline, onSaved }: Props) {
                       </div>
                     )}
                   </div>
+
+                  {/* Advanced: timeout, retry, run conditions, stage env */}
+                  <StageAdvancedFields
+                    stage={stage}
+                    onChange={(updates) => updateStage(idx, updates)}
+                  />
                 </div>
               )}
             </div>

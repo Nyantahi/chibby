@@ -47,6 +47,7 @@ pub mod icons {
     pub const WARN: &str = "⚠";
     pub const INFO: &str = "ℹ";
     pub const CANCELLED: &str = "◌";
+    pub const TIMEOUT: &str = "⏱";
 
     // Action icons
     pub const ARROW_RIGHT: &str = "→";
@@ -104,6 +105,7 @@ pub enum StageStatus {
     Failed,
     Skipped,
     Cancelled,
+    TimedOut,
 }
 
 impl From<&str> for StageStatus {
@@ -114,6 +116,7 @@ impl From<&str> for StageStatus {
             "failed" => StageStatus::Failed,
             "skipped" => StageStatus::Skipped,
             "cancelled" => StageStatus::Cancelled,
+            "timedout" => StageStatus::TimedOut,
             _ => StageStatus::Pending,
         }
     }
@@ -206,6 +209,11 @@ impl Printer {
     }
 
     /// Print info message (blue)
+    /// A rollback follow-up line, e.g. "auto-rolled back to run abc123".
+    pub fn rollback_note(&self, msg: &str) {
+        println!("  {} {}", icons::ROLLBACK.yellow().bold(), msg.yellow());
+    }
+
     pub fn info(&self, msg: &str) {
         println!(
             "  {} {}",
@@ -247,6 +255,7 @@ impl Printer {
             StageStatus::Running => value.blue().to_string(),
             StageStatus::Skipped => value.bright_black().to_string(),
             StageStatus::Cancelled => value.yellow().to_string(),
+            StageStatus::TimedOut => value.red().to_string(),
             StageStatus::Pending => value.white().to_string(),
         };
         println!(
@@ -284,6 +293,10 @@ impl Printer {
                 icons::CANCELLED.yellow().to_string(),
                 name.yellow().to_string(),
             ),
+            StageStatus::TimedOut => (
+                icons::TIMEOUT.red().bold().to_string(),
+                name.red().bold().to_string(),
+            ),
             StageStatus::Pending => (
                 icons::PENDING.bright_black().to_string(),
                 name.bright_black().to_string(),
@@ -314,6 +327,10 @@ impl Printer {
             StageStatus::Cancelled => (
                 icons::CANCELLED.yellow().to_string(),
                 name.yellow().to_string(),
+            ),
+            StageStatus::TimedOut => (
+                icons::TIMEOUT.red().bold().to_string(),
+                name.red().bold().to_string(),
             ),
             StageStatus::Pending => (
                 icons::PENDING.bright_black().to_string(),
@@ -369,6 +386,10 @@ impl Printer {
             StageStatus::Cancelled => (
                 icons::CANCELLED.yellow().to_string(),
                 name.yellow().to_string(),
+            ),
+            StageStatus::TimedOut => (
+                icons::TIMEOUT.red().bold().to_string(),
+                name.red().bold().to_string(),
             ),
             StageStatus::Pending => (
                 icons::PENDING.bright_black().to_string(),
@@ -529,6 +550,8 @@ impl Printer {
     // ─────────────────────────────────────────────────────────────
 
     /// Print a history entry
+    /// `tag` marks a run kind, e.g. "auto-rollback".
+    #[allow(clippy::too_many_arguments)]
     pub fn history_entry(
         &self,
         id: &str,
@@ -536,6 +559,7 @@ impl Printer {
         when: &str,
         duration_ms: u64,
         environment: Option<&str>,
+        tag: Option<&str>,
     ) {
         let icon = match status {
             StageStatus::Success => icons::SUCCESS.green().to_string(),
@@ -550,13 +574,16 @@ impl Printer {
             .map(|e| format!(" {}", e.cyan()))
             .unwrap_or_default();
 
+        let tag_str = tag.map(|t| format!(" [{}]", t.magenta())).unwrap_or_default();
+
         println!(
-            "  {} {} {} {}{}",
+            "  {} {} {} {}{}{}",
             icon,
             id.bright_black(),
             when.white(),
             format!("({})", duration).bright_black(),
-            env_str
+            env_str,
+            tag_str
         );
     }
 

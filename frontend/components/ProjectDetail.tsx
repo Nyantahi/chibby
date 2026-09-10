@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Shield, History, Layers, Server, Rocket } from 'lucide-react';
+import { ArrowLeft, Shield, History, Layers, Server, Rocket, Zap } from 'lucide-react';
 import {
   listProjects,
   loadPipeline,
@@ -33,18 +33,21 @@ import type {
   GitInfo,
   ProjectRecommendations,
   StageResult,
+  RunKind,
 } from '../types';
 import BootstrapWizardModal from './BootstrapWizardModal';
 import ImporterModal from './ImporterModal';
 import ExportDotenvModal from './ExportDotenvModal';
 import { useActiveRun, startRun, isRepoRunning, clearRun } from '../services/runStore';
 import type { StageStatus, CmdStatus } from '../services/runStore';
+import { isFailureStatus } from '../utils/format';
 import { type TabId } from './project-detail/helpers';
 import ProjectHeader from './project-detail/ProjectHeader';
 import ProjectAlerts from './project-detail/ProjectAlerts';
 import PipelineTab from './project-detail/PipelineTab';
 import HistoryTab from './project-detail/HistoryTab';
 import EnvironmentsTab from './project-detail/EnvironmentsTab';
+import TriggersTab from './project-detail/TriggersTab';
 import ReleaseTab from './project-detail/ReleaseTab';
 import QualityTab from './project-detail/QualityTab';
 import ProjectSidebar from './project-detail/ProjectSidebar';
@@ -95,11 +98,14 @@ function ProjectDetail() {
   // Phase 6: Last known good and deployment history
   const [lastGoodRun, setLastGoodRun] = useState<PipelineRun | null>(null);
   const [historyEnvFilter, setHistoryEnvFilter] = useState<string>('');
+  const [historyKindFilter, setHistoryKindFilter] = useState<RunKind | ''>('');
 
   // Filtered runs for history tab
-  const filteredRuns = historyEnvFilter
-    ? runs.filter((r) => r.environment === historyEnvFilter)
-    : runs;
+  const filteredRuns = runs.filter(
+    (r) =>
+      (!historyEnvFilter || r.environment === historyEnvFilter) &&
+      (!historyKindFilter || (r.run_kind ?? 'normal') === historyKindFilter)
+  );
 
   // Live run state comes from the global run store (survives navigation and
   // supports concurrent runs of different projects). See services/runStore.ts.
@@ -237,7 +243,7 @@ function ProjectDetail() {
   const finishedRunId = activeRun?.finishedRun?.id;
   useEffect(() => {
     if (!finishedRunId) return;
-    const failed = activeRun?.finishedRun?.stage_results?.find((r) => r.status === 'failed');
+    const failed = activeRun?.finishedRun?.stage_results?.find((r) => isFailureStatus(r.status));
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (failed) setSelectedStageResult(failed);
     loadData();
@@ -384,6 +390,13 @@ function ProjectDetail() {
             ) : null}
           </button>
           <button
+            className={`project-tab ${activeTab === 'triggers' ? 'project-tab-active' : ''}`}
+            onClick={() => setActiveTab('triggers')}
+          >
+            <Zap size={16} />
+            Triggers
+          </button>
+          <button
             className={`project-tab ${activeTab === 'release' ? 'project-tab-active' : ''}`}
             onClick={() => setActiveTab('release')}
           >
@@ -434,6 +447,8 @@ function ProjectDetail() {
               envsConfig={envsConfig}
               historyEnvFilter={historyEnvFilter}
               onHistoryEnvFilterChange={setHistoryEnvFilter}
+              historyKindFilter={historyKindFilter}
+              onHistoryKindFilterChange={setHistoryKindFilter}
               onClearHistory={handleClearHistory}
               projectId={projectId}
             />
@@ -456,12 +471,24 @@ function ProjectDetail() {
             />
           )}
 
+          {/* Triggers Tab — schedules, file watches and git hooks */}
+          {activeTab === 'triggers' && (
+            <TriggersTab
+              repoPath={project.project.path}
+              environments={envsConfig.environments.map((e) => e.name)}
+            />
+          )}
+
           {/* Release Tab */}
           {activeTab === 'release' && <ReleaseTab repoPath={project.project.path} />}
 
           {/* Quality Tab */}
           {activeTab === 'quality' && (
-            <QualityTab repoPath={project.project.path} environments={envsConfig.environments} />
+            <QualityTab
+              repoPath={project.project.path}
+              environments={envsConfig.environments}
+              runs={runs}
+            />
           )}
         </div>
       </div>

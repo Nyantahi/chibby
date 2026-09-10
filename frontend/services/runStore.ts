@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import type { Pipeline, PipelineRun } from '../types';
 import { runPipeline } from './api';
+import { notifyError } from './notify';
 
 /**
  * Global store of in-flight (and just-finished) pipeline runs, keyed by repo
@@ -13,7 +14,7 @@ import { runPipeline } from './api';
  */
 
 export type RunLiveStatus = 'running' | 'success' | 'failed' | 'cancelled';
-export type StageStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped';
+export type StageStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped' | 'timedout';
 export type CmdStatus = 'pending' | 'running' | 'done' | 'failed';
 
 /** Payload emitted by the backend on the `pipeline:log` event. */
@@ -160,6 +161,8 @@ export interface StartRunOptions {
   environment?: string;
   stages?: string[];
   pipelineFile?: string;
+  /** Skip preflight validation. Defaults to `false` — the GUI validates first. */
+  skipPreflight?: boolean;
 }
 
 /**
@@ -168,7 +171,16 @@ export interface StartRunOptions {
  * store updates regardless of whether anyone is listening.
  */
 export function startRun(opts: StartRunOptions): Promise<PipelineRun> {
-  const { repoPath, pipeline, projectId, projectName, environment, stages, pipelineFile } = opts;
+  const {
+    repoPath,
+    pipeline,
+    projectId,
+    projectName,
+    environment,
+    stages,
+    pipelineFile,
+    skipPreflight = false,
+  } = opts;
   const stagesToRun = stages ?? pipeline.stages.map((s) => s.name);
 
   const stageStatuses: Record<string, StageStatus> = {};
@@ -202,7 +214,7 @@ export function startRun(opts: StartRunOptions): Promise<PipelineRun> {
   });
   emit();
 
-  const promise = runPipeline(repoPath, environment, stages, pipelineFile);
+  const promise = runPipeline(repoPath, environment, stages, pipelineFile, skipPreflight);
   promise.then((run) => finalizeRun(repoPath, run)).catch((err) => failRun(repoPath, err));
   return promise;
 }
@@ -237,6 +249,9 @@ function finalizeRun(repoPath: string, run: PipelineRun): void {
 }
 
 function failRun(repoPath: string, err: unknown): void {
+  // Runs are fire-and-forget, so nobody is awaiting this rejection. Preflight
+  // failures land here too — toast them so the reason is visible.
+  notifyError('Pipeline run failed', err);
   update(repoPath, (cur) => {
     const stageStatuses = { ...cur.stageStatuses };
     if (cur.runningStageName) stageStatuses[cur.runningStageName] = 'failed';

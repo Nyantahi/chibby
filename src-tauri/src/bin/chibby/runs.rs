@@ -5,15 +5,17 @@ use crate::cli::{self, icons, Printer, StageStatus};
 use anyhow::Context;
 use chibby_lib::engine::executor;
 use chibby_lib::engine::models::{
-    Pipeline, PipelineRun, Project, RunKind, RunStatus as EngineRunStatus,
+    Pipeline, PipelineRun, Project, RollbackOutcome, RunKind, RunStatus as EngineRunStatus,
     StageStatus as EngineStageStatus,
 };
-use chibby_lib::engine::{persistence, pipeline, preflight, run_support};
+use chibby_lib::engine::run_support::{execute_run, ExecuteRunRequest};
+use chibby_lib::engine::{persistence, pipeline, preflight, rollback, run_support};
 use chibby_lib::state::create_pipeline_state;
 use chrono::Utc;
 use owo_colors::OwoColorize;
 use std::path::{Path, PathBuf};
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_pipeline(
     printer: &Printer,
     env: Option<&str>,
@@ -21,6 +23,8 @@ pub(crate) async fn run_pipeline(
     project: Option<&PathBuf>,
     skip_preflight: bool,
     dry_run: bool,
+    pipeline_file: Option<&str>,
+    trigger: Option<&str>,
 ) -> anyhow::Result<()> {
     printer.banner();
 
@@ -44,13 +48,21 @@ pub(crate) async fn run_pipeline(
     }
     printer.newline();
 
-    // Load the real pipeline from .chibby/pipeline.toml on every run.
-    let pipeline = run_support::load_selected_pipeline(&project_path, None).with_context(|| {
-        format!(
-            "Failed to load pipeline from {}",
-            project_path.join(".chibby").join("pipeline.toml").display()
-        )
-    })?;
+    if let Some(source) = trigger {
+        printer.kv("Trigger", source);
+    }
+
+    // Load the real pipeline from .chibby/ on every run.
+    let pipeline =
+        run_support::load_selected_pipeline(&project_path, pipeline_file).with_context(|| {
+            format!(
+                "Failed to load pipeline from {}",
+                project_path
+                    .join(".chibby")
+                    .join(format!("{}.toml", pipeline_file.unwrap_or("pipeline")))
+                    .display()
+            )
+        })?;
 
     // Validate any requested --stage names exist before doing anything.
     for requested in stages {
@@ -91,9 +103,6 @@ pub(crate) async fn run_pipeline(
         return Ok(());
     }
 
-    // Resolve environment variables and secrets for the run.
-    let (env_ref, env_vars) = run_support::resolve_execution_context(&project_path, env)?;
-
     // Wire Ctrl-C to cancel the in-process run gracefully.
     let repo_str = project_path.to_string_lossy().to_string();
     let cancel_state = create_pipeline_state();
@@ -110,22 +119,22 @@ pub(crate) async fn run_pipeline(
         }
     });
 
-    let mut run = executor::run_pipeline(
-        &pipeline,
-        &project_path,
-        env_ref.as_ref(),
-        env_vars,
+    let run = execute_run(
+        ExecuteRunRequest {
+            repo_path: project_path.clone(),
+            pipeline_file: pipeline_file.map(str::to_string),
+            environment: env.map(str::to_string),
+            stages: stage_filter.map(<[String]>::to_vec),
+            run_kind: run_kind_for_trigger(trigger),
+            trigger_id: trigger.map(str::to_string),
+            pipeline_override: Some(pipeline),
+            ..Default::default()
+        },
         Some(cli_log_callback()),
-        stage_filter,
-        Some(cancel_state.clone()),
+        Some(cancel_state),
         None,
-        &uuid::Uuid::new_v4().to_string(),
     )
     .await?;
-
-    run_support::annotate_run(&mut run, &pipeline, None);
-    run_support::persist_completed_run(&run)?;
-    run_support::post_run_housekeeping(&repo_str, &run).await;
 
     print_completed_run(printer, &run);
 
@@ -135,6 +144,16 @@ pub(crate) async fn run_pipeline(
     }
 
     Ok(())
+}
+
+/// Map a `--trigger` tag onto the run provenance it records.
+fn run_kind_for_trigger(trigger: Option<&str>) -> RunKind {
+    match trigger {
+        Some(t) if t.starts_with("hook:") => RunKind::Hook,
+        Some(t) if t.starts_with("scheduled:") => RunKind::Scheduled,
+        Some(t) if t.starts_with("watch:") => RunKind::Watch,
+        _ => RunKind::Normal,
+    }
 }
 
 /// Whether the git working tree at `path` is clean.
@@ -154,16 +173,7 @@ fn git_tree_clean(path: &Path) -> Option<bool> {
 
 /// Human-readable preflight error for CLI display.
 fn format_preflight_error(err: &preflight::PreflightError) -> String {
-    use preflight::PreflightError::*;
-    match err {
-        MissingSecret { name, environment } => {
-            format!("Secret '{name}' not set for environment '{environment}'")
-        }
-        MissingSshHost { stage } => format!("Stage '{stage}' uses SSH but no host is configured"),
-        MissingEnvironment { name } => format!("Environment '{name}' is not defined"),
-        SshConnectivityFailed { host, error } => format!("SSH to {host} failed: {error}"),
-        SshNotAvailable => "ssh binary not found on PATH".to_string(),
-    }
+    err.to_string()
 }
 
 /// Real preflight checks shared by `run` and the standalone `preflight` command.
@@ -297,14 +307,11 @@ pub(crate) async fn show_status(
 
 pub(crate) async fn cancel_pipeline(
     printer: &Printer,
-    _project: Option<&PathBuf>,
+    project: Option<&PathBuf>,
 ) -> anyhow::Result<()> {
-    // CLI runs execute in a single foreground process; there is no shared
-    // daemon to signal. Cancellation is handled by Ctrl-C inside `chibby run`.
-    printer.header(&format!("{} Cancel Pipeline", icons::WARN));
-    printer.info("Chibby CLI runs in the foreground — press Ctrl-C in the `chibby run` terminal to cancel it.");
-    printer.info("The pipeline stops after the current stage and records a cancelled run.");
-    Ok(())
+    // The run lock names the owning process, so this reaches runs started by
+    // the desktop app or a trigger, not just this terminal.
+    crate::triggers::cancel_run(printer, project)
 }
 
 pub(crate) fn run_status_to_cli(status: Option<&EngineRunStatus>) -> Option<StageStatus> {
@@ -438,6 +445,7 @@ pub(crate) async fn show_history(
             &format_relative_time(run.started_at),
             run.duration_ms.unwrap_or(0),
             run.environment.as_deref(),
+            history_tag(run),
         );
     }
 
@@ -477,6 +485,7 @@ fn cli_stage_status(status: &EngineStageStatus) -> StageStatus {
         EngineStageStatus::Success => StageStatus::Success,
         EngineStageStatus::Failed => StageStatus::Failed,
         EngineStageStatus::Skipped => StageStatus::Skipped,
+        EngineStageStatus::TimedOut => StageStatus::TimedOut,
     }
 }
 
@@ -513,6 +522,55 @@ fn print_completed_run(printer: &Printer, run: &PipelineRun) {
         run.stage_results.len(),
     );
     printer.kv("Run ID", &run.id);
+    print_health_failure(printer, run);
+}
+
+/// Distinct block for the case auto-rollback exists to serve: the commands
+/// passed but the post-deploy health check did not.
+fn print_health_failure(printer: &Printer, run: &PipelineRun) {
+    let Some(stage) = run.health_failure_stage.as_deref() else {
+        return;
+    };
+
+    printer.newline();
+    printer.error(&format!("health check failed on stage '{stage}'"));
+
+    match (run.rollback_run_id.as_deref(), run.rollback_outcome) {
+        (Some(id), Some(outcome)) => printer.rollback_note(&format!(
+            "auto-rolled back to run {id} — {}",
+            rollback_outcome_label(outcome)
+        )),
+        (_, Some(RollbackOutcome::Skipped)) => {
+            // The bad release is still live — say why, don't send them to the log.
+            let reason = run
+                .rollback_skip_reason
+                .as_deref()
+                .unwrap_or("see the log for the reason");
+            printer.rollback_note(&format!("auto-rollback skipped — {reason}"));
+        }
+        _ => {}
+    }
+}
+
+fn rollback_outcome_label(outcome: RollbackOutcome) -> &'static str {
+    match outcome {
+        RollbackOutcome::Succeeded => "succeeded",
+        RollbackOutcome::Failed => "FAILED, manual intervention required",
+        RollbackOutcome::Skipped => "skipped",
+    }
+}
+
+/// History marker separating automatic rollbacks from human-initiated ones.
+fn history_tag(run: &PipelineRun) -> Option<&'static str> {
+    match run.run_kind {
+        RunKind::Rollback if run.auto_rollback_of.is_some() => Some("auto-rollback"),
+        RunKind::Rollback => Some("rollback"),
+        RunKind::Retry => Some("retry"),
+        RunKind::Scheduled => Some("scheduled"),
+        RunKind::Watch => Some("watch"),
+        RunKind::Hook => Some("hook"),
+        RunKind::Normal => None,
+    }
 }
 
 pub(crate) async fn retry_run(
@@ -537,7 +595,7 @@ pub(crate) async fn retry_run(
             original
                 .stage_results
                 .iter()
-                .find(|s| s.status == EngineStageStatus::Failed)
+                .find(|s| s.status.is_failure())
                 .map(|s| s.stage_name.clone())
         })
         .unwrap_or_else(|| {
@@ -549,75 +607,121 @@ pub(crate) async fn retry_run(
         });
     let stages_to_run = run_support::stages_to_run_from_stage(&pipeline, &retry_stage)?;
     let path = Path::new(&original.repo_path);
-    let (env_ref, env_vars) =
-        run_support::resolve_execution_context(path, original.environment.as_deref())?;
-
-    printer.info("Starting retry...");
-    let mut run = executor::run_pipeline(
-        &pipeline,
-        path,
-        env_ref.as_ref(),
-        env_vars,
-        Some(cli_log_callback()),
-        Some(&stages_to_run),
-        None,
-        None,
-        &uuid::Uuid::new_v4().to_string(),
-    )
-    .await?;
 
     let parent_id = original.parent_run_id.as_deref().unwrap_or(run_id);
     let existing_retries = persistence::retry_count_for_run(parent_id).unwrap_or(0);
-    run.run_kind = RunKind::Retry;
-    run.parent_run_id = Some(parent_id.to_string());
-    run.retry_number = Some(existing_retries + 1);
-    run.retry_from_stage = Some(retry_stage);
-    run_support::annotate_run(&mut run, &pipeline, original.pipeline_file.as_deref());
-    run_support::persist_completed_run(&run)?;
-    run_support::post_run_housekeeping(&original.repo_path, &run).await;
+
+    printer.info("Starting retry...");
+    let run = run_support::execute_run(
+        run_support::ExecuteRunRequest {
+            repo_path: path.to_path_buf(),
+            pipeline_file: original.pipeline_file.clone(),
+            environment: original.environment.clone(),
+            stages: Some(stages_to_run),
+            run_kind: RunKind::Retry,
+            parent_run_id: Some(parent_id.to_string()),
+            retry_number: Some(existing_retries + 1),
+            retry_from_stage: Some(retry_stage),
+            pipeline_override: Some(pipeline),
+            ..Default::default()
+        },
+        Some(cli_log_callback()),
+        None,
+        None,
+    )
+    .await?;
 
     print_completed_run(printer, &run);
     Ok(())
 }
 
-pub(crate) async fn rollback_run(printer: &Printer, run_id: &str) -> anyhow::Result<()> {
+pub(crate) async fn rollback_run(
+    printer: &Printer,
+    run_id: Option<&str>,
+    last_good: bool,
+    env: Option<&str>,
+    project: Option<&PathBuf>,
+) -> anyhow::Result<()> {
     printer.header(&format!("{} Rollback", icons::ROLLBACK));
-    printer.kv("Target Run", run_id);
+
+    let target = match (last_good, run_id) {
+        (true, Some(_)) => {
+            anyhow::bail!("Pass either a run id or --last-good, not both")
+        }
+        (true, None) => resolve_last_good_target(printer, env, project)?,
+        (false, Some(id)) => load_rollback_target(id)?,
+        (false, None) => anyhow::bail!(
+            "Nothing to roll back to. Pass a run id, or --last-good with --env <ENV>."
+        ),
+    };
+
+    printer.kv("Target Run", &target.id);
     printer.newline();
 
+    let pipeline = run_support::pipeline_snapshot_for_run(&target)?;
+    let path = PathBuf::from(&target.repo_path);
+
+    printer.warn("Rolling back to recorded deployment pipeline...");
+    let run = run_support::execute_run(
+        run_support::ExecuteRunRequest {
+            repo_path: path,
+            pipeline_file: target.pipeline_file.clone(),
+            environment: target.environment.clone(),
+            run_kind: RunKind::Rollback,
+            rollback_target_id: Some(target.id.clone()),
+            pipeline_override: Some(pipeline),
+            ..Default::default()
+        },
+        Some(cli_log_callback()),
+        None,
+        None,
+    )
+    .await?;
+
+    print_completed_run(printer, &run);
+    Ok(())
+}
+
+/// Load an explicitly named rollback target.
+fn load_rollback_target(run_id: &str) -> anyhow::Result<PipelineRun> {
     let target = persistence::load_run(run_id)?
         .ok_or_else(|| anyhow::anyhow!("Run {} not found", run_id))?;
     if target.status != EngineRunStatus::Success {
         anyhow::bail!("Can only roll back to a successful run");
     }
+    Ok(target)
+}
 
-    let pipeline = run_support::pipeline_snapshot_for_run(&target)?;
-    let path = Path::new(&target.repo_path);
-    let (env_ref, env_vars) =
-        run_support::resolve_execution_context(path, target.environment.as_deref())?;
+/// Resolve `--last-good`: the newest run that actually deployed this
+/// pipeline's deploy stage successfully in `env`.
+fn resolve_last_good_target(
+    printer: &Printer,
+    env: Option<&str>,
+    project: Option<&PathBuf>,
+) -> anyhow::Result<PipelineRun> {
+    let env = env.ok_or_else(|| {
+        anyhow::anyhow!("--last-good needs --env <ENV> to know which deployment to restore")
+    })?;
 
-    printer.warn("Rolling back to recorded deployment pipeline...");
-    let mut run = executor::run_pipeline(
-        &pipeline,
-        path,
-        env_ref.as_ref(),
-        env_vars,
-        Some(cli_log_callback()),
-        None,
-        None,
-        None,
-        &uuid::Uuid::new_v4().to_string(),
-    )
-    .await?;
+    let path = crate::project_path(project);
+    let path_str = path
+        .canonicalize()
+        .unwrap_or_else(|_| path.clone())
+        .to_string_lossy()
+        .to_string();
 
-    run.run_kind = RunKind::Rollback;
-    run.rollback_target_id = Some(run_id.to_string());
-    run_support::annotate_run(&mut run, &pipeline, target.pipeline_file.as_deref());
-    run_support::persist_completed_run(&run)?;
-    run_support::post_run_housekeeping(&target.repo_path, &run).await;
+    let pipeline = run_support::load_selected_pipeline(&path, None)
+        .with_context(|| format!("Failed to load pipeline from {}", path.display()))?;
+    let stage = rollback::deploy_stage_name(&pipeline)
+        .ok_or_else(|| anyhow::anyhow!("Pipeline '{}' has no stages", pipeline.name))?;
 
-    print_completed_run(printer, &run);
-    Ok(())
+    printer.kv("Project", &path_str);
+    printer.kv("Environment", env);
+    printer.kv("Deploy Stage", stage);
+
+    persistence::last_good_deployment(&path_str, env, stage, "")?.ok_or_else(|| {
+        anyhow::anyhow!("No known-good deployment of stage '{stage}' recorded for '{env}'")
+    })
 }
 
 /// Resolve project path: explicit `--project` or current directory.

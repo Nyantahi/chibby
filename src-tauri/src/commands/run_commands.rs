@@ -1,9 +1,9 @@
 use crate::engine::executor;
 use crate::engine::models::{DeploymentRecord, PipelineRun, RunKind};
-use crate::engine::{persistence, run_support};
+use crate::engine::run_support::{execute_run, ExecuteRunRequest};
+use crate::engine::{persistence, pipeline, preflight, run_support};
 use crate::state::SharedPipelineState;
-use std::future::Future;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
@@ -32,33 +32,47 @@ fn build_stage_callback() -> executor::StageCallback {
     })
 }
 
-async fn with_pipeline_tracking<T, F>(
-    pipeline_state: SharedPipelineState,
+/// Validate the run's target environment, mirroring the CLI's default
+/// behaviour. Nothing to validate when the run has no environment.
+async fn validate_before_run(
     repo_path: &str,
-    operation: F,
-) -> Result<T, String>
-where
-    F: Future<Output = Result<T, String>>,
-{
-    {
-        let mut state = pipeline_state.write().await;
-        state.start(repo_path);
+    environment: Option<&str>,
+    pipeline_file: Option<&str>,
+) -> Result<(), String> {
+    let Some(env_name) = environment else {
+        return Ok(());
+    };
+
+    let path = Path::new(repo_path);
+    let pipe =
+        run_support::load_selected_pipeline(path, pipeline_file).map_err(|e| e.to_string())?;
+    let envs = pipeline::load_environments_layered(path).map_err(|e| e.to_string())?;
+    let secs = pipeline::load_secrets_config(path).map_err(|e| e.to_string())?;
+
+    let result = preflight::validate_preflight(&pipe, repo_path, env_name, &envs, &secs)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if result.passed {
+        return Ok(());
     }
 
-    let result = operation.await;
-
-    {
-        let mut state = pipeline_state.write().await;
-        state.cleanup(repo_path);
-    }
-
-    result
+    let details = result
+        .errors
+        .iter()
+        .map(|e| e.to_string())
+        .collect::<Vec<_>>()
+        .join("; ");
+    Err(format!(
+        "Preflight validation failed for environment '{env_name}': {details}"
+    ))
 }
 
 /// Run a pipeline for a given repo path.
 ///
 /// When an environment is specified, resolves environment variables and
-/// secrets from the keychain before execution.
+/// secrets from the keychain before execution. Preflight runs first unless
+/// `skip_preflight` is set, matching the CLI.
 #[tauri::command]
 pub async fn run_pipeline(
     app: AppHandle,
@@ -67,44 +81,30 @@ pub async fn run_pipeline(
     environment: Option<String>,
     stages: Option<Vec<String>>,
     pipeline_file: Option<String>,
+    skip_preflight: bool,
 ) -> Result<PipelineRun, String> {
-    let path = Path::new(&repo_path);
-    let cancel_state = (*pipeline_state).clone();
+    if !skip_preflight {
+        validate_before_run(&repo_path, environment.as_deref(), pipeline_file.as_deref()).await?;
+    }
+
     let run_id = Uuid::new_v4().to_string();
-    let log_repo_path = repo_path.clone();
-    let run = with_pipeline_tracking(cancel_state.clone(), &repo_path, async move {
-        let p = run_support::load_selected_pipeline(path, pipeline_file.as_deref())
-            .map_err(|e| e.to_string())?;
-        let (env_ref, env_vars) =
-            run_support::resolve_execution_context(path, environment.as_deref())
-                .map_err(|e| e.to_string())?;
+    let on_log = build_log_callback(app, run_id.clone(), repo_path.clone());
 
-        let mut run = executor::run_pipeline(
-            &p,
-            path,
-            env_ref.as_ref(),
-            env_vars,
-            Some(build_log_callback(app, run_id.clone(), log_repo_path)),
-            stages.as_deref(),
-            Some(cancel_state.clone()),
-            Some(build_stage_callback()),
-            &run_id,
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-
-        run_support::annotate_run(&mut run, &p, pipeline_file.as_deref());
-        Ok(run)
-    })
-    .await?;
-
-    // Persist the run.
-    run_support::persist_completed_run(&run).map_err(|e| e.to_string())?;
-
-    // Post-run housekeeping (notifications + cleanup).
-    run_support::post_run_housekeeping(&repo_path, &run).await;
-
-    Ok(run)
+    execute_run(
+        ExecuteRunRequest {
+            repo_path: PathBuf::from(&repo_path),
+            pipeline_file,
+            environment,
+            stages,
+            run_id: Some(run_id),
+            ..Default::default()
+        },
+        Some(on_log),
+        Some((*pipeline_state).clone()),
+        Some(build_stage_callback()),
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Get run history for a project.
@@ -164,7 +164,6 @@ pub async fn retry_run(
         .ok_or_else(|| format!("Run {} not found", run_id))?;
 
     let repo_path = original.repo_path.clone();
-    let path = Path::new(&repo_path);
     let p = run_support::pipeline_snapshot_for_run(&original).map_err(|e| e.to_string())?;
 
     // Determine which stage to retry from.
@@ -173,7 +172,7 @@ pub async fn retry_run(
         original
             .stage_results
             .iter()
-            .find(|s| s.status == crate::engine::models::StageStatus::Failed)
+            .find(|s| s.status.is_failure())
             .map(|s| s.stage_name.clone())
             .unwrap_or_else(|| {
                 // If no failed stage, start from the beginning.
@@ -188,48 +187,30 @@ pub async fn retry_run(
     // Calculate retry number.
     let parent_id = original.parent_run_id.as_deref().unwrap_or(&run_id);
     let existing_retries = persistence::retry_count_for_run(parent_id).unwrap_or(0);
-    let retry_number = existing_retries + 1;
 
-    let cancel_state = (*pipeline_state).clone();
     let new_run_id = Uuid::new_v4().to_string();
-    let log_repo_path = repo_path.clone();
-    let mut run = with_pipeline_tracking(cancel_state.clone(), &repo_path, async move {
-        let (env_ref, env_vars) =
-            run_support::resolve_execution_context(path, original.environment.as_deref())
-                .map_err(|e| e.to_string())?;
+    let on_log = build_log_callback(app, new_run_id.clone(), repo_path.clone());
 
-        let mut run = executor::run_pipeline(
-            &p,
-            path,
-            env_ref.as_ref(),
-            env_vars,
-            Some(build_log_callback(app, new_run_id.clone(), log_repo_path)),
-            Some(&stages_to_run),
-            Some(cancel_state.clone()),
-            Some(build_stage_callback()),
-            &new_run_id,
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-
-        run_support::annotate_run(&mut run, &p, original.pipeline_file.as_deref());
-        Ok(run)
-    })
-    .await?;
-
-    // Tag the run as a retry.
-    run.run_kind = RunKind::Retry;
-    run.parent_run_id = Some(parent_id.to_string());
-    run.retry_number = Some(retry_number);
-    run.retry_from_stage = Some(retry_stage);
-
-    // Persist the run.
-    run_support::persist_completed_run(&run).map_err(|e| e.to_string())?;
-
-    // Post-run housekeeping (notifications + cleanup).
-    run_support::post_run_housekeeping(&repo_path, &run).await;
-
-    Ok(run)
+    execute_run(
+        ExecuteRunRequest {
+            repo_path: PathBuf::from(&repo_path),
+            pipeline_file: original.pipeline_file.clone(),
+            environment: original.environment.clone(),
+            stages: Some(stages_to_run),
+            run_kind: RunKind::Retry,
+            parent_run_id: Some(parent_id.to_string()),
+            retry_number: Some(existing_retries + 1),
+            retry_from_stage: Some(retry_stage),
+            pipeline_override: Some(p),
+            run_id: Some(new_run_id),
+            ..Default::default()
+        },
+        Some(on_log),
+        Some((*pipeline_state).clone()),
+        Some(build_stage_callback()),
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Roll back to a previously successful run by re-executing its pipeline
@@ -253,47 +234,28 @@ pub async fn rollback_to_run(
     }
 
     let repo_path = target.repo_path.clone();
-    let path = Path::new(&repo_path);
     let p = run_support::pipeline_snapshot_for_run(&target).map_err(|e| e.to_string())?;
 
-    let cancel_state = (*pipeline_state).clone();
     let new_run_id = Uuid::new_v4().to_string();
-    let log_repo_path = repo_path.clone();
-    let mut run = with_pipeline_tracking(cancel_state.clone(), &repo_path, async move {
-        let (env_ref, env_vars) =
-            run_support::resolve_execution_context(path, target.environment.as_deref())
-                .map_err(|e| e.to_string())?;
+    let on_log = build_log_callback(app, new_run_id.clone(), repo_path.clone());
 
-        let mut run = executor::run_pipeline(
-            &p,
-            path,
-            env_ref.as_ref(),
-            env_vars,
-            Some(build_log_callback(app, new_run_id.clone(), log_repo_path)),
-            None,
-            Some(cancel_state.clone()),
-            Some(build_stage_callback()),
-            &new_run_id,
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-
-        run_support::annotate_run(&mut run, &p, target.pipeline_file.as_deref());
-        Ok(run)
-    })
-    .await?;
-
-    // Tag the run as a rollback.
-    run.run_kind = RunKind::Rollback;
-    run.rollback_target_id = Some(target_run_id);
-
-    // Persist the run.
-    run_support::persist_completed_run(&run).map_err(|e| e.to_string())?;
-
-    // Post-run housekeeping (notifications + cleanup).
-    run_support::post_run_housekeeping(&repo_path, &run).await;
-
-    Ok(run)
+    execute_run(
+        ExecuteRunRequest {
+            repo_path: PathBuf::from(&repo_path),
+            pipeline_file: target.pipeline_file.clone(),
+            environment: target.environment.clone(),
+            run_kind: RunKind::Rollback,
+            rollback_target_id: Some(target_run_id),
+            pipeline_override: Some(p),
+            run_id: Some(new_run_id),
+            ..Default::default()
+        },
+        Some(on_log),
+        Some((*pipeline_state).clone()),
+        Some(build_stage_callback()),
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Get the last successful run for a project, optionally filtered by environment.
@@ -324,39 +286,4 @@ pub fn delete_run(id: String) -> Result<(), String> {
 #[tauri::command]
 pub fn clear_run_history(repo_path: String) -> Result<u32, String> {
     persistence::clear_runs_for_project(&repo_path).map_err(|e| e.to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::state::create_pipeline_state;
-
-    #[tokio::test]
-    async fn test_with_pipeline_tracking_cleans_up_after_error() {
-        let state = create_pipeline_state();
-        let repo_path = "/tmp/chibby-run-error";
-
-        let result: Result<(), String> =
-            with_pipeline_tracking(state.clone(), repo_path, async { Err("boom".to_string()) })
-                .await;
-
-        assert_eq!(result.unwrap_err(), "boom");
-
-        let guard = state.read().await;
-        assert!(!guard.is_running(repo_path));
-    }
-
-    #[tokio::test]
-    async fn test_with_pipeline_tracking_cleans_up_after_success() {
-        let state = create_pipeline_state();
-        let repo_path = "/tmp/chibby-run-success";
-
-        let result =
-            with_pipeline_tracking(state.clone(), repo_path, async { Ok::<_, String>(42) }).await;
-
-        assert_eq!(result.unwrap(), 42);
-
-        let guard = state.read().await;
-        assert!(!guard.is_running(repo_path));
-    }
 }

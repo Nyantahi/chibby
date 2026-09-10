@@ -16,6 +16,8 @@ export const HELP = {
     'Security and quality gates that must pass before shipping — secret scanning, dependency, SAST, and container scans. Block or warn on findings.',
   cleanup:
     'Prune old build artifacts, caches, and deploy leftovers. Run a dry run first to preview what would be removed.',
+  triggers:
+    'Local triggers that run this pipeline without a click: cron schedules, file watches, and git hooks. Config lives in .chibby/triggers.toml, with a gitignored triggers.local.toml for per-machine overrides.',
   deploymentHistory:
     'A log of past deployments per environment — what shipped, when, and its result.',
 } as const;

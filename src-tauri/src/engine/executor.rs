@@ -1,15 +1,25 @@
 use crate::engine::deploy::{build_ssh_command, check_docker_compose_services, run_health_check};
+use crate::engine::git;
+use crate::engine::locks;
 use crate::engine::models::{
-    Backend, Environment, Pipeline, PipelineRun, RunStatus, Stage, StageResult, StageStatus,
+    Backend, Backoff, Environment, Pipeline, PipelineRun, RunStatus, Stage, StageResult,
+    StageStatus,
 };
+use crate::engine::redact::Redactor;
+use crate::engine::stage_when::{self, WhenContext};
 use crate::state::SharedPipelineState;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
+use tokio::time::Instant;
+
+/// How often the cancel monitor polls while a command runs or a retry backs off.
+const CANCEL_POLL: Duration = Duration::from_millis(200);
 
 /// Callback signature for streaming log lines during execution.
 pub type LogCallback = Box<dyn Fn(&str, &str, &str) + Send + Sync>;
@@ -28,6 +38,34 @@ enum StageControl {
     FailFast,
 }
 
+/// Everything a stage needs beyond its own definition. Built per stage so
+/// `env_vars` can carry the stage's own env overlay.
+#[derive(Clone, Copy)]
+struct StageContext<'a> {
+    repo_path: &'a Path,
+    environment: Option<&'a Environment>,
+    /// Run variables merged with the stage's `env` overlay.
+    env_vars: &'a HashMap<String, String>,
+    on_log: &'a Option<LogCallback>,
+    cancel_state: &'a Option<SharedPipelineState>,
+    redactor: &'a Redactor,
+}
+
+/// Result of a single attempt at a stage, before retry accounting.
+struct AttemptOutcome {
+    status: StageStatus,
+    exit_code: Option<i32>,
+    stdout: String,
+    stderr: String,
+    health_check_passed: Option<bool>,
+    /// Commands succeeded and only the health check failed. `HealthCheck` has
+    /// its own retry budget, so the stage retry policy must not re-run a
+    /// completed deploy on top of it.
+    health_check_only_failure: bool,
+    /// User cancelled mid-attempt.
+    cancelled: bool,
+}
+
 /// Execute an entire pipeline, stage by stage.
 ///
 /// Supports both local and SSH execution backends. Environment variables
@@ -44,6 +82,7 @@ pub async fn run_pipeline(
     cancel_state: Option<SharedPipelineState>,
     on_stage_complete: Option<StageCallback>,
     run_id: &str,
+    redactor: Redactor,
 ) -> Result<PipelineRun> {
     let env_name = environment.map(|e| e.name.clone());
     let mut run = PipelineRun::new_with_id(
@@ -53,6 +92,19 @@ pub async fn run_pipeline(
         env_name,
     );
     run.status = RunStatus::Running;
+
+    // Git provenance is recorded here rather than in the callers so every entry
+    // point (GUI, CLI, retry, rollback) gets it. The branch also feeds `when`.
+    let (branch, commit) = git_provenance(repo_path).await;
+    run.branch = branch.clone();
+    run.commit = commit;
+
+    let environment_name = run.environment.clone();
+    let when_ctx = WhenContext {
+        branch: branch.as_deref(),
+        environment: environment_name.as_deref(),
+    };
+
     let mut had_failures = false;
 
     for stage in &pipeline.stages {
@@ -64,17 +116,48 @@ pub async fn run_pipeline(
             }
         }
 
-        let (result, control) = run_stage(
-            stage,
-            &mut run,
+        match stage_when::skip_reason(&stage.when, &when_ctx) {
+            Ok(None) => {}
+            Ok(Some(reason)) => {
+                if let Some(ref cb) = on_log {
+                    cb(
+                        &stage.name,
+                        "info",
+                        &format!("--- Skipping stage {}: {} ---", stage.name, reason),
+                    );
+                }
+                run.stage_results
+                    .push(skipped_with_reason(&stage.name, reason));
+                continue;
+            }
+            Err(e) => {
+                // A malformed condition means the pipeline definition can't be
+                // trusted — fail loudly instead of silently skipping.
+                let message = format!("Invalid `when` condition on stage '{}': {}", stage.name, e);
+                log::error!("[executor] {}", message);
+                if let Some(ref cb) = on_log {
+                    cb(&stage.name, "error", &message);
+                }
+                run.stage_results
+                    .push(condition_error_stage(&stage.name, message));
+                run.status = RunStatus::Failed;
+                mark_remaining_skipped(&mut run, pipeline);
+                finalize_run(&mut run);
+                return Ok(run);
+            }
+        }
+
+        let effective_env = effective_stage_env(&env_vars, stage);
+        let ctx = StageContext {
             repo_path,
             environment,
-            &env_vars,
-            &on_log,
-            &cancel_state,
-            &on_stage_complete,
-        )
-        .await;
+            env_vars: &effective_env,
+            on_log: &on_log,
+            cancel_state: &cancel_state,
+            redactor: &redactor,
+        };
+
+        let (result, control) = run_stage(stage, &mut run, &ctx, &on_stage_complete).await;
 
         if let StageControl::Cancelled = control {
             run.status = RunStatus::Cancelled;
@@ -84,7 +167,10 @@ pub async fn run_pipeline(
             return Ok(run);
         }
 
-        let failed = result.status == StageStatus::Failed;
+        let failed = result.status.is_failure();
+        if failed_health_check(&result) && run.health_failure_stage.is_none() {
+            run.health_failure_stage = Some(stage.name.clone());
+        }
         run.stage_results.push(result);
 
         // Persist partial run state so results survive a crash.
@@ -115,23 +201,50 @@ pub async fn run_pipeline(
     Ok(run)
 }
 
-/// Run a single stage: stream its commands, run any health check, and report the
-/// result plus what the loop should do next. Pushes a `Running` placeholder and
-/// persists it before execution so crash recovery sees the active stage.
-#[allow(clippy::too_many_arguments)]
+/// Whether a stage failed *because* its health check failed, rather than
+/// because a command failed. `health_check_passed` is only recorded once the
+/// commands themselves succeeded, so `Some(false)` pins the cause exactly.
+fn failed_health_check(result: &StageResult) -> bool {
+    result.status.is_failure() && result.health_check_passed == Some(false)
+}
+
+/// Read the repo's branch and short commit off the executor thread. `git` is a
+/// blocking `std::process::Command`, so it must not run on the async runtime.
+async fn git_provenance(repo_path: &Path) -> (Option<String>, Option<String>) {
+    let path = repo_path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        // `current_branch` yields "HEAD" when detached — that is not a branch.
+        let branch = git::current_branch(&path).ok().filter(|b| b != "HEAD");
+        (branch, git::head_short_commit(&path))
+    })
+    .await
+    .unwrap_or((None, None))
+}
+
+/// Run variables with the stage's own `env` overlaid on top.
+fn effective_stage_env(
+    env_vars: &HashMap<String, String>,
+    stage: &Stage,
+) -> HashMap<String, String> {
+    let mut effective = env_vars.clone();
+    if let Some(ref overlay) = stage.env {
+        effective.extend(overlay.clone());
+    }
+    effective
+}
+
+/// Run a single stage, retrying per its policy, and report the result plus what
+/// the loop should do next. Pushes a `Running` placeholder and persists it
+/// before execution so crash recovery sees the active stage.
 async fn run_stage(
     stage: &Stage,
     run: &mut PipelineRun,
-    repo_path: &Path,
-    environment: Option<&Environment>,
-    env_vars: &HashMap<String, String>,
-    on_log: &Option<LogCallback>,
-    cancel_state: &Option<SharedPipelineState>,
+    ctx: &StageContext<'_>,
     on_stage_complete: &Option<StageCallback>,
 ) -> (StageResult, StageControl) {
     let stage_start = Utc::now();
 
-    if let Some(ref cb) = on_log {
+    if let Some(ref cb) = ctx.on_log {
         cb(
             &stage.name,
             "info",
@@ -149,24 +262,139 @@ async fn run_stage(
     }
     run.stage_results.pop();
 
-    let mut stage_stdout = String::new();
-    let mut stage_stderr = String::new();
-    let mut stage_exit_code: Option<i32> = None;
-    let mut stage_status = StageStatus::Running;
+    let max_attempts = stage.retry.as_ref().map(|r| r.attempts.max(1)).unwrap_or(1);
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    let mut attempt: u32 = 1;
 
-    for cmd_str in &stage.commands {
-        // Check for cancellation before each command.
-        if is_cancelled(cancel_state, repo_path).await {
-            if let Some(ref cb) = on_log {
+    let outcome = loop {
+        if attempt > 1 {
+            let separator = format!("--- attempt {}/{} ---", attempt, max_attempts);
+            stdout.push_str(&separator);
+            stdout.push('\n');
+            stderr.push_str(&separator);
+            stderr.push('\n');
+            if let Some(ref cb) = ctx.on_log {
+                cb(&stage.name, "info", &separator);
+            }
+        }
+
+        let outcome = run_stage_attempt(stage, ctx).await;
+        stdout.push_str(&outcome.stdout);
+        stderr.push_str(&outcome.stderr);
+
+        if outcome.cancelled {
+            if let Some(ref cb) = ctx.on_log {
                 cb(&stage.name, "warn", "Pipeline cancelled by user");
             }
             return (
-                cancelled_stage(&stage.name, stage_start, stage_stdout, stage_stderr),
+                cancelled_stage(&stage.name, stage_start, stdout, stderr),
                 StageControl::Cancelled,
             );
         }
 
-        if let Some(ref cb) = on_log {
+        let can_retry = outcome.status.is_failure()
+            && !outcome.health_check_only_failure
+            && attempt < max_attempts;
+        if !can_retry {
+            break outcome;
+        }
+
+        let delay = retry_delay(stage, attempt);
+        if let Some(ref cb) = ctx.on_log {
+            cb(
+                &stage.name,
+                "warn",
+                &format!(
+                    "Attempt {}/{} failed; retrying in {}s",
+                    attempt,
+                    max_attempts,
+                    delay.as_secs()
+                ),
+            );
+        }
+        if !sleep_cancellable(delay, ctx).await {
+            if let Some(ref cb) = ctx.on_log {
+                cb(&stage.name, "warn", "Pipeline cancelled by user");
+            }
+            return (
+                cancelled_stage(&stage.name, stage_start, stdout, stderr),
+                StageControl::Cancelled,
+            );
+        }
+
+        attempt += 1;
+    };
+
+    let stage_end = Utc::now();
+    let result = StageResult {
+        stage_name: stage.name.clone(),
+        status: outcome.status.clone(),
+        exit_code: outcome.exit_code,
+        stdout,
+        stderr,
+        started_at: Some(stage_start),
+        finished_at: Some(stage_end),
+        duration_ms: Some((stage_end - stage_start).num_milliseconds() as u64),
+        health_check_passed: outcome.health_check_passed,
+        attempts: Some(attempt),
+        skip_reason: None,
+    };
+
+    let control = if outcome.status.is_failure() && stage.fail_fast {
+        StageControl::FailFast
+    } else {
+        StageControl::Continue
+    };
+
+    (result, control)
+}
+
+/// Delay before the attempt following `attempt` (1-based).
+fn retry_delay(stage: &Stage, attempt: u32) -> Duration {
+    let Some(ref retry) = stage.retry else {
+        return Duration::ZERO;
+    };
+    let multiplier = match retry.backoff {
+        Backoff::Fixed => 1u64,
+        Backoff::Exponential => 2u64.saturating_pow(attempt.saturating_sub(1)),
+    };
+    Duration::from_secs(retry.delay_secs.saturating_mul(multiplier))
+}
+
+/// Sleep for `duration`, polling for cancellation. Returns false if the run was
+/// cancelled — a long backoff must never make a stage uninterruptible.
+async fn sleep_cancellable(duration: Duration, ctx: &StageContext<'_>) -> bool {
+    let deadline = Instant::now() + duration;
+    while Instant::now() < deadline {
+        let remaining = deadline - Instant::now();
+        tokio::time::sleep(remaining.min(CANCEL_POLL)).await;
+        if is_cancelled(ctx.cancel_state, ctx.repo_path).await {
+            return false;
+        }
+    }
+    true
+}
+
+/// Run every command in the stage once, then its health check. The stage's
+/// `timeout_secs` is a single budget for the whole attempt, reset per attempt.
+async fn run_stage_attempt(stage: &Stage, ctx: &StageContext<'_>) -> AttemptOutcome {
+    let deadline = stage
+        .timeout_secs
+        .map(|secs| Instant::now() + Duration::from_secs(secs));
+
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    let mut exit_code: Option<i32> = None;
+    let mut status = StageStatus::Running;
+
+    for cmd_str in &stage.commands {
+        // Check for cancellation before each command.
+        if is_cancelled(ctx.cancel_state, ctx.repo_path).await {
+            return cancelled_outcome(stdout, stderr);
+        }
+
+        if let Some(ref cb) = ctx.on_log {
             cb(&stage.name, "cmd", &format!("$ {}", cmd_str));
         }
 
@@ -176,38 +404,17 @@ async fn run_stage(
             cmd_str.chars().take(120).collect::<String>()
         );
 
-        let mut child = match stage.backend {
-            Backend::Local => {
-                match build_local_command(cmd_str, repo_path, &stage.working_dir, env_vars) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        log::error!(
-                            "[executor] stage='{}' failed to spawn command: {}",
-                            stage.name,
-                            e
-                        );
-                        if let Some(ref cb) = on_log {
-                            cb(&stage.name, "error", &format!("Failed to spawn: {}", e));
-                        }
-                        stage_stderr.push_str(&format!("Failed to spawn command: {}\n", e));
-                        stage_status = StageStatus::Failed;
-                        break;
-                    }
+        let mut child = match spawn_command(cmd_str, stage, ctx) {
+            Ok(c) => c,
+            Err(message) => {
+                log::error!("[executor] stage='{}' {}", stage.name, message);
+                if let Some(ref cb) = ctx.on_log {
+                    cb(&stage.name, "error", &message);
                 }
-            }
-            Backend::Ssh => {
-                match build_ssh_command(cmd_str, environment, &stage.working_dir, env_vars) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        log::error!("[executor] stage='{}' SSH command error: {}", stage.name, e);
-                        if let Some(ref cb) = on_log {
-                            cb(&stage.name, "error", &format!("SSH error: {}", e));
-                        }
-                        stage_stderr.push_str(&format!("SSH command error: {}\n", e));
-                        stage_status = StageStatus::Failed;
-                        break;
-                    }
-                }
+                stderr.push_str(&message);
+                stderr.push('\n');
+                status = StageStatus::Failed;
+                break;
             }
         };
 
@@ -218,30 +425,34 @@ async fn run_stage(
             stage.name,
             child_pid
         );
-        if let (Some(state), Some(pid)) = (cancel_state, child_pid) {
+        if let (Some(state), Some(pid)) = (ctx.cancel_state, child_pid) {
             let mut guard = state.write().await;
-            guard.set_running_pid(&repo_path.to_string_lossy(), pid);
+            guard.set_running_pid(&ctx.repo_path.to_string_lossy(), pid);
         }
 
         // Stream stdout and stderr concurrently to avoid pipe deadlock. Reading
         // them sequentially can hang if the child fills the stderr pipe buffer
         // while we're still draining stdout (or vice-versa). Also monitor for
-        // cancellation and kill the child if requested.
-        let was_cancelled;
+        // cancellation and the stage deadline, killing the child if either fires.
+        let interrupt;
         {
             let stdout_pipe = child.stdout.take();
             let stderr_pipe = child.stderr.take();
 
             let stage_name_out = stage.name.clone();
             let stage_name_err = stage.name.clone();
-            let on_log_ref = on_log;
+            let on_log_ref = ctx.on_log;
+            let redactor = ctx.redactor;
 
+            // Redaction happens here, at ingest, so the secret never reaches
+            // either the streamed callback or the text persisted to disk.
             let stdout_task = async {
                 let mut out = String::new();
                 if let Some(pipe) = stdout_pipe {
                     let reader = BufReader::new(pipe);
                     let mut lines = reader.lines();
                     while let Some(line) = lines.next_line().await.unwrap_or(None) {
+                        let line = redactor.redact_log(&line);
                         out.push_str(&line);
                         out.push('\n');
                         if let Some(ref cb) = on_log_ref {
@@ -258,6 +469,7 @@ async fn run_stage(
                     let reader = BufReader::new(pipe);
                     let mut lines = reader.lines();
                     while let Some(line) = lines.next_line().await.unwrap_or(None) {
+                        let line = redactor.redact_log(&line);
                         err.push_str(&line);
                         err.push('\n');
                         if let Some(ref cb) = on_log_ref {
@@ -269,59 +481,77 @@ async fn run_stage(
             };
 
             // Cancellation monitor - polls every 200ms and kills the child.
-            let cancel_state_ref = cancel_state.clone();
-            let repo_path_str = repo_path.to_string_lossy().to_string();
+            let cancel_state_ref = ctx.cancel_state.clone();
+            let repo_path_str = ctx.repo_path.to_string_lossy().to_string();
             let cancel_task = async {
                 loop {
-                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    tokio::time::sleep(CANCEL_POLL).await;
                     if let Some(ref state) = cancel_state_ref {
                         let cancelled = {
                             let guard = state.read().await;
                             guard.is_cancelled(&repo_path_str)
                         };
                         if cancelled {
-                            return true;
+                            return;
                         }
+                    }
+                    if locks::cancel_requested(&repo_path_str) {
+                        return;
                     }
                 }
             };
 
-            // Race the I/O tasks against the cancellation monitor.
+            // Never resolves when the stage has no timeout configured.
+            let timeout_task = async {
+                match deadline {
+                    Some(at) => tokio::time::sleep_until(at).await,
+                    None => std::future::pending::<()>().await,
+                }
+            };
+
+            // Race the I/O tasks against the cancellation monitor and deadline.
             tokio::select! {
                 biased;
 
                 (out, err) = async { tokio::join!(stdout_task, stderr_task) } => {
-                    stage_stdout.push_str(&out);
-                    stage_stderr.push_str(&err);
-                    was_cancelled = false;
+                    stdout.push_str(&out);
+                    stderr.push_str(&err);
+                    interrupt = None;
                 }
                 _ = cancel_task => {
-                    // Cancellation requested - kill the child process.
-                    if let Err(e) = child.kill().await {
-                        // Process may have already exited.
-                        if let Some(ref cb) = on_log {
-                            cb(&stage.name, "warn", &format!("Failed to kill process: {}", e));
-                        }
-                    }
-                    was_cancelled = true;
+                    kill_child(&mut child, stage, ctx).await;
+                    interrupt = Some(StageStatus::Skipped);
+                }
+                _ = timeout_task => {
+                    kill_child(&mut child, stage, ctx).await;
+                    interrupt = Some(StageStatus::TimedOut);
                 }
             }
         }
 
         // Clear the running PID.
-        if let Some(state) = cancel_state {
+        if let Some(state) = ctx.cancel_state {
             let mut guard = state.write().await;
-            guard.clear_running_pid(&repo_path.to_string_lossy());
+            guard.clear_running_pid(&ctx.repo_path.to_string_lossy());
         }
 
-        if was_cancelled {
-            if let Some(ref cb) = on_log {
-                cb(&stage.name, "warn", "Pipeline cancelled by user");
+        match interrupt {
+            Some(StageStatus::TimedOut) => {
+                let marker = format!(
+                    "[chibby] stage timed out after {}s",
+                    stage.timeout_secs.unwrap_or(0)
+                );
+                log::warn!("[executor] stage='{}' {}", stage.name, marker);
+                if let Some(ref cb) = ctx.on_log {
+                    cb(&stage.name, "error", &marker);
+                }
+                stderr.push_str(&marker);
+                stderr.push('\n');
+                status = StageStatus::TimedOut;
+                break;
             }
-            return (
-                cancelled_stage(&stage.name, stage_start, stage_stdout, stage_stderr),
-                StageControl::Cancelled,
-            );
+            Some(_) => return cancelled_outcome(stdout, stderr),
+            None => {}
         }
 
         log::info!(
@@ -329,75 +559,100 @@ async fn run_stage(
             stage.name
         );
         let output = match child.wait().await {
-            Ok(status) => status,
+            Ok(s) => s,
             Err(e) => {
                 log::error!("[executor] stage='{}' wait() failed: {}", stage.name, e);
-                if let Some(ref cb) = on_log {
+                if let Some(ref cb) = ctx.on_log {
                     cb(&stage.name, "error", &format!("Process wait failed: {}", e));
                 }
-                stage_stderr.push_str(&format!("Process wait failed: {}\n", e));
-                stage_status = StageStatus::Failed;
+                stderr.push_str(&format!("Process wait failed: {}\n", e));
+                status = StageStatus::Failed;
                 break;
             }
         };
-        stage_exit_code = output.code();
+        exit_code = output.code();
         log::info!(
             "[executor] stage='{}' exited code={:?} success={}",
             stage.name,
-            stage_exit_code,
+            exit_code,
             output.success()
         );
 
         if !output.success() {
-            stage_status = StageStatus::Failed;
-            if let Some(ref cb) = on_log {
+            status = StageStatus::Failed;
+            if let Some(ref cb) = ctx.on_log {
                 cb(
                     &stage.name,
                     "error",
-                    &format!("Command failed with exit code: {:?}", stage_exit_code),
+                    &format!("Command failed with exit code: {:?}", exit_code),
                 );
             }
             break;
         }
     }
 
-    if stage_status != StageStatus::Failed {
-        stage_status = StageStatus::Success;
+    if !status.is_failure() {
+        status = StageStatus::Success;
     }
 
-    // Run health check if the stage succeeded and has one configured.
-    let health_check_passed = stage_health_result(
-        stage,
-        &mut stage_status,
-        environment,
-        repo_path,
-        env_vars,
-        on_log,
-    )
-    .await;
+    let commands_succeeded = status == StageStatus::Success;
+    let health_check_passed = stage_health_result(stage, &mut status, ctx).await;
+    let health_check_only_failure = commands_succeeded && status.is_failure();
 
-    let stage_end = Utc::now();
-    let duration = (stage_end - stage_start).num_milliseconds() as u64;
-
-    let result = StageResult {
-        stage_name: stage.name.clone(),
-        status: stage_status.clone(),
-        exit_code: stage_exit_code,
-        stdout: stage_stdout,
-        stderr: stage_stderr,
-        started_at: Some(stage_start),
-        finished_at: Some(stage_end),
-        duration_ms: Some(duration),
+    AttemptOutcome {
+        status,
+        exit_code,
+        stdout,
+        stderr,
         health_check_passed,
-    };
+        health_check_only_failure,
+        cancelled: false,
+    }
+}
 
-    let control = if stage_status == StageStatus::Failed && stage.fail_fast {
-        StageControl::FailFast
-    } else {
-        StageControl::Continue
-    };
+/// Spawn one command on the stage's backend, mapping build errors to a message.
+fn spawn_command(
+    cmd_str: &str,
+    stage: &Stage,
+    ctx: &StageContext<'_>,
+) -> Result<tokio::process::Child, String> {
+    match stage.backend {
+        Backend::Local => {
+            build_local_command(cmd_str, ctx.repo_path, &stage.working_dir, ctx.env_vars)
+                .map_err(|e| format!("Failed to spawn command: {}", e))
+        }
+        Backend::Ssh => {
+            build_ssh_command(cmd_str, ctx.environment, &stage.working_dir, ctx.env_vars)
+                .map_err(|e| format!("SSH command error: {}", e))
+        }
+    }
+}
 
-    (result, control)
+/// Kill a child that overran its deadline or was cancelled.
+async fn kill_child(child: &mut tokio::process::Child, stage: &Stage, ctx: &StageContext<'_>) {
+    if let Err(e) = child.kill().await {
+        // Process may have already exited.
+        if let Some(ref cb) = ctx.on_log {
+            cb(
+                &stage.name,
+                "warn",
+                &format!("Failed to kill process: {}", e),
+            );
+        }
+    }
+}
+
+/// An attempt cut short by user cancellation.
+fn cancelled_outcome(stdout: String, stderr: String) -> AttemptOutcome {
+    AttemptOutcome {
+        status: StageStatus::Skipped,
+        exit_code: None,
+        stdout,
+        stderr,
+        health_check_passed: None,
+        health_check_only_failure: false,
+        cancelled: true,
+    }
 }
 
 /// Resolve a stage's health status: run its configured health check, or
@@ -407,10 +662,7 @@ async fn run_stage(
 async fn stage_health_result(
     stage: &Stage,
     stage_status: &mut StageStatus,
-    environment: Option<&Environment>,
-    repo_path: &Path,
-    env_vars: &HashMap<String, String>,
-    on_log: &Option<LogCallback>,
+    ctx: &StageContext<'_>,
 ) -> Option<bool> {
     if *stage_status != StageStatus::Success {
         return None;
@@ -420,19 +672,23 @@ async fn stage_health_result(
         let passed = run_health_check(
             hc,
             &stage.backend,
-            environment,
-            repo_path,
+            ctx.environment,
+            ctx.repo_path,
             &stage.working_dir,
-            env_vars,
-            on_log,
+            ctx.env_vars,
+            ctx.on_log,
             &stage.name,
         )
         .await;
 
         if !passed {
             *stage_status = StageStatus::Failed;
-            if let Some(ref cb) = on_log {
-                cb(&stage.name, "error", "Health check failed after all retries");
+            if let Some(ref cb) = ctx.on_log {
+                cb(
+                    &stage.name,
+                    "error",
+                    "Health check failed after all retries",
+                );
             }
         }
         return Some(passed);
@@ -446,10 +702,10 @@ async fn stage_health_result(
             .any(|c| c.contains("docker compose up"))
     {
         let docker_ok = check_docker_compose_services(
-            environment,
+            ctx.environment,
             &stage.working_dir,
-            env_vars,
-            on_log,
+            ctx.env_vars,
+            ctx.on_log,
             &stage.name,
         )
         .await;
@@ -462,14 +718,20 @@ async fn stage_health_result(
     None
 }
 
-/// Whether the run was cancelled for `repo_path` (false when no cancel state).
+/// Whether the run was cancelled for `repo_path`.
+///
+/// Checks the in-process flag and the lock directory's cancel file, so
+/// `chibby cancel` can stop a run started by another process (the desktop app,
+/// or a scheduled trigger).
 async fn is_cancelled(cancel_state: &Option<SharedPipelineState>, repo_path: &Path) -> bool {
+    let repo_path_str = repo_path.to_string_lossy().to_string();
     if let Some(state) = cancel_state {
         let guard = state.read().await;
-        guard.is_cancelled(&repo_path.to_string_lossy())
-    } else {
-        false
+        if guard.is_cancelled(&repo_path_str) {
+            return true;
+        }
     }
+    locks::cancel_requested(&repo_path_str)
 }
 
 /// A `Running` placeholder result persisted before a stage executes.
@@ -484,6 +746,8 @@ fn running_placeholder(name: &str, started_at: DateTime<Utc>) -> StageResult {
         finished_at: None,
         duration_ms: None,
         health_check_passed: None,
+        attempts: None,
+        skip_reason: None,
     }
 }
 
@@ -499,6 +763,34 @@ fn skipped_stage(name: &str) -> StageResult {
         finished_at: None,
         duration_ms: None,
         health_check_passed: None,
+        attempts: None,
+        skip_reason: None,
+    }
+}
+
+/// A `Skipped` result for a stage excluded by its `when` condition.
+fn skipped_with_reason(name: &str, reason: String) -> StageResult {
+    StageResult {
+        skip_reason: Some(reason),
+        ..skipped_stage(name)
+    }
+}
+
+/// A `Failed` result for a stage whose `when` condition could not be evaluated.
+fn condition_error_stage(name: &str, message: String) -> StageResult {
+    let now = Utc::now();
+    StageResult {
+        stage_name: name.to_string(),
+        status: StageStatus::Failed,
+        exit_code: None,
+        stdout: String::new(),
+        stderr: message,
+        started_at: Some(now),
+        finished_at: Some(now),
+        duration_ms: Some(0),
+        health_check_passed: None,
+        attempts: None,
+        skip_reason: None,
     }
 }
 
@@ -520,6 +812,8 @@ fn cancelled_stage(
         finished_at: Some(Utc::now()),
         duration_ms: None,
         health_check_passed: None,
+        attempts: None,
+        skip_reason: None,
     }
 }
 
@@ -614,32 +908,333 @@ fn get_shell_flag() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::models::{Backend, Pipeline, Stage};
+    use crate::engine::models::{HealthCheck, Pipeline, Stage, StageRetry, StageWhen};
     use tempfile::TempDir;
+
+    /// Run `pipeline` in `repo` with no environment, callbacks or secrets.
+    async fn run_bare(pipeline: &Pipeline, repo: &Path) -> PipelineRun {
+        run_pipeline(
+            pipeline,
+            repo,
+            None,
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            "test-run",
+            Redactor::default(),
+        )
+        .await
+        .unwrap()
+    }
+
+    /// The orchestration layer keys auto-rollback off this field, so a health
+    /// check failure must name the stage that caused it.
+    #[tokio::test]
+    async fn test_failed_health_check_records_the_stage() {
+        let repo = TempDir::new().unwrap();
+        let pipeline = Pipeline {
+            name: "test".to_string(),
+            on_health_failure: None,
+            stages: vec![Stage {
+                name: "deploy".to_string(),
+                commands: vec!["echo deployed".to_string()],
+                health_check: Some(HealthCheck {
+                    command: "exit 1".to_string(),
+                    retries: 1,
+                    delay_secs: 0,
+                }),
+                ..Default::default()
+            }],
+        };
+
+        let run = run_bare(&pipeline, repo.path()).await;
+
+        assert_eq!(run.status, RunStatus::Failed);
+        assert_eq!(run.health_failure_stage.as_deref(), Some("deploy"));
+        assert_eq!(run.stage_results[0].health_check_passed, Some(false));
+    }
+
+    /// A stage whose *command* failed never reached its health check, so it
+    /// must not be mistaken for one.
+    #[tokio::test]
+    async fn test_command_failure_does_not_record_a_health_failure() {
+        let repo = TempDir::new().unwrap();
+        let pipeline = Pipeline {
+            name: "test".to_string(),
+            on_health_failure: None,
+            stages: vec![Stage {
+                name: "deploy".to_string(),
+                commands: vec!["exit 1".to_string()],
+                health_check: Some(HealthCheck {
+                    command: "exit 0".to_string(),
+                    retries: 1,
+                    delay_secs: 0,
+                }),
+                ..Default::default()
+            }],
+        };
+
+        let run = run_bare(&pipeline, repo.path()).await;
+
+        assert_eq!(run.status, RunStatus::Failed);
+        assert!(run.health_failure_stage.is_none());
+        assert!(run.stage_results[0].health_check_passed.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_passing_health_check_records_no_failure() {
+        let repo = TempDir::new().unwrap();
+        let pipeline = Pipeline {
+            name: "test".to_string(),
+            on_health_failure: None,
+            stages: vec![Stage {
+                name: "deploy".to_string(),
+                commands: vec!["echo deployed".to_string()],
+                health_check: Some(HealthCheck {
+                    command: "exit 0".to_string(),
+                    retries: 1,
+                    delay_secs: 0,
+                }),
+                ..Default::default()
+            }],
+        };
+
+        let run = run_bare(&pipeline, repo.path()).await;
+
+        assert_eq!(run.status, RunStatus::Success);
+        assert!(run.health_failure_stage.is_none());
+        assert_eq!(run.stage_results[0].health_check_passed, Some(true));
+    }
 
     #[tokio::test]
     async fn test_non_fail_fast_failure_marks_run_failed() {
         let repo = TempDir::new().unwrap();
         let pipeline = Pipeline {
             name: "test".to_string(),
+            on_health_failure: None,
             stages: vec![
                 Stage {
                     name: "fails".to_string(),
                     commands: vec!["exit 1".to_string()],
-                    backend: Backend::Local,
-                    working_dir: None,
                     fail_fast: false,
-                    health_check: None,
+                    ..Default::default()
                 },
                 Stage {
                     name: "still-runs".to_string(),
                     commands: vec!["echo ok".to_string()],
-                    backend: Backend::Local,
-                    working_dir: None,
-                    fail_fast: true,
-                    health_check: None,
+                    ..Default::default()
                 },
             ],
+        };
+
+        let run = run_bare(&pipeline, repo.path()).await;
+
+        assert_eq!(run.status, RunStatus::Failed);
+        assert_eq!(run.stage_results[0].status, StageStatus::Failed);
+        assert_eq!(run.stage_results[1].status, StageStatus::Success);
+    }
+
+    #[tokio::test]
+    async fn test_stage_timeout_kills_command_and_fails_run() {
+        let repo = TempDir::new().unwrap();
+        let pipeline = Pipeline {
+            name: "test".to_string(),
+            on_health_failure: None,
+            stages: vec![Stage {
+                name: "hangs".to_string(),
+                commands: vec!["sleep 30".to_string()],
+                timeout_secs: Some(1),
+                ..Default::default()
+            }],
+        };
+
+        let started = std::time::Instant::now();
+        let run = run_bare(&pipeline, repo.path()).await;
+        let elapsed = started.elapsed();
+
+        assert_eq!(run.stage_results[0].status, StageStatus::TimedOut);
+        assert_eq!(run.status, RunStatus::Failed);
+        assert!(
+            run.stage_results[0].stderr.contains("timed out"),
+            "missing timeout marker: {:?}",
+            run.stage_results[0].stderr
+        );
+        // The whole run must end with the deadline, not with `sleep 30`.
+        assert!(elapsed.as_secs() < 10, "took too long: {elapsed:?}");
+    }
+
+    #[tokio::test]
+    async fn test_stage_retries_until_success() {
+        let repo = TempDir::new().unwrap();
+        let marker = repo.path().join("attempts.txt");
+        let marker_path = marker.to_string_lossy().to_string();
+
+        let pipeline = Pipeline {
+            name: "test".to_string(),
+            on_health_failure: None,
+            stages: vec![Stage {
+                name: "flaky".to_string(),
+                // Succeeds only once the marker file has 3 lines.
+                commands: vec![format!(
+                    "echo x >> '{p}' && test $(wc -l < '{p}') -ge 3",
+                    p = marker_path
+                )],
+                retry: Some(StageRetry {
+                    attempts: 3,
+                    delay_secs: 0,
+                    backoff: Backoff::Fixed,
+                }),
+                ..Default::default()
+            }],
+        };
+
+        let run = run_bare(&pipeline, repo.path()).await;
+
+        assert_eq!(run.status, RunStatus::Success);
+        assert_eq!(run.stage_results[0].status, StageStatus::Success);
+        assert_eq!(run.stage_results[0].attempts, Some(3));
+        assert!(
+            run.stage_results[0].stdout.contains("--- attempt 3/3 ---"),
+            "attempt separators missing: {:?}",
+            run.stage_results[0].stdout
+        );
+    }
+
+    #[tokio::test]
+    async fn test_when_mismatch_skips_stage_without_spawning() {
+        let repo = TempDir::new().unwrap();
+        let sentinel = repo.path().join("ran.txt");
+        let environment = Environment {
+            name: "staging".to_string(),
+            ssh_host: None,
+            ssh_port: None,
+            variables: HashMap::new(),
+        };
+
+        let pipeline = Pipeline {
+            name: "test".to_string(),
+            on_health_failure: None,
+            stages: vec![Stage {
+                name: "prod-only".to_string(),
+                commands: vec![format!("touch '{}'", sentinel.to_string_lossy())],
+                when: Some(StageWhen {
+                    environment: vec!["prod".to_string()],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+        };
+
+        let run = run_pipeline(
+            &pipeline,
+            repo.path(),
+            Some(&environment),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            "test-run",
+            Redactor::default(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(run.status, RunStatus::Success);
+        assert_eq!(run.stage_results[0].status, StageStatus::Skipped);
+        assert_eq!(
+            run.stage_results[0].skip_reason.as_deref(),
+            Some("when: environment 'staging' does not match [prod]")
+        );
+        assert!(!sentinel.exists(), "skipped stage still ran its command");
+    }
+
+    #[tokio::test]
+    async fn test_stage_env_is_scoped_to_its_stage() {
+        let repo = TempDir::new().unwrap();
+        let pipeline = Pipeline {
+            name: "test".to_string(),
+            on_health_failure: None,
+            stages: vec![
+                Stage {
+                    name: "with-env".to_string(),
+                    commands: vec!["echo \"[$CHIBBY_TEST_STAGE_VAR]\"".to_string()],
+                    env: Some(HashMap::from([(
+                        "CHIBBY_TEST_STAGE_VAR".to_string(),
+                        "scoped".to_string(),
+                    )])),
+                    ..Default::default()
+                },
+                Stage {
+                    name: "without-env".to_string(),
+                    commands: vec!["echo \"[$CHIBBY_TEST_STAGE_VAR]\"".to_string()],
+                    ..Default::default()
+                },
+            ],
+        };
+
+        let run = run_bare(&pipeline, repo.path()).await;
+
+        assert_eq!(run.status, RunStatus::Success);
+        assert!(
+            run.stage_results[0].stdout.contains("[scoped]"),
+            "stage env missing: {:?}",
+            run.stage_results[0].stdout
+        );
+        assert!(
+            run.stage_results[1].stdout.contains("[]"),
+            "stage env leaked to next stage: {:?}",
+            run.stage_results[1].stdout
+        );
+    }
+
+    #[tokio::test]
+    async fn test_run_records_git_branch_and_commit() {
+        let repo = TempDir::new().unwrap();
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(repo.path())
+                .output()
+                .unwrap()
+        };
+        git(&["init"]);
+        git(&["config", "user.email", "test@chibby.local"]);
+        git(&["config", "user.name", "Chibby Test"]);
+        std::fs::write(repo.path().join("file.txt"), "hi").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-m", "init"]);
+
+        let pipeline = Pipeline {
+            name: "test".to_string(),
+            on_health_failure: None,
+            stages: vec![Stage {
+                name: "noop".to_string(),
+                commands: vec!["true".to_string()],
+                ..Default::default()
+            }],
+        };
+
+        let run = run_bare(&pipeline, repo.path()).await;
+
+        assert!(run.branch.is_some(), "branch not recorded");
+        assert_ne!(run.branch.as_deref(), Some("HEAD"));
+        assert!(run.commit.is_some(), "commit not recorded");
+    }
+
+    #[tokio::test]
+    async fn test_secret_values_are_masked_in_persisted_logs() {
+        let repo = TempDir::new().unwrap();
+        let pipeline = Pipeline {
+            name: "test".to_string(),
+            on_health_failure: None,
+            stages: vec![Stage {
+                name: "leaks".to_string(),
+                commands: vec!["echo value-is-sup3rs3cret".to_string()],
+                ..Default::default()
+            }],
         };
 
         let run = run_pipeline(
@@ -652,12 +1247,16 @@ mod tests {
             None,
             None,
             "test-run",
+            Redactor::new(["sup3rs3cret".to_string()]),
         )
         .await
         .unwrap();
 
-        assert_eq!(run.status, RunStatus::Failed);
-        assert_eq!(run.stage_results[0].status, StageStatus::Failed);
-        assert_eq!(run.stage_results[1].status, StageStatus::Success);
+        assert!(
+            !run.stage_results[0].stdout.contains("sup3rs3cret"),
+            "secret persisted in logs: {:?}",
+            run.stage_results[0].stdout
+        );
+        assert!(run.stage_results[0].stdout.contains("[REDACTED]"));
     }
 }

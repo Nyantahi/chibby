@@ -30,6 +30,9 @@ pub async fn send_test_notification(repo_path: String) -> Result<String, String>
         status: RunStatus::Success,
         duration_ms: Some(1234),
         message: "This is a test notification from Chibby".to_string(),
+        rollback: None,
+        run_kind: None,
+        trigger_id: None,
     };
 
     notify::send_notifications(&config, &payload).await;

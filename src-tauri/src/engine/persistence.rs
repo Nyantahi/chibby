@@ -1,5 +1,14 @@
-use crate::engine::models::{DeploymentRecord, PipelineRun, Project, RunStatus};
+use crate::engine::models::{DeploymentRecord, PipelineRun, Project, RunStatus, StageStatus};
 use anyhow::{Context, Result};
+
+// The cross-process run lock and per-trigger state live in the data directory
+// too. They are implemented in their own modules to keep this file readable,
+// and re-exported here so `persistence::acquire_run_lock` keeps working.
+pub use crate::engine::locks::{acquire_run_lock, acquire_run_lock_with_id, RunLock, RunLockInfo};
+pub use crate::engine::trigger_state::{
+    get_trigger_state, load_trigger_state, mutate_trigger_state, save_trigger_state,
+    TriggerStateEntry, TriggerStateMap,
+};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -8,12 +17,43 @@ use std::sync::Mutex;
 /// updates to the shared index.
 static PROJECTS_LOCK: Mutex<()> = Mutex::new(());
 
+/// Environment variable overriding the data directory.
+///
+/// Exists so run history, trigger state and locks can be exercised against a
+/// scratch directory. Tests must set this; without it every persistence test
+/// would read and write the developer's real Chibby data.
+pub const DATA_DIR_ENV: &str = "CHIBBY_DATA_DIR";
+
+/// Serializes tests that repoint `CHIBBY_DATA_DIR`, which is process-global.
+#[cfg(test)]
+static DATA_DIR_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+/// Point the data directory at a fresh scratch dir for the duration of a test.
+///
+/// Hold both returned values for the whole test: the guard serializes against
+/// other data-dir tests, and dropping the `TempDir` deletes the scratch data.
+#[cfg(test)]
+pub(crate) fn scoped_test_data_dir() -> (tempfile::TempDir, std::sync::MutexGuard<'static, ()>) {
+    let guard = DATA_DIR_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let temp = tempfile::TempDir::new().expect("scratch data dir");
+    std::env::set_var(DATA_DIR_ENV, temp.path());
+    (temp, guard)
+}
+
 /// Get the Chibby application data directory.
 ///
 /// - macOS: ~/Library/Application Support/Chibby/
 /// - Linux: ~/.local/share/chibby/
 /// - Windows: %APPDATA%\Chibby\
+///
+/// Overridden wholesale by `CHIBBY_DATA_DIR` when set.
 pub fn data_dir() -> Result<PathBuf> {
+    if let Some(dir) = std::env::var_os(DATA_DIR_ENV).filter(|v| !v.is_empty()) {
+        return prepare_data_dir(PathBuf::from(dir));
+    }
+
     let base = dirs::data_dir().context("Could not determine app data directory")?;
 
     #[cfg(target_os = "macos")]
@@ -25,6 +65,11 @@ pub fn data_dir() -> Result<PathBuf> {
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     let dir = base.join("chibby");
 
+    prepare_data_dir(dir)
+}
+
+/// Create `dir` if needed and lock it down to the owner.
+fn prepare_data_dir(dir: PathBuf) -> Result<PathBuf> {
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("Failed to create data directory: {}", dir.display()))?;
 
@@ -201,6 +246,52 @@ pub fn last_successful_run(
     }))
 }
 
+/// Find the newest run that is safe to roll a deployment back to.
+///
+/// Deliberately stricter than [`last_successful_run`]: a run can be `Success`
+/// without having deployed anything (a `--stage lint` run, or a deploy stage
+/// skipped by a `when` condition). Rolling back to one of those redeploys
+/// nothing while reporting success, so the named deploy stage must itself have
+/// run, succeeded, and not have failed its health check.
+pub fn last_good_deployment(
+    repo_path: &str,
+    environment: &str,
+    deploy_stage: &str,
+    exclude_run_id: &str,
+) -> Result<Option<PipelineRun>> {
+    // `load_runs_for_project` is newest-first, so the first match wins.
+    let runs = load_runs_for_project(repo_path)?;
+    Ok(runs
+        .into_iter()
+        .find(|run| is_rollback_target(run, environment, deploy_stage, exclude_run_id)))
+}
+
+/// Whether `run` qualifies as a rollback target for `deploy_stage`.
+fn is_rollback_target(
+    run: &PipelineRun,
+    environment: &str,
+    deploy_stage: &str,
+    exclude_run_id: &str,
+) -> bool {
+    if run.id == exclude_run_id
+        || run.status != RunStatus::Success
+        || run.environment.as_deref() != Some(environment)
+        || run.pipeline_snapshot.is_none()
+    {
+        return false;
+    }
+
+    let Some(stage) = run
+        .stage_results
+        .iter()
+        .find(|s| s.stage_name == deploy_stage)
+    else {
+        return false;
+    };
+
+    stage.status == StageStatus::Success && stage.health_check_passed != Some(false)
+}
+
 /// Get deployment history for a project filtered by environment, newest first.
 pub fn deployment_history(repo_path: &str, environment: &str) -> Result<Vec<DeploymentRecord>> {
     let runs = load_runs_for_project(repo_path)?;
@@ -250,8 +341,8 @@ pub fn recover_interrupted_runs() -> Result<u32> {
                 // Find the stage that was running when the crash happened
                 // and mark it as failed with a crash message.
                 for stage in &mut run.stage_results {
-                    if stage.status == crate::engine::models::StageStatus::Running {
-                        stage.status = crate::engine::models::StageStatus::Failed;
+                    if stage.status == StageStatus::Running {
+                        stage.status = StageStatus::Failed;
                         stage.finished_at = Some(chrono::Utc::now());
                         stage.stderr = format!(
                             "{}\n[chibby] App crashed during this stage. Check system logs for details.",
@@ -283,4 +374,191 @@ pub fn retry_count_for_run(parent_run_id: &str) -> Result<u32> {
         .filter(|r| r.parent_run_id.as_deref() == Some(parent_run_id))
         .count() as u32;
     Ok(count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::models::{Pipeline, Stage, StageResult};
+    use chrono::{Duration, Utc};
+
+    const REPO: &str = "/tmp/chibby-last-good";
+
+    fn snapshot() -> Pipeline {
+        Pipeline {
+            name: "deploy".to_string(),
+            on_health_failure: None,
+            stages: vec![Stage {
+                name: "deploy".to_string(),
+                commands: vec!["./deploy.sh".to_string()],
+                ..Default::default()
+            }],
+        }
+    }
+
+    fn stage_result(status: StageStatus, health_check_passed: Option<bool>) -> StageResult {
+        StageResult {
+            stage_name: "deploy".to_string(),
+            status,
+            exit_code: Some(0),
+            stdout: String::new(),
+            stderr: String::new(),
+            started_at: None,
+            finished_at: None,
+            duration_ms: None,
+            health_check_passed,
+            attempts: Some(1),
+            skip_reason: None,
+        }
+    }
+
+    /// A saved run, `minutes_ago` old, with one `deploy` stage result.
+    fn saved_run(
+        id: &str,
+        minutes_ago: i64,
+        stage: StageResult,
+        with_snapshot: bool,
+    ) -> PipelineRun {
+        let mut run = PipelineRun::new_with_id(id, "deploy", REPO, Some("prod".to_string()));
+        run.status = RunStatus::Success;
+        run.started_at = Utc::now() - Duration::minutes(minutes_ago);
+        run.stage_results = vec![stage];
+        run.pipeline_snapshot = with_snapshot.then(snapshot);
+        save_run(&run).unwrap();
+        run
+    }
+
+    fn last_good() -> Option<PipelineRun> {
+        last_good_deployment(REPO, "prod", "deploy", "").unwrap()
+    }
+
+    #[test]
+    fn test_last_good_deployment_skips_skipped_deploy_stage() {
+        let (_dir, _lock) = scoped_test_data_dir();
+        saved_run("skipped", 1, stage_result(StageStatus::Skipped, None), true);
+
+        assert!(last_good().is_none());
+    }
+
+    #[test]
+    fn test_last_good_deployment_skips_failed_health_check() {
+        let (_dir, _lock) = scoped_test_data_dir();
+        saved_run(
+            "unhealthy",
+            1,
+            stage_result(StageStatus::Success, Some(false)),
+            true,
+        );
+
+        assert!(last_good().is_none());
+    }
+
+    #[test]
+    fn test_last_good_deployment_skips_run_without_snapshot() {
+        let (_dir, _lock) = scoped_test_data_dir();
+        saved_run(
+            "no-snapshot",
+            1,
+            stage_result(StageStatus::Success, Some(true)),
+            false,
+        );
+
+        assert!(last_good().is_none());
+    }
+
+    #[test]
+    fn test_last_good_deployment_skips_other_environments_and_failures() {
+        let (_dir, _lock) = scoped_test_data_dir();
+        let mut other_env = saved_run(
+            "staging",
+            1,
+            stage_result(StageStatus::Success, Some(true)),
+            true,
+        );
+        other_env.environment = Some("staging".to_string());
+        save_run(&other_env).unwrap();
+
+        let mut failed = saved_run(
+            "failed",
+            2,
+            stage_result(StageStatus::Success, Some(true)),
+            true,
+        );
+        failed.status = RunStatus::Failed;
+        save_run(&failed).unwrap();
+
+        assert!(last_good().is_none());
+    }
+
+    #[test]
+    fn test_last_good_deployment_picks_newest_qualifying_run() {
+        let (_dir, _lock) = scoped_test_data_dir();
+        saved_run(
+            "older",
+            30,
+            stage_result(StageStatus::Success, Some(true)),
+            true,
+        );
+        saved_run(
+            "newer",
+            5,
+            stage_result(StageStatus::Success, Some(true)),
+            true,
+        );
+        // Newest overall, but its deploy stage never ran.
+        saved_run(
+            "lint-only",
+            1,
+            stage_result(StageStatus::Skipped, None),
+            true,
+        );
+
+        assert_eq!(last_good().map(|r| r.id).as_deref(), Some("newer"));
+    }
+
+    #[test]
+    fn test_last_good_deployment_respects_exclude_run_id() {
+        let (_dir, _lock) = scoped_test_data_dir();
+        saved_run(
+            "older",
+            30,
+            stage_result(StageStatus::Success, Some(true)),
+            true,
+        );
+        saved_run(
+            "newer",
+            5,
+            stage_result(StageStatus::Success, Some(true)),
+            true,
+        );
+
+        let picked = last_good_deployment(REPO, "prod", "deploy", "newer").unwrap();
+
+        assert_eq!(picked.map(|r| r.id).as_deref(), Some("older"));
+    }
+
+    /// A stage with no recorded health check (None) is still a valid target —
+    /// only an explicit failure disqualifies it.
+    #[test]
+    fn test_last_good_deployment_accepts_stage_without_health_check() {
+        let (_dir, _lock) = scoped_test_data_dir();
+        saved_run("plain", 1, stage_result(StageStatus::Success, None), true);
+
+        assert_eq!(last_good().map(|r| r.id).as_deref(), Some("plain"));
+    }
+
+    #[test]
+    fn test_last_good_deployment_requires_named_stage_to_exist() {
+        let (_dir, _lock) = scoped_test_data_dir();
+        saved_run(
+            "plain",
+            1,
+            stage_result(StageStatus::Success, Some(true)),
+            true,
+        );
+
+        let picked = last_good_deployment(REPO, "prod", "release", "").unwrap();
+
+        assert!(picked.is_none());
+    }
 }

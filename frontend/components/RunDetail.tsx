@@ -15,11 +15,26 @@ import {
   Undo2,
   Square,
   FolderOpen,
+  GitCommit,
+  TimerOff,
+  RotateCw,
+  TriangleAlert,
 } from 'lucide-react';
 import { getAppDataDir, getRun, retryRun, rollbackToRun, cancelPipeline } from '../services/api';
 import { openPath } from '../services/openExternal';
-import { formatDate, formatDuration, statusClass, capitalize } from '../utils/format';
+import {
+  formatDate,
+  formatDuration,
+  statusClass,
+  capitalize,
+  isFailureStatus,
+  isAutoRollback,
+  isUnattendedKind,
+  runKindLabel,
+} from '../utils/format';
 import type { PipelineRun, StageResult } from '../types';
+import TriggerBadge from './TriggerBadge';
+import RollbackNotice from './run-detail/RollbackNotice';
 import LogViewer from './LogViewer';
 import AgentPanel from './AgentPanel';
 import { listen } from '@tauri-apps/api/event';
@@ -163,7 +178,7 @@ function RunDetail() {
   const isRunning = retrying || rollingBack || run?.status === 'running';
 
   // Find the first failed stage for smart retry.
-  const firstFailedStage = run?.stage_results.find((s) => s.status === 'failed');
+  const firstFailedStage = run?.stage_results.find((s) => isFailureStatus(s.status));
 
   function stageIcon(status: string) {
     switch (status) {
@@ -171,6 +186,8 @@ function RunDetail() {
         return <CircleCheck size={16} className="status-icon status-success" />;
       case 'failed':
         return <CircleX size={16} className="status-icon status-failed" />;
+      case 'timedout':
+        return <TimerOff size={16} className="status-icon status-failed" />;
       case 'running':
         return <Circle size={16} className="status-icon status-running" />;
       case 'skipped':
@@ -192,6 +209,10 @@ function RunDetail() {
   const isSuccess = run.status === 'success';
   const isRetry = run.run_kind === 'retry';
   const isRollbackRun = run.run_kind === 'rollback';
+  const isAuto = isAutoRollback(run);
+  // A schedule or watch failure happened with nobody watching — say so loudly.
+  const unattendedFailure = isUnattendedKind(run.run_kind) && isFailureStatus(run.status);
+  const linkState = { projectId, tab };
 
   return (
     <div className="page">
@@ -212,6 +233,12 @@ function RunDetail() {
             <span className={`badge badge-${statusClass(run.status)}`}>
               {capitalize(run.status)}
             </span>
+            <TriggerBadge runKind={run.run_kind} size={12} />
+            {run.trigger_id && (
+              <span className="meta-item text-muted" title="The trigger that started this run">
+                trigger: {run.trigger_id}
+              </span>
+            )}
             {isRetry && (
               <span
                 className="badge badge-info"
@@ -223,9 +250,13 @@ function RunDetail() {
             {isRollbackRun && (
               <span
                 className="badge badge-warning"
-                title={`Rollback to run ${run.rollback_target_id}`}
+                title={
+                  isAuto
+                    ? `Automatic rollback of run ${run.auto_rollback_of}`
+                    : `Rollback to run ${run.rollback_target_id}`
+                }
               >
-                <Undo2 size={12} /> Rollback
+                <Undo2 size={12} /> {isAuto ? 'Auto-rollback' : 'Rollback'}
               </span>
             )}
             {run.retry_from_stage && (
@@ -241,11 +272,26 @@ function RunDetail() {
                 <GitBranch size={14} /> {run.branch}
               </span>
             )}
+            {run.commit && (
+              <span className="meta-item" title={run.commit}>
+                <GitCommit size={14} /> {run.commit.slice(0, 8)}
+              </span>
+            )}
             <span className="meta-item">
               <Clock size={14} /> {formatDuration(run.duration_ms)}
             </span>
             <span className="meta-item">{formatDate(run.started_at)}</span>
           </div>
+          {unattendedFailure && (
+            <div className="unattended-failure-notice" role="alert">
+              <TriangleAlert size={14} />
+              <span>
+                This {runKindLabel(run.run_kind).toLowerCase()} run failed with nobody watching
+                {run.trigger_id ? ` — trigger "${run.trigger_id}"` : ''}. Nothing prompted it, so
+                nothing surfaced the failure at the time.
+              </span>
+            </div>
+          )}
           {/* Parent run link */}
           {isRetry && run.parent_run_id && (
             <div className="run-parent-link">
@@ -266,6 +312,14 @@ function RunDetail() {
                 className="text-link"
               >
                 View rollback target run
+              </Link>
+            </div>
+          )}
+          {run.auto_rollback_of && (
+            <div className="run-parent-link">
+              Automatic rollback of a failed deploy —{' '}
+              <Link to={`/run/${run.auto_rollback_of}`} state={linkState} className="text-link">
+                view the run that triggered it
               </Link>
             </div>
           )}
@@ -329,6 +383,9 @@ function RunDetail() {
         </div>
       </header>
 
+      {/* Health-check failure + what auto-rollback did about it */}
+      {!isRunning && <RollbackNotice run={run} linkState={linkState} />}
+
       {/* Live progress overlay when retrying/rolling back */}
       {isRunning && (
         <div className="live-run-progress">
@@ -371,9 +428,17 @@ function RunDetail() {
               >
                 {stageIcon(stage.status)}
                 <span className="stage-sidebar-name">{stage.stage_name}</span>
+                {stage.attempts !== undefined && stage.attempts > 1 && (
+                  <span
+                    className="stage-sidebar-attempts"
+                    title={`Retried — ${stage.attempts} attempts`}
+                  >
+                    <RotateCw size={11} /> {stage.attempts} attempts
+                  </span>
+                )}
                 <span className="stage-sidebar-duration">{formatDuration(stage.duration_ms)}</span>
                 {/* Retry from this stage button */}
-                {isFailed && stage.status === 'failed' && (
+                {isFailed && isFailureStatus(stage.status) && (
                   <button
                     className="btn btn-icon btn-xs"
                     onClick={(e) => {
@@ -393,7 +458,14 @@ function RunDetail() {
           {/* Log panel */}
           <div className="log-panel">
             {selectedStage ? (
-              <LogViewer stage={selectedStage} />
+              <>
+                {selectedStage.status === 'skipped' && selectedStage.skip_reason && (
+                  <div className="stage-skip-reason">
+                    <SkipForward size={14} /> Skipped: {selectedStage.skip_reason}
+                  </div>
+                )}
+                <LogViewer stage={selectedStage} />
+              </>
             ) : (
               <div className="empty-state-small">
                 <p>Select a stage to view logs.</p>

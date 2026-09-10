@@ -67,6 +67,7 @@ pub fn generate_deploy_pipeline(
                 working_dir: stage.working_dir,
                 fail_fast: stage.fail_fast,
                 health_check: stage.health_check,
+                ..Default::default()
             });
         }
     }
@@ -81,9 +82,7 @@ pub fn generate_deploy_pipeline(
                 "docker compose up -d".to_string(),
             ],
             backend: Backend::Ssh,
-            working_dir: None,
-            fail_fast: true,
-            health_check: None,
+            ..Default::default()
         });
     }
 
@@ -93,6 +92,7 @@ pub fn generate_deploy_pipeline(
 
     Some(Pipeline {
         name: format!("{} Deploy", repo_name),
+        on_health_failure: None,
         stages,
     })
 }

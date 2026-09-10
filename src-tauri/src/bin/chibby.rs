@@ -29,6 +29,8 @@ mod import_export;
 mod runs;
 #[path = "chibby/scan.rs"]
 mod scan;
+#[path = "chibby/triggers.rs"]
+mod triggers;
 use args::{ArtifactCmd, AuditCmd, Cli, Commands, ProjectsCmd, UpdaterCmd, VersionCmd};
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -64,6 +66,8 @@ async fn main() {
             project,
             skip_preflight,
             dry_run,
+            pipeline,
+            trigger,
         }) => {
             runs::run_pipeline(
                 &printer,
@@ -72,6 +76,8 @@ async fn main() {
                 project.as_ref(),
                 *skip_preflight,
                 *dry_run,
+                pipeline.as_deref(),
+                trigger.as_deref(),
             )
             .await
         }
@@ -96,7 +102,21 @@ async fn main() {
             runs::retry_run(&printer, run_id, from_stage.as_deref()).await
         }
 
-        Some(Commands::Rollback { run_id }) => runs::rollback_run(&printer, run_id).await,
+        Some(Commands::Rollback {
+            run_id,
+            last_good,
+            env,
+            project,
+        }) => {
+            runs::rollback_run(
+                &printer,
+                run_id.as_deref(),
+                *last_good,
+                env.as_deref(),
+                project.as_ref(),
+            )
+            .await
+        }
 
         Some(Commands::Secrets(cmd)) => env::handle_secrets(&printer, cmd).await,
 
@@ -132,6 +152,37 @@ async fn main() {
         Some(Commands::Updater(cmd)) => handle_updater(&printer, cmd).await,
 
         Some(Commands::Logs { run_id, follow }) => show_logs(&printer, run_id, *follow).await,
+
+        Some(Commands::Schedule {
+            project,
+            once,
+            dry_run,
+            count,
+        }) => triggers::handle_schedule(&printer, project.as_ref(), *once, *dry_run, *count).await,
+
+        Some(Commands::Watch {
+            project,
+            stage,
+            env,
+            include,
+            debounce_ms,
+            min_interval_secs,
+        }) => {
+            triggers::handle_watch(
+                &printer,
+                project.as_ref(),
+                stage,
+                env.as_deref(),
+                include,
+                *debounce_ms,
+                *min_interval_secs,
+            )
+            .await
+        }
+
+        Some(Commands::Hooks(cmd)) => triggers::handle_hooks(&printer, cmd).await,
+
+        Some(Commands::Triggers(cmd)) => triggers::handle_triggers(&printer, cmd).await,
 
         Some(Commands::App) => {
             open_app(&printer);

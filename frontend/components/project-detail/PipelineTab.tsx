@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { XCircle, RotateCcw, RefreshCw, Settings } from 'lucide-react';
 import type { Pipeline, PipelineRun, StageResult } from '../../types';
 import type { StageStatus, CmdStatus } from '../../services/runStore';
+import { isFailureStatus } from '../../utils/format';
 import PipelineEditor from '../PipelineEditor';
 import StageCard from './StageCard';
 
@@ -48,7 +49,7 @@ function PipelineTab({
         runs[0].status === 'failed' &&
         (() => {
           const lastFailed = runs[0];
-          const failedStage = lastFailed.stage_results.find((s) => s.status === 'failed');
+          const failedStage = lastFailed.stage_results.find((s) => isFailureStatus(s.status));
           return (
             <div className="failed-run-banner">
               <div className="failed-run-banner-info">

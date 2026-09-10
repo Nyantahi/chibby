@@ -178,10 +178,8 @@ pub fn workflows_to_stages(workflows: &[CiWorkflow]) -> Vec<Stage> {
             stages.push(Stage {
                 name: stage_name,
                 commands,
-                backend: Backend::Local,
                 working_dir,
-                fail_fast: true,
-                health_check: None,
+                ..Default::default()
             });
         }
     }

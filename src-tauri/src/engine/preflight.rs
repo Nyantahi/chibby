@@ -22,6 +22,24 @@ pub enum PreflightError {
     SshNotAvailable,
 }
 
+impl std::fmt::Display for PreflightError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingSecret { name, environment } => {
+                write!(f, "Secret '{name}' not set for environment '{environment}'")
+            }
+            Self::MissingSshHost { stage } => {
+                write!(f, "Stage '{stage}' uses SSH but no host is configured")
+            }
+            Self::MissingEnvironment { name } => write!(f, "Environment '{name}' is not defined"),
+            Self::SshConnectivityFailed { host, error } => {
+                write!(f, "SSH to {host} failed: {error}")
+            }
+            Self::SshNotAvailable => write!(f, "ssh binary not found on PATH"),
+        }
+    }
+}
+
 /// Run preflight validation for a pipeline against a target environment.
 pub async fn validate_preflight(
     pipeline: &Pipeline,

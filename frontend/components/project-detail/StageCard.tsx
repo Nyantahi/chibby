@@ -1,7 +1,46 @@
-import { Play, CheckCircle, Loader2, XCircle, Circle, Eye } from 'lucide-react';
-import type { Stage, StageResult, PipelineRun } from '../../types';
+import {
+  Play,
+  CheckCircle,
+  Loader2,
+  XCircle,
+  Circle,
+  Eye,
+  TimerOff,
+  Timer,
+  RotateCw,
+  GitBranch,
+  Undo2,
+} from 'lucide-react';
+import type { RollbackMode, Stage, StageResult, PipelineRun } from '../../types';
 import type { StageStatus, CmdStatus } from '../../services/runStore';
+import { isFailureStatus } from '../../utils/format';
 import LogViewer from '../LogViewer';
+
+/** Human-readable summary of a stage's `when` conditions, or null if unset. */
+function whenSummary(stage: Stage): string | null {
+  const w = stage.when;
+  if (!w) return null;
+  const parts = [
+    ...w.branch.map((b) => `branch: ${b}`),
+    ...w.branch_not.map((b) => `branch not: ${b}`),
+    ...w.environment.map((e) => `env: ${e}`),
+    ...w.environment_not.map((e) => `env not: ${e}`),
+  ];
+  return parts.length > 0 ? parts.join(', ') : null;
+}
+
+const ROLLBACK_MODE_LABEL: Record<RollbackMode, string> = {
+  off: 'off',
+  last_good: 'last good',
+  commands: 'commands',
+};
+
+/** The stage's active rollback policy, or null when it is unset or `off`. */
+function rollbackSummary(stage: Stage): string | null {
+  const mode = stage.on_health_failure?.mode;
+  if (!mode || mode === 'off') return null;
+  return ROLLBACK_MODE_LABEL[mode];
+}
 
 interface StageCardProps {
   stage: Stage;
@@ -31,11 +70,15 @@ function StageCard({
   const idx = index;
   const isRunning = status === 'running';
   const isSuccess = status === 'success';
-  const isFailed = status === 'failed';
+  const isFailed = isFailureStatus(status);
+  const isTimedOut = status === 'timedout';
   const isPending = status === 'pending';
   const isSkipped = status === 'skipped';
   const hasResult = isSuccess || isFailed;
   const isSelected = selectedStageResult?.stage_name === stage.name;
+  const envCount = stage.env ? Object.keys(stage.env).length : 0;
+  const when = whenSummary(stage);
+  const rollback = rollbackSummary(stage);
 
   // Click handler to show stage result
   const handleStageClick = () => {
@@ -85,6 +128,8 @@ function StageCard({
               <Loader2 size={14} className="spin" />
             ) : isSuccess ? (
               <CheckCircle size={14} />
+            ) : isTimedOut ? (
+              <TimerOff size={14} />
             ) : isFailed ? (
               <XCircle size={14} />
             ) : isSkipped ? (
@@ -98,6 +143,37 @@ function StageCard({
           {stage.health_check && (
             <span className="badge badge-neutral" title="Has health check">
               HC
+            </span>
+          )}
+          {stage.timeout_secs !== undefined && (
+            <span className="badge badge-neutral" title={`Timeout: ${stage.timeout_secs}s`}>
+              <Timer size={11} /> {stage.timeout_secs}s
+            </span>
+          )}
+          {stage.retry && (
+            <span
+              className="badge badge-neutral"
+              title={`Retry: up to ${stage.retry.attempts} attempts, ${stage.retry.delay_secs}s ${stage.retry.backoff} backoff`}
+            >
+              <RotateCw size={11} /> {stage.retry.attempts}
+            </span>
+          )}
+          {when && (
+            <span className="badge badge-neutral" title={`Runs only when ${when}`}>
+              <GitBranch size={11} /> when
+            </span>
+          )}
+          {rollback && (
+            <span
+              className="badge badge-neutral"
+              title={`On health check failure: roll back — ${rollback}`}
+            >
+              <Undo2 size={11} /> rollback
+            </span>
+          )}
+          {envCount > 0 && (
+            <span className="badge badge-neutral" title="Stage-scoped environment variables">
+              env ×{envCount}
             </span>
           )}
           {stage.working_dir && (

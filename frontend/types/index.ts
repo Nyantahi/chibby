@@ -12,6 +12,8 @@ export interface AppSettings {
   agent_mode: AgentMode;
   agent_model: string;
   agent_provider: AgentProvider;
+  /** Redact known secret values from stage logs before they are persisted. */
+  mask_secrets_in_logs: boolean;
 }
 
 /** Which LLM provider the agent uses when keys are configured. */
@@ -26,6 +28,62 @@ export type AgentMode = 'propose_approve' | 'auto_safe_gate_risky' | 'autonomous
 /** Execution backend for a pipeline stage. */
 export type Backend = 'local' | 'ssh';
 
+/** How a stage's retry delay grows between attempts. */
+export type Backoff = 'fixed' | 'exponential';
+
+/** Retry policy for a stage's commands. */
+export interface StageRetry {
+  /** Total attempts including the first. 1 = no retry. */
+  attempts: number;
+  /** Delay before the next attempt, in seconds. */
+  delay_secs: number;
+  /** How the delay grows between attempts. */
+  backoff: Backoff;
+}
+
+/**
+ * Declarative stage conditions. Populated fields are ANDed; entries within a
+ * field are ORed. All-empty = always run.
+ */
+export interface StageWhen {
+  /** Glob patterns matched against the git branch. */
+  branch: string[];
+  /** Glob patterns that exclude the stage when the branch matches. */
+  branch_not: string[];
+  /** Glob patterns matched against the environment name. */
+  environment: string[];
+  /** Glob patterns that exclude the stage when the environment matches. */
+  environment_not: string[];
+}
+
+/** How a failed post-deploy health check should be undone. */
+export type RollbackMode = 'off' | 'last_good' | 'commands';
+
+/** How an automatic rollback for a failed run turned out. */
+export type RollbackOutcome = 'succeeded' | 'failed' | 'skipped';
+
+/** Automatic-rollback policy for a health-check failure. */
+export interface RollbackPolicy {
+  mode: RollbackMode;
+  /** Re-run the stage's health check after rolling back. */
+  verify_health: boolean;
+  /** Send a notification describing the rollback. */
+  notify: boolean;
+  /** Cap auto-rollbacks against one target inside `window_mins`. */
+  max_attempts: number;
+  /** Throttle window for `max_attempts`, in minutes. */
+  window_mins: number;
+}
+
+/** Mirrors the Rust serde defaults on `RollbackPolicy`. */
+export const DEFAULT_ROLLBACK_POLICY: RollbackPolicy = {
+  mode: 'off',
+  verify_health: true,
+  notify: true,
+  max_attempts: 1,
+  window_mins: 60,
+};
+
 /** A single stage in a pipeline. */
 export interface Stage {
   name: string;
@@ -33,13 +91,27 @@ export interface Stage {
   backend: Backend;
   working_dir?: string;
   fail_fast: boolean;
+  /** Wall-clock budget for one attempt at this stage, in seconds. */
+  timeout_secs?: number;
   health_check?: HealthCheck;
+  /** Retry policy for this stage's commands. */
+  retry?: StageRetry;
+  /** Conditions deciding whether the stage runs at all. */
+  when?: StageWhen;
+  /** Stage-scoped environment variables, overlaid on the run's variables. */
+  env?: Record<string, string>;
+  /** Commands that undo this stage, used by rollback mode `commands`. */
+  rollback_commands?: string[];
+  /** What to do when this stage's health check fails. Wins over the pipeline default. */
+  on_health_failure?: RollbackPolicy;
 }
 
 /** Full pipeline definition. */
 export interface Pipeline {
   name: string;
   stages: Stage[];
+  /** Pipeline-wide rollback default; a stage's own setting wins. */
+  on_health_failure?: RollbackPolicy;
 }
 
 /** A project tracked by Chibby. */
@@ -68,7 +140,7 @@ export interface GitInfo {
 }
 
 /** Status of a single stage execution. */
-export type StageStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped';
+export type StageStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped' | 'timedout';
 
 /** Result of executing one stage. */
 export interface StageResult {
@@ -81,13 +153,17 @@ export interface StageResult {
   finished_at?: string;
   duration_ms?: number;
   health_check_passed?: boolean;
+  /** Total attempts executed; > 1 means the stage was retried. */
+  attempts?: number;
+  /** Why a `skipped` stage was skipped. */
+  skip_reason?: string;
 }
 
 /** Overall run status. */
 export type RunStatus = 'pending' | 'running' | 'success' | 'failed' | 'cancelled';
 
 /** The kind of run. */
-export type RunKind = 'normal' | 'retry' | 'rollback';
+export type RunKind = 'normal' | 'retry' | 'rollback' | 'scheduled' | 'watch' | 'hook';
 
 /** A single pipeline run. */
 export interface PipelineRun {
@@ -112,6 +188,18 @@ export interface PipelineRun {
   rollback_target_id?: string;
   /** The stage name where retry started from. */
   retry_from_stage?: string;
+  /** Set when a stage's commands passed but its post-deploy health check failed. */
+  health_failure_stage?: string;
+  /** The auto-rollback run spawned for this run. */
+  rollback_run_id?: string;
+  /** How that auto-rollback turned out. */
+  rollback_outcome?: RollbackOutcome;
+  /** Why auto-rollback did not run when a policy was configured but a guard refused it. */
+  rollback_skip_reason?: string;
+  /** On a rollback run: the failed run that caused it. Absent on manual rollbacks. */
+  auto_rollback_of?: string;
+  /** The id of the schedule / watch / hook trigger that fired this run. */
+  trigger_id?: string;
 }
 
 /** Summary of a deployment to a specific environment. */
@@ -409,10 +497,19 @@ export interface NotifyTarget {
   on: NotifyOn;
 }
 
+/** Escalation policy for runs no human was watching (schedules and watches). */
+export interface UnattendedNotify {
+  /** Notify on an unattended failure even when notifications are otherwise off. */
+  always_on_failure: boolean;
+  /** Also notify when an unattended run succeeds. */
+  on_success: boolean;
+}
+
 /** Notification configuration. */
 export interface NotifyConfig {
   enabled: boolean;
   targets: NotifyTarget[];
+  unattended: UnattendedNotify;
 }
 
 /** Cleanup configuration. */
@@ -925,4 +1022,95 @@ export interface ApplyReport {
   variables_value_set: number;
   secrets_ref_added: number;
   secrets_value_saved: number;
+}
+
+// ---------------------------------------------------------------------------
+// Triggers — schedules, file watches and git hooks (.chibby/triggers.toml)
+// ---------------------------------------------------------------------------
+
+/** What to do with schedule fire times that elapsed while nothing was running. */
+export type MissedPolicy = 'skip' | 'run_once';
+
+/** Git hooks Chibby can manage. */
+export type HookKind = 'pre_push' | 'pre_commit';
+
+/** What is currently sitting at a repo's hook path. */
+export type HookState =
+  | 'not_installed'
+  | 'chibby_managed'
+  | 'foreign'
+  | 'foreign_with_chibby_block';
+
+/** How aggressively to install over an existing hook. */
+export type InstallMode = 'safe' | 'force' | 'append';
+
+/** A cron-driven trigger. */
+export interface ScheduleTrigger {
+  id: string;
+  enabled: boolean;
+  /** Cron expression; 5-field (`0 3 * * *`) and 6-field (`0 30 4 * * *`) both parse. */
+  cron: string;
+  missed: MissedPolicy;
+  pipeline_file?: string;
+  environment?: string;
+  /** Stage filter. Empty means every stage. */
+  stages: string[];
+}
+
+/** A filesystem-watch trigger. */
+export interface WatchTrigger {
+  id: string;
+  enabled: boolean;
+  include: string[];
+  exclude: string[];
+  /** Quiet period before a burst of file events fires one run. */
+  debounce_ms: number;
+  /** Floor between two runs of this trigger, so a build cannot hot-loop. */
+  min_interval_secs: number;
+  pipeline_file?: string;
+  environment?: string;
+  stages: string[];
+}
+
+/** What a generated git hook should run. */
+export interface HookSpec {
+  stages: string[];
+  pipeline_file?: string;
+  environment?: string;
+  /** Whether a failing run blocks the git operation. */
+  blocking: boolean;
+}
+
+/** The git hooks configured for a repo. */
+export interface HooksConfig {
+  pre_push?: HookSpec;
+  pre_commit?: HookSpec;
+}
+
+/** Everything in `.chibby/triggers.toml`. */
+export interface TriggersConfig {
+  /** Master switch. Off means no schedule ticks and no watchers for this repo. */
+  enabled: boolean;
+  schedules: ScheduleTrigger[];
+  watches: WatchTrigger[];
+  hooks: HooksConfig;
+}
+
+/** Outcome of a git hook install attempt. */
+export interface InstallReport {
+  path: string;
+  state_before: HookState;
+  /** False when a foreign hook was left untouched — expected, not an error. */
+  installed: boolean;
+  backup_path?: string;
+  /** The block to paste by hand when Chibby declined to write it. */
+  snippet: string;
+  message: string;
+}
+
+/** Last-fire bookkeeping for one trigger. */
+export interface TriggerStateEntry {
+  last_fired_at?: string;
+  last_run_id?: string;
+  last_skip_reason?: string;
 }

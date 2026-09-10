@@ -1,8 +1,29 @@
 import { Link } from 'react-router-dom';
-import { History, Trash2, Trophy, GitBranch, Clock, RotateCcw, Undo2 } from 'lucide-react';
-import type { PipelineRun, EnvironmentsConfig } from '../../types';
-import { formatDate, formatDuration, statusClass, capitalize } from '../../utils/format';
+import {
+  History,
+  Trash2,
+  Trophy,
+  GitBranch,
+  Clock,
+  RotateCcw,
+  Undo2,
+  TriangleAlert,
+} from 'lucide-react';
+import type { PipelineRun, EnvironmentsConfig, RunKind } from '../../types';
+import {
+  formatDate,
+  formatDuration,
+  statusClass,
+  capitalize,
+  isAutoRollback,
+  isUnattendedKind,
+  runKindLabel,
+} from '../../utils/format';
 import { runScopeLabel } from './helpers';
+import TriggerBadge from '../TriggerBadge';
+
+/** Run kinds offered in the history filter, in the order they appear. */
+const RUN_KINDS: RunKind[] = ['normal', 'retry', 'rollback', 'scheduled', 'watch', 'hook'];
 
 interface HistoryTabProps {
   runs: PipelineRun[];
@@ -11,6 +32,8 @@ interface HistoryTabProps {
   envsConfig: EnvironmentsConfig;
   historyEnvFilter: string;
   onHistoryEnvFilterChange: (value: string) => void;
+  historyKindFilter: RunKind | '';
+  onHistoryKindFilterChange: (value: RunKind | '') => void;
   onClearHistory: () => void;
   projectId: string | undefined;
 }
@@ -22,6 +45,8 @@ function HistoryTab({
   envsConfig,
   historyEnvFilter,
   onHistoryEnvFilterChange,
+  historyKindFilter,
+  onHistoryKindFilterChange,
   onClearHistory,
   projectId,
 }: HistoryTabProps) {
@@ -44,6 +69,21 @@ function HistoryTab({
               {envsConfig.environments.map((env) => (
                 <option key={env.name} value={env.name}>
                   {env.name}
+                </option>
+              ))}
+            </select>
+          )}
+          {runs.length > 0 && (
+            <select
+              className="input input-sm"
+              value={historyKindFilter}
+              aria-label="Filter by run kind"
+              onChange={(e) => onHistoryKindFilterChange(e.target.value as RunKind | '')}
+            >
+              <option value="">All run kinds</option>
+              {RUN_KINDS.map((kind) => (
+                <option key={kind} value={kind}>
+                  {runKindLabel(kind)}
                 </option>
               ))}
             </select>
@@ -109,12 +149,20 @@ function HistoryTab({
           {filteredRuns.map((run) => {
             const isLastGood = lastGoodRun?.id === run.id;
             const scope = runScopeLabel(run);
+            const auto = isAutoRollback(run);
+            const rollbackFailed = run.rollback_outcome === 'failed';
+            // Nobody was watching when this one failed, so it gets extra weight.
+            const unattendedFailure =
+              isUnattendedKind(run.run_kind) &&
+              (run.status === 'failed' || run.status === 'cancelled');
             return (
               <Link
                 key={run.id}
                 to={`/run/${run.id}`}
                 state={{ projectId, tab: 'history' }}
-                className={`run-row ${isLastGood ? 'run-row-last-good' : ''}`}
+                className={`run-row ${isLastGood ? 'run-row-last-good' : ''} ${
+                  rollbackFailed ? 'run-row-rollback-failed' : ''
+                } ${unattendedFailure ? 'run-row-unattended-failed' : ''}`}
               >
                 <span className={`status-dot status-${statusClass(run.status)}`} />
                 <span className="run-pipeline-name">{scope.label}</span>
@@ -129,14 +177,36 @@ function HistoryTab({
                   </span>
                 )}
                 {run.environment && <span className="badge badge-neutral">{run.environment}</span>}
+                <TriggerBadge runKind={run.run_kind} triggerId={run.trigger_id} />
+                {unattendedFailure && (
+                  <span
+                    className="badge badge-failed"
+                    title="This run failed with nobody watching — nothing prompted it but the trigger"
+                  >
+                    <TriangleAlert size={10} /> Unattended failure
+                  </span>
+                )}
                 {run.run_kind === 'retry' && (
                   <span className="badge badge-info" title={`Retry #${run.retry_number ?? 1}`}>
                     <RotateCcw size={10} /> Retry
                   </span>
                 )}
                 {run.run_kind === 'rollback' && (
-                  <span className="badge badge-warning" title="Rollback">
-                    <Undo2 size={10} /> Rollback
+                  <span
+                    className="badge badge-warning"
+                    title={
+                      auto ? `Automatic rollback of run ${run.auto_rollback_of}` : 'Manual rollback'
+                    }
+                  >
+                    <Undo2 size={10} /> {runKindLabel(run.run_kind, auto)}
+                  </span>
+                )}
+                {rollbackFailed && (
+                  <span
+                    className="badge badge-failed"
+                    title="Auto-rollback failed — manual intervention required"
+                  >
+                    <TriangleAlert size={10} /> Rollback failed
                   </span>
                 )}
                 {isLastGood && (

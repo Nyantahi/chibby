@@ -34,6 +34,11 @@ pub struct AppSettings {
     /// `AgentProvider`.
     #[serde(default)]
     pub agent_provider: AgentProvider,
+    /// Mask resolved secret values in pipeline logs before they are streamed or
+    /// written to disk. Escape hatch for false positives; pattern-based
+    /// redaction still applies when this is off.
+    #[serde(default = "default_true")]
+    pub mask_secrets_in_logs: bool,
 }
 
 /// Which LLM provider the agent should use. When both keys are set, `Auto`
@@ -109,6 +114,7 @@ impl Default for AppSettings {
             agent_mode: AgentMode::default(),
             agent_model: default_agent_model(),
             agent_provider: AgentProvider::default(),
+            mask_secrets_in_logs: true,
         }
     }
 }

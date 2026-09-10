@@ -468,6 +468,7 @@ pub fn apply_template_variables(
                 hc.command = subst(&hc.command);
                 hc
             }),
+            ..s.clone()
         }
     };
 
@@ -478,6 +479,7 @@ pub fn apply_template_variables(
             })?;
             Ok(Pipeline {
                 name: subst(&p.name),
+                on_health_failure: None,
                 stages: p.stages.iter().map(subst_stage).collect(),
             })
         }
@@ -488,6 +490,7 @@ pub fn apply_template_variables(
                 .ok_or_else(|| "Template marked as stage but has no stages field".to_string())?;
             Ok(Pipeline {
                 name: "Applied stage snippet".to_string(),
+                on_health_failure: None,
                 stages: stages.iter().map(subst_stage).collect(),
             })
         }

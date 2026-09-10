@@ -538,10 +538,7 @@ pub(crate) fn local_stage(name: &str, commands: Vec<&str>) -> Stage {
     Stage {
         name: name.to_string(),
         commands: commands.into_iter().map(|c| c.to_string()).collect(),
-        backend: Backend::Local,
-        working_dir: None,
-        fail_fast: true,
-        health_check: None,
+        ..Default::default()
     }
 }
 

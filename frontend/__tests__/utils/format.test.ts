@@ -5,7 +5,10 @@ import {
   statusClass,
   capitalize,
   repoNameFromPath,
+  runKindLabel,
+  isUnattendedKind,
 } from '../../utils/format';
+import type { RunKind } from '../../types';
 
 describe('formatDuration', () => {
   it('returns -- for undefined', () => {
@@ -105,5 +108,47 @@ describe('repoNameFromPath', () => {
 
   it('handles single segment path', () => {
     expect(repoNameFromPath('my-app')).toBe('my-app');
+  });
+});
+
+describe('runKindLabel', () => {
+  // Every RunKind must have a label — a missed case renders a blank badge.
+  const CASES: [RunKind, string][] = [
+    ['normal', 'Normal'],
+    ['retry', 'Retry'],
+    ['rollback', 'Rollback'],
+    ['scheduled', 'Scheduled'],
+    ['watch', 'Watch'],
+    ['hook', 'Hook'],
+  ];
+
+  it.each(CASES)('labels %s as %s', (kind, label) => {
+    expect(runKindLabel(kind)).toBe(label);
+  });
+
+  it('separates an engine rollback from a manual one', () => {
+    expect(runKindLabel('rollback', true)).toBe('Auto-rollback');
+  });
+
+  it('falls back to Normal for an undefined kind', () => {
+    expect(runKindLabel(undefined)).toBe('Normal');
+  });
+});
+
+describe('isUnattendedKind', () => {
+  it('counts schedules and watches as unattended', () => {
+    expect(isUnattendedKind('scheduled')).toBe(true);
+    expect(isUnattendedKind('watch')).toBe(true);
+  });
+
+  it('excludes hooks — someone typed git push and is watching', () => {
+    expect(isUnattendedKind('hook')).toBe(false);
+  });
+
+  it('excludes the human-initiated kinds', () => {
+    expect(isUnattendedKind('normal')).toBe(false);
+    expect(isUnattendedKind('retry')).toBe(false);
+    expect(isUnattendedKind('rollback')).toBe(false);
+    expect(isUnattendedKind(undefined)).toBe(false);
   });
 });

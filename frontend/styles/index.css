@@ -779,6 +779,7 @@ select.input {
 .badge {
   display: inline-flex;
   align-items: center;
+  gap: var(--space-xs);
   padding: 2px var(--space-sm);
   border-radius: var(--radius-sm);
   font-size: var(--font-size-xs);
@@ -1606,7 +1607,7 @@ select.input {
 
 /* Stage card failed state */
 .stage-card.stage-failed {
-  border-color: var(--color-error);
+  border-color: var(--color-failed);
   background: rgba(239, 68, 68, 0.05);
 }
 
@@ -1766,7 +1767,7 @@ select.input {
 
 /* Stage number failed state */
 .stage-number-failed {
-  background: var(--color-error);
+  background: var(--color-failed);
   color: white;
 }
 
@@ -1820,7 +1821,7 @@ select.input {
 }
 
 .cmd-icon-failed {
-  color: var(--color-error);
+  color: var(--color-failed);
 }
 
 .cmd-icon-pending {
@@ -1897,7 +1898,7 @@ select.input {
 
 .command-line.cmd-failed {
   background: rgba(239, 68, 68, 0.08);
-  color: var(--color-error);
+  color: var(--color-failed);
 }
 
 .stage-card-mini {
@@ -2016,6 +2017,12 @@ select.input {
   border-width: 1px;
 }
 
+/* A run whose auto-rollback failed — the one row that needs noticing. */
+.run-row-rollback-failed {
+  border-color: var(--color-failed);
+  background: var(--color-failed-bg);
+}
+
 .run-parent-link {
   margin-top: var(--space-xs);
   font-size: var(--font-size-xs);
@@ -2027,6 +2034,94 @@ select.input {
 }
 .text-link:hover {
   text-decoration: underline;
+}
+
+/* ============================================================
+   Health-check failure + auto-rollback outcome (RunDetail)
+   ============================================================ */
+
+.rollback-notice {
+  margin-bottom: var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-failed);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: var(--font-size-sm);
+}
+
+.rollback-notice-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--color-failed);
+  font-weight: 600;
+}
+
+.rollback-notice-sub {
+  margin-top: var(--space-xs);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.rollback-notice-outcome {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--color-border);
+}
+
+.rollback-notice-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.rollback-notice-detail {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.rollback-notice-reason {
+  align-self: stretch;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-2xs);
+}
+
+.rollback-notice-success {
+  border-left-color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 6%, var(--color-surface));
+}
+
+.rollback-notice-success .rollback-notice-title {
+  color: var(--color-success);
+}
+
+.rollback-notice-warning {
+  border-left-color: var(--color-running);
+  background: color-mix(in srgb, var(--color-running) 6%, var(--color-surface));
+}
+
+.rollback-notice-warning .rollback-notice-title {
+  color: var(--color-running);
+}
+
+/* Loudest state: the release is unhealthy AND the rollback failed too. */
+.rollback-notice-failed {
+  border: 1px solid var(--color-failed);
+  border-left-width: 4px;
+  background: var(--color-failed-bg);
+}
+
+.rollback-notice-failed .rollback-notice-title {
+  color: var(--color-failed);
 }
 
 .last-good-run {
@@ -2152,6 +2247,28 @@ select.input {
 .stage-sidebar-duration {
   font-size: var(--font-size-xs);
   color: var(--color-text-dim);
+}
+
+.stage-sidebar-attempts {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-2xs);
+  color: var(--color-running);
+  white-space: nowrap;
+}
+
+.stage-skip-reason {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-pending-bg);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
 }
 
 .log-panel {
@@ -3085,6 +3202,50 @@ select.input {
 
 .pe-health-fields {
   margin-top: var(--space-sm);
+}
+
+.pe-advanced-section {
+  border-top: 1px solid var(--color-border);
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+}
+
+.pe-advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+
+.pe-advanced-toggle:hover {
+  color: var(--color-primary);
+}
+
+.pe-advanced-fields {
+  margin-top: var(--space-md);
+}
+
+.pe-advanced-fields .pe-field-row {
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.pe-field-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.pe-field-hint-warning {
+  color: var(--color-running);
 }
 
 /* ============================================================
@@ -4344,6 +4505,14 @@ select.input {
   color: var(--color-text-muted);
   font-weight: 500;
 }
+.kv-table td .badge + .badge {
+  margin-left: var(--space-xs);
+}
+
+/* A deployment whose auto-rollback failed — needs to stand out in the table. */
+.kv-table tr.row-rollback-failed td {
+  background: var(--color-failed-bg);
+}
 
 .leak-banner {
   display: flex;
@@ -4795,4 +4964,322 @@ select.input {
   border-radius: var(--radius-sm);
   font-size: var(--font-size-2xs);
   font-family: var(--font-mono);
+}
+
+/* ============================================================
+   Triggers — schedules, file watches and git hooks
+   ============================================================ */
+
+/* Provenance badge for a run a trigger started rather than a person. */
+.badge-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.badge-trigger-scheduled,
+.badge-trigger-watch {
+  background: var(--color-accent-bg);
+  color: var(--color-accent);
+}
+
+.badge-trigger-hook {
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+}
+
+.badge-trigger-id {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  opacity: 0.85;
+}
+
+/* A run that failed with nobody watching carries more weight than an
+   ordinary failure — nothing surfaced it at the time. */
+.run-row-unattended-failed {
+  border-color: var(--color-failed);
+  border-left-width: 3px;
+  background: var(--color-failed-bg);
+}
+
+.unattended-failure-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-failed);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background: var(--color-failed-bg);
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+}
+
+/* The honest note at the top of the tab: nothing runs in the background. */
+.trigger-note {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  background: var(--color-accent-bg);
+  font-size: var(--font-size-xs);
+  color: var(--color-text);
+  line-height: 1.5;
+}
+
+.trigger-note code {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-2xs);
+  padding: 0 var(--space-xs);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+}
+
+.trigger-save-actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.section-hint {
+  margin: 0 0 var(--space-md);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.feature-card-body .section-hint {
+  margin: 0;
+}
+
+.trigger-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.trigger-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.trigger-row:hover {
+  border-color: var(--color-border-light);
+}
+
+.trigger-row-disabled {
+  border-style: dashed;
+}
+
+.trigger-row-disabled .trigger-name,
+.trigger-row-disabled .trigger-cron {
+  color: var(--color-text-dim);
+}
+
+.trigger-row-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.trigger-switch {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.trigger-name {
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.trigger-cron {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-2xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+}
+
+.trigger-row-actions {
+  display: flex;
+  gap: var(--space-xs);
+  margin-left: auto;
+}
+
+.trigger-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-muted);
+}
+
+.trigger-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+/* Add / edit form for one schedule or watch. */
+.trigger-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+}
+
+.trigger-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-md);
+}
+
+.trigger-editor-grid .form-group {
+  margin-bottom: 0;
+}
+
+.trigger-editor-actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.form-hint {
+  margin-top: var(--space-xs);
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.form-hint code {
+  font-family: var(--font-mono);
+}
+
+/* Live cron preview — the only way to tell a good expression from a typo. */
+.cron-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+}
+
+.cron-preview-label {
+  font-size: var(--font-size-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.cron-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin: 0;
+  padding-left: var(--space-lg);
+  font-size: var(--font-size-xs);
+  color: var(--color-text);
+}
+
+.cron-preview-hint {
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-muted);
+}
+
+.cron-preview-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-2xs);
+  color: var(--color-failed);
+}
+
+/* Git hook install outcomes. A foreign hook is a choice to offer, not an error. */
+.hook-result-ok {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-xs);
+  color: var(--color-success);
+}
+
+.hook-conflict {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  background: var(--color-accent-bg);
+}
+
+.hook-conflict-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.hook-conflict-message {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.hook-snippet {
+  margin: 0;
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-2xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  user-select: all;
+}
+
+.hook-conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+/* Escalation policy for runs nobody was watching. */
+.notify-unattended {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--color-border);
+}
+
+.notify-unattended-title {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.notify-unattended .section-hint {
+  margin: 0 0 var(--space-xs);
 }

@@ -2,59 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::engine::models::{Pipeline, PipelineRun, RunStatus, StageStatus};
 
-/// Regex patterns for common secret values that should be redacted from logs
-/// before inclusion in LLM prompts.
-static SECRET_PATTERNS: &[&str] = &[
-    // Generic API keys / tokens after a key-like prefix. Optional quotes/space
-    // around the separator so JSON (`"api_key":"<v>"`) and shell forms both match.
-    r#"(?i)(password|passwd|secret|token|api[_-]?key|apikey|auth|credential|private[_-]?key)["' ]*[:=]["' ]*\S+"#,
-    // AWS-style keys
-    r"(?i)AKIA[0-9A-Z]{16}",
-    // Bearer tokens
-    r"(?i)bearer\s+[a-zA-Z0-9\-._~+/]+=*",
-    // GitHub personal / OAuth / user / server / refresh tokens
-    r"gh[pousr]_[A-Za-z0-9]{20,}",
-    // GitHub fine-grained personal access tokens
-    r"github_pat_[A-Za-z0-9_]{20,}",
-    // GitLab personal access tokens
-    r"glpat-[A-Za-z0-9_-]{16,}",
-    // Slack tokens (bot / app / user / refresh / legacy)
-    r"xox[baprs]-[A-Za-z0-9-]{10,}",
-    // Stripe live secret / restricted keys
-    r"(?:sk|rk)_live_[A-Za-z0-9]{16,}",
-    // Google API keys
-    r"AIza[0-9A-Za-z_-]{35}",
-    // Anthropic API keys (kept before the generic sk- rule so the ant- form is
-    // fully covered rather than partially matched)
-    r"sk-ant-[A-Za-z0-9_-]{20,}",
-    // OpenAI-style secret keys
-    r"sk-[A-Za-z0-9]{20,}",
-    // JSON Web Tokens (base64url header.payload.signature)
-    r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
-    // PEM private key block markers (body lines are caught by the base64 rule)
-    r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----",
-    r"-----END [A-Z0-9 ]*PRIVATE KEY-----",
-    // Base64-encoded long strings that look like secrets (64+ chars)
-    r"[A-Za-z0-9+/]{64,}={0,3}",
-];
-
-/// Sanitize a log line by redacting potential secrets and escaping markdown
-/// code fence breaks that could enable prompt injection.
-pub fn sanitize_log_line(line: &str) -> String {
-    let mut sanitized = line.to_string();
-
-    // 1. Redact secret-like patterns
-    for pattern in SECRET_PATTERNS {
-        if let Ok(re) = regex::Regex::new(pattern) {
-            sanitized = re.replace_all(&sanitized, "[REDACTED]").to_string();
-        }
-    }
-
-    // 2. Escape backtick sequences that could break out of markdown code fences
-    sanitized = sanitized.replace("```", "` ` `");
-
-    sanitized
-}
+// Secret redaction lives in `engine::redact` so the pipeline executor can share
+// it. Re-exported here because the agent's call sites reference it by this path.
+pub use crate::engine::redact::sanitize_log_line;
 
 /// Context provided to the agent for analysis or chat.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -160,6 +110,7 @@ impl AnalysisContext {
                 let status_icon = match stage.status {
                     StageStatus::Success => "✓",
                     StageStatus::Failed => "✗",
+                    StageStatus::TimedOut => "⏱",
                     StageStatus::Skipped => "⊘",
                     StageStatus::Running => "⟳",
                     StageStatus::Pending => "○",
@@ -219,11 +170,7 @@ impl AnalysisContext {
     pub fn has_failed_stages(&self) -> bool {
         self.run
             .as_ref()
-            .map(|r| {
-                r.stage_results
-                    .iter()
-                    .any(|s| s.status == StageStatus::Failed)
-            })
+            .map(|r| r.stage_results.iter().any(|s| s.status.is_failure()))
             .unwrap_or(false)
     }
 
@@ -233,8 +180,7 @@ impl AnalysisContext {
             .as_ref()
             .map(|r| {
                 r.stage_results.iter().any(|s| {
-                    s.status == StageStatus::Failed
-                        && s.stage_name.to_lowercase().contains("deploy")
+                    s.status.is_failure() && s.stage_name.to_lowercase().contains("deploy")
                 })
             })
             .unwrap_or(false)

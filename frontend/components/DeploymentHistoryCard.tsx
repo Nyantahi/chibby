@@ -1,21 +1,34 @@
-import { useEffect, useState } from 'react';
-import { History, Loader2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { History, Loader2, TriangleAlert } from 'lucide-react';
 import HelpTip from './HelpTip';
 import { HELP } from './project-detail/helpText';
 import { Link } from 'react-router-dom';
 import { getDeploymentHistory } from '../services/api';
 import { notifyError } from '../services/notify';
-import { formatDate, formatDuration, statusClass, capitalize } from '../utils/format';
-import type { DeploymentRecord, Environment } from '../types';
+import {
+  formatDate,
+  formatDuration,
+  statusClass,
+  capitalize,
+  isAutoRollback,
+  runKindLabel,
+} from '../utils/format';
+import type { DeploymentRecord, Environment, PipelineRun } from '../types';
 
 interface Props {
   repoPath: string;
   environments: Environment[];
+  /**
+   * Full runs for this project. `DeploymentRecord` carries no rollback metadata,
+   * so auto-rollback markers are resolved from the matching run.
+   */
+  runs: PipelineRun[];
 }
 
-function DeploymentHistoryCard({ repoPath, environments }: Props) {
+function DeploymentHistoryCard({ repoPath, environments, runs }: Props) {
   const [byEnv, setByEnv] = useState<Record<string, DeploymentRecord[]>>({});
   const [loading, setLoading] = useState(environments.length > 0);
+  const runsById = useMemo(() => new Map(runs.map((r) => [r.id, r])), [runs]);
 
   useEffect(() => {
     if (environments.length === 0) return;
@@ -73,24 +86,37 @@ function DeploymentHistoryCard({ repoPath, environments }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {byEnv[e.name].map((d) => (
-                      <tr key={d.run_id}>
-                        <td>{formatDate(d.started_at)}</td>
-                        <td>
-                          <span className={`badge badge-${statusClass(d.status)}`}>
-                            {capitalize(d.status)}
-                          </span>
-                        </td>
-                        <td>{d.run_kind}</td>
-                        <td>{d.branch ?? '—'}</td>
-                        <td>{d.duration_ms ? formatDuration(d.duration_ms) : '—'}</td>
-                        <td>
-                          <Link to={`/run/${d.run_id}`} className="btn btn-xs btn-ghost">
-                            View
-                          </Link>
-                        </td>
-                      </tr>
-                    ))}
+                    {byEnv[e.name].map((d) => {
+                      const run = runsById.get(d.run_id);
+                      const auto = run ? isAutoRollback(run) : false;
+                      const rollbackFailed = run?.rollback_outcome === 'failed';
+                      return (
+                        <tr key={d.run_id} className={rollbackFailed ? 'row-rollback-failed' : ''}>
+                          <td>{formatDate(d.started_at)}</td>
+                          <td>
+                            <span className={`badge badge-${statusClass(d.status)}`}>
+                              {capitalize(d.status)}
+                            </span>
+                            {rollbackFailed && (
+                              <span
+                                className="badge badge-failed"
+                                title="Auto-rollback failed — manual intervention required"
+                              >
+                                <TriangleAlert size={10} /> Rollback failed
+                              </span>
+                            )}
+                          </td>
+                          <td>{runKindLabel(d.run_kind, auto)}</td>
+                          <td>{d.branch ?? '—'}</td>
+                          <td>{d.duration_ms ? formatDuration(d.duration_ms) : '—'}</td>
+                          <td>
+                            <Link to={`/run/${d.run_id}`} className="btn btn-xs btn-ghost">
+                              View
+                            </Link>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}

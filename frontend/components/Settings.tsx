@@ -11,6 +11,7 @@ import {
   Bot,
   AlertTriangle,
   FolderOpen,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   loadAppSettings,
@@ -369,6 +370,29 @@ function Settings() {
           />
           <span>Notify on failed runs</span>
         </label>
+      </section>
+
+      {/* Logs & Secrets */}
+      <section className="settings-section">
+        <h3 className="settings-section-title">
+          <ShieldCheck size={16} /> Logs &amp; Secrets
+        </h3>
+        <p className="settings-section-desc">
+          How much of a secret's value is allowed to reach a stored log.
+        </p>
+
+        <label className="settings-toggle">
+          <input
+            type="checkbox"
+            checked={settings.mask_secrets_in_logs}
+            onChange={(e) => updateSetting('mask_secrets_in_logs', e.target.checked)}
+          />
+          <span>Mask secret values in stage logs</span>
+        </label>
+        <p className="settings-section-desc">
+          Known secret values are replaced before logs are written to disk. Turn this off only when
+          debugging a value that is being injected wrongly.
+        </p>
       </section>
 
       {/* Default Retention */}

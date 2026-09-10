@@ -54,6 +54,13 @@ import type {
   ApplyReport,
   EnvLeakHit,
   SecretAuditEntry,
+  TriggersConfig,
+  InstallReport,
+  TriggerStateEntry,
+  HookKind,
+  HookState,
+  HookSpec,
+  InstallMode,
 } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -209,14 +216,26 @@ export async function generatePipelineWithDeploy(
 // Run commands
 // ---------------------------------------------------------------------------
 
-/** Run a pipeline for a given repo path. Optionally run only specific stages. */
+/**
+ * Run a pipeline for a given repo path. Optionally run only specific stages.
+ *
+ * `skipPreflight` mirrors the CLI's `--skip-preflight`. The GUI runs preflight
+ * by default; failures come back as an `Err` string the caller surfaces.
+ */
 export async function runPipeline(
   repoPath: string,
   environment?: string,
   stages?: string[],
-  pipelineFile?: string
+  pipelineFile?: string,
+  skipPreflight = false
 ): Promise<PipelineRun> {
-  return invoke<PipelineRun>('run_pipeline', { repoPath, environment, stages, pipelineFile });
+  return invoke<PipelineRun>('run_pipeline', {
+    repoPath,
+    environment,
+    stages,
+    pipelineFile,
+    skipPreflight,
+  });
 }
 
 /** Cancel a running pipeline. */
@@ -889,4 +908,59 @@ export async function importTemplate(
     scope,
     repoPath: repoPath ?? null,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Trigger commands — schedules, file watches and git hooks
+// ---------------------------------------------------------------------------
+
+/** Load `.chibby/triggers.toml`, by default with `triggers.local.toml` merged on top. */
+export async function loadTriggers(repoPath: string, layered = true): Promise<TriggersConfig> {
+  return invoke<TriggersConfig>('load_triggers', { repoPath, layered });
+}
+
+/** Save triggers to the committed file, or to the gitignored per-machine override. */
+export async function saveTriggers(
+  repoPath: string,
+  config: TriggersConfig,
+  local = false
+): Promise<void> {
+  return invoke<void>('save_triggers', { repoPath, config, local });
+}
+
+/** Upcoming fire times (RFC3339) for a cron expression. Rejects on an invalid cron. */
+export async function nextRunTimes(cron: string, count = 5): Promise<string[]> {
+  return invoke<string[]>('next_run_times', { cron, count });
+}
+
+/** Run a configured trigger immediately. */
+export async function fireTriggerNow(repoPath: string, triggerId: string): Promise<PipelineRun> {
+  return invoke<PipelineRun>('fire_trigger_now', { repoPath, triggerId });
+}
+
+/** Install a git hook. `installed: false` means a foreign hook was left alone. */
+export async function installGitHooks(
+  repoPath: string,
+  kind: HookKind,
+  spec: HookSpec,
+  mode?: InstallMode
+): Promise<InstallReport> {
+  return invoke<InstallReport>('install_git_hooks', { repoPath, kind, spec, mode: mode ?? null });
+}
+
+/** Remove Chibby's block from a git hook, leaving foreign content intact. */
+export async function uninstallGitHooks(repoPath: string, kind: HookKind): Promise<void> {
+  return invoke<void>('uninstall_git_hooks', { repoPath, kind });
+}
+
+/** What is currently installed at a repo's hook path. */
+export async function gitHookStatus(repoPath: string, kind: HookKind): Promise<HookState> {
+  return invoke<HookState>('git_hook_status', { repoPath, kind });
+}
+
+/** Last fire time, run id and skip reason for every trigger in a repo, keyed by trigger id. */
+export async function getTriggerState(
+  repoPath: string
+): Promise<Record<string, TriggerStateEntry>> {
+  return invoke<Record<string, TriggerStateEntry>>('get_trigger_state', { repoPath });
 }

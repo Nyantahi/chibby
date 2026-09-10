@@ -159,6 +159,41 @@ function NotifyCard({ repoPath }: Props) {
             <button className="btn btn-sm btn-ghost" onClick={addTarget}>
               <Plus size={12} /> Add target
             </button>
+
+            {/* Runs no human was watching — schedules and file watches. */}
+            <div className="notify-unattended">
+              <p className="notify-unattended-title">Unattended runs</p>
+              <p className="section-hint">
+                Schedules and file watches run with nobody looking. These escalate past the settings
+                above.
+              </p>
+              <label className="settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={cfg.unattended.always_on_failure}
+                  onChange={(e) =>
+                    setCfg({
+                      ...cfg,
+                      unattended: { ...cfg.unattended, always_on_failure: e.target.checked },
+                    })
+                  }
+                />
+                <span>Always notify when an unattended run fails</span>
+              </label>
+              <label className="settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={cfg.unattended.on_success}
+                  onChange={(e) =>
+                    setCfg({
+                      ...cfg,
+                      unattended: { ...cfg.unattended, on_success: e.target.checked },
+                    })
+                  }
+                />
+                <span>Also notify when an unattended run succeeds</span>
+              </label>
+            </div>
           </>
         ) : null}
       </div>

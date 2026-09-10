@@ -61,6 +61,15 @@ pub enum Commands {
         /// Dry run - show what would be executed without running
         #[arg(long)]
         dry_run: bool,
+
+        /// Pipeline file stem to run (defaults to `pipeline`)
+        #[arg(long)]
+        pipeline: Option<String>,
+
+        /// Tags the run with the trigger that started it
+        /// (`hook:pre-push`, `scheduled:<id>`, `watch:<id>`).
+        #[arg(long, hide = true)]
+        trigger: Option<String>,
     },
 
     /// Show status of the current or last run
@@ -112,8 +121,20 @@ pub enum Commands {
 
     /// Rollback to a previous successful run
     Rollback {
-        /// Run ID to rollback to
-        run_id: String,
+        /// Run ID to rollback to (optional with --last-good)
+        run_id: Option<String>,
+
+        /// Roll back to the last known-good deployment instead of a run ID
+        #[arg(long)]
+        last_good: bool,
+
+        /// Environment to look up the last known-good deployment in
+        #[arg(short, long)]
+        env: Option<String>,
+
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
     },
 
     /// Manage environment variables and secrets
@@ -209,8 +230,146 @@ pub enum Commands {
         follow: bool,
     },
 
+    /// Run scheduled triggers (cron) for a project
+    Schedule {
+        /// Project path (defaults to current directory)
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+
+        /// Fire whatever is due and exit — wire this into launchd or systemd
+        #[arg(long)]
+        once: bool,
+
+        /// Print the next fire times without running anything
+        #[arg(long)]
+        dry_run: bool,
+
+        /// How many fire times --dry-run prints per schedule
+        #[arg(long, default_value = "5")]
+        count: usize,
+    },
+
+    /// Watch files and run the pipeline when they change
+    Watch {
+        /// Project path (defaults to current directory)
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+
+        /// Only run specific stages
+        #[arg(short, long)]
+        stage: Vec<String>,
+
+        /// Environment to run in
+        #[arg(short, long)]
+        env: Option<String>,
+
+        /// Glob of files to watch (repeatable; omit to watch everything)
+        #[arg(long)]
+        include: Vec<String>,
+
+        /// Quiet period before a burst of changes fires a run
+        #[arg(long, default_value = "750")]
+        debounce_ms: u64,
+
+        /// Minimum seconds between two runs of this watch
+        #[arg(long, default_value = "10")]
+        min_interval_secs: u64,
+    },
+
+    /// Manage Chibby-managed git hooks
+    #[command(subcommand)]
+    Hooks(HooksCmd),
+
+    /// Inspect and toggle local triggers
+    #[command(subcommand)]
+    Triggers(TriggersCmd),
+
     /// Open the desktop app
     App,
+}
+
+/// Which git hook to act on.
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+pub enum HookKindArg {
+    PrePush,
+    PreCommit,
+}
+
+#[derive(Subcommand)]
+pub enum HooksCmd {
+    /// Install a Chibby-managed git hook
+    Install {
+        /// Which hook to install
+        #[arg(value_enum, default_value = "pre-push")]
+        kind: HookKindArg,
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+        /// Stages the hook runs (omit for the whole pipeline)
+        #[arg(short, long)]
+        stage: Vec<String>,
+        /// Environment the hook runs in
+        #[arg(short, long)]
+        env: Option<String>,
+        /// Back up an existing foreign hook and replace it
+        #[arg(long)]
+        force: bool,
+        /// Insert Chibby's block into an existing hook, keeping the rest
+        #[arg(long)]
+        append: bool,
+        /// Report failures without blocking the git operation
+        #[arg(long)]
+        non_blocking: bool,
+    },
+    /// Remove Chibby's block from a git hook
+    Uninstall {
+        #[arg(value_enum, default_value = "pre-push")]
+        kind: HookKindArg,
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Show what is installed at each hook path
+    Status {
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum TriggersCmd {
+    /// List configured triggers and their last run
+    List {
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Enable a trigger (written to triggers.local.toml)
+    Enable {
+        /// Trigger id
+        id: String,
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Disable a trigger (written to triggers.local.toml)
+    Disable {
+        /// Trigger id
+        id: String,
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+    },
+    /// Show the next fire times for every schedule
+    Next {
+        /// Project path
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+        /// How many fire times to print per schedule
+        #[arg(long, default_value = "5")]
+        count: usize,
+    },
 }
 
 #[derive(Subcommand)]

@@ -9,5 +9,6 @@ pub mod project_commands;
 pub mod run_commands;
 pub mod settings_commands;
 pub mod template_commands;
+pub mod trigger_commands;
 pub mod updater_commands;
 pub mod version_commands;
