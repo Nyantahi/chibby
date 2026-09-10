@@ -1,0 +1,15 @@
+[meta]
+name = "Security: Dependency Audit"
+description = "Audit dependencies for known CVEs (chibby scan deps — npm/cargo/pip aware)"
+author = "chibby"
+version = "1.0.0"
+category = "security"
+tags = ["security", "dependencies", "cve", "audit", "scan"]
+required_tools = []
+template_type = "stage"
+
+[[stages]]
+name = "security-deps"
+commands = ["NO_COLOR=true chibby scan deps"]
+backend = "local"
+fail_fast = true

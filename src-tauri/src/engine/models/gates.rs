@@ -54,7 +54,7 @@ pub struct GatesConfig {
     pub license_check: GateMode,
 
     /// Paths to exclude from secret scanning (glob patterns).
-    #[serde(default)]
+    #[serde(default = "default_secret_scan_allowlist")]
     pub secret_scan_allowlist: Vec<String>,
 
     /// CVE IDs or package names to ignore in dependency scanning.
@@ -113,6 +113,25 @@ pub struct GatesConfig {
     pub commit_require_scope: bool,
 }
 
+/// Standard paths excluded from secret scanning across all projects
+/// (generated code, vendored deps, and test fixtures that trip scanners).
+fn default_secret_scan_allowlist() -> Vec<String> {
+    vec![
+        "**/__tests__/**".into(),
+        "**/__mocks__/**".into(),
+        "**/tests/**".into(),
+        "**/test/**".into(),
+        "**/*.test.ts".into(),
+        "**/*.test.tsx".into(),
+        "**/*.spec.ts".into(),
+        "**/node_modules/**".into(),
+        "**/dist/**".into(),
+        "**/build/**".into(),
+        "**/.next/**".into(),
+        "**/.vercel/**".into(),
+    ]
+}
+
 fn default_license_denylist() -> Vec<String> {
     vec![
         "GPL-3.0".into(),
@@ -155,7 +174,7 @@ impl Default for GatesConfig {
             container_scan: GateMode::Off,
             iac_scan: GateMode::Off,
             license_check: GateMode::Off,
-            secret_scan_allowlist: Vec::new(),
+            secret_scan_allowlist: default_secret_scan_allowlist(),
             audit_allowlist: Vec::new(),
             audit_severity_threshold: default_severity_threshold(),
             secret_scan_baseline: false,

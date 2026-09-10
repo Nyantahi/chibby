@@ -67,12 +67,33 @@ impl RateLimitedProvider {
 
 #[async_trait]
 impl LLMProvider for RateLimitedProvider {
-    async fn complete(&self, system_prompt: &str, user_message: &str) -> Result<String> {
+    async fn complete_conversation(
+        &self,
+        system_prompt: &str,
+        messages: &[ChatMessage],
+    ) -> Result<String> {
         {
             let mut limiter = self.limiter.lock().await;
             limiter.try_acquire()?;
         }
-        self.inner.complete(system_prompt, user_message).await
+        self.inner
+            .complete_conversation(system_prompt, messages)
+            .await
+    }
+
+    async fn complete_with_tools(
+        &self,
+        system_prompt: &str,
+        messages: &[ToolMessage],
+        tools: &[ToolDef],
+    ) -> Result<ProviderTurn> {
+        {
+            let mut limiter = self.limiter.lock().await;
+            limiter.try_acquire()?;
+        }
+        self.inner
+            .complete_with_tools(system_prompt, messages, tools)
+            .await
     }
 
     fn name(&self) -> &str {
@@ -84,10 +105,146 @@ impl LLMProvider for RateLimitedProvider {
 // LLM Provider trait
 // ---------------------------------------------------------------------------
 
+/// A single turn in a conversation. `role` is "user" or "assistant".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
+impl ChatMessage {
+    pub fn user(content: impl Into<String>) -> Self {
+        Self {
+            role: "user".to_string(),
+            content: content.into(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tool-calling types (Stage B agentic loop)
+// ---------------------------------------------------------------------------
+
+/// A tool the model may call.
+#[derive(Debug, Clone, Serialize)]
+pub struct ToolDef {
+    pub name: String,
+    pub description: String,
+    pub input_schema: serde_json::Value,
+}
+
+/// A block of content within a tool-enabled message or model response.
+/// Serializes to the Anthropic Messages API content-block shape.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ContentBlock {
+    Text {
+        text: String,
+    },
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
+    ToolResult {
+        tool_use_id: String,
+        content: String,
+        #[serde(default)]
+        is_error: bool,
+    },
+}
+
+/// A conversation turn carrying structured content blocks (tool loop).
+#[derive(Debug, Clone, Serialize)]
+pub struct ToolMessage {
+    pub role: String,
+    pub content: Vec<ContentBlock>,
+}
+
+impl ToolMessage {
+    pub fn user_text(text: impl Into<String>) -> Self {
+        Self {
+            role: "user".to_string(),
+            content: vec![ContentBlock::Text { text: text.into() }],
+        }
+    }
+    pub fn assistant(content: Vec<ContentBlock>) -> Self {
+        Self {
+            role: "assistant".to_string(),
+            content,
+        }
+    }
+    /// A user turn carrying tool results.
+    pub fn tool_results(results: Vec<ContentBlock>) -> Self {
+        Self {
+            role: "user".to_string(),
+            content: results,
+        }
+    }
+}
+
+/// One assistant turn from a tool-enabled completion.
+#[derive(Debug, Clone)]
+pub struct ProviderTurn {
+    pub blocks: Vec<ContentBlock>,
+    pub stop_reason: String,
+}
+
+impl ProviderTurn {
+    /// The `(id, name, input)` of each tool_use block in this turn.
+    pub fn tool_uses(&self) -> Vec<(String, String, serde_json::Value)> {
+        self.blocks
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::ToolUse { id, name, input } => {
+                    Some((id.clone(), name.clone(), input.clone()))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Concatenated text blocks (the model's prose for this turn).
+    pub fn text(&self) -> String {
+        self.blocks
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
 #[async_trait]
 pub trait LLMProvider: Send + Sync {
-    /// Send a completion request with a system prompt and user message.
-    async fn complete(&self, system_prompt: &str, user_message: &str) -> Result<String>;
+    /// Send a multi-turn conversation with a system prompt.
+    async fn complete_conversation(
+        &self,
+        system_prompt: &str,
+        messages: &[ChatMessage],
+    ) -> Result<String>;
+
+    /// Convenience: single user message (delegates to `complete_conversation`).
+    async fn complete(&self, system_prompt: &str, user_message: &str) -> Result<String> {
+        self.complete_conversation(system_prompt, &[ChatMessage::user(user_message)])
+            .await
+    }
+
+    /// Send a tool-enabled conversation. Providers without native tool support
+    /// return an error (the default).
+    async fn complete_with_tools(
+        &self,
+        _system_prompt: &str,
+        _messages: &[ToolMessage],
+        _tools: &[ToolDef],
+    ) -> Result<ProviderTurn> {
+        anyhow::bail!(
+            "Tool use is not supported by the '{}' provider. Configure an Anthropic API key in Settings.",
+            self.name()
+        )
+    }
 
     /// Return the provider name for logging.
     fn name(&self) -> &str;
@@ -106,7 +263,7 @@ impl AnthropicProvider {
     pub fn new(model: Option<String>) -> Self {
         Self {
             client: reqwest::Client::new(),
-            model: model.unwrap_or_else(|| "claude-sonnet-4-20250514".to_string()),
+            model: model.unwrap_or_else(|| app_settings::DEFAULT_ANTHROPIC_MODEL.to_string()),
         }
     }
 
@@ -140,19 +297,41 @@ struct AnthropicContent {
     text: String,
 }
 
+#[derive(Serialize)]
+struct AnthropicToolRequest<'a> {
+    model: String,
+    max_tokens: u32,
+    system: String,
+    messages: &'a [ToolMessage],
+    tools: &'a [ToolDef],
+}
+
+#[derive(Deserialize)]
+struct AnthropicToolResponse {
+    content: Vec<ContentBlock>,
+    stop_reason: Option<String>,
+}
+
 #[async_trait]
 impl LLMProvider for AnthropicProvider {
-    async fn complete(&self, system_prompt: &str, user_message: &str) -> Result<String> {
+    async fn complete_conversation(
+        &self,
+        system_prompt: &str,
+        messages: &[ChatMessage],
+    ) -> Result<String> {
         let api_key = Self::get_api_key()?;
 
         let request = AnthropicRequest {
             model: self.model.clone(),
             max_tokens: 4096,
             system: system_prompt.to_string(),
-            messages: vec![AnthropicMessage {
-                role: "user".to_string(),
-                content: user_message.to_string(),
-            }],
+            messages: messages
+                .iter()
+                .map(|m| AnthropicMessage {
+                    role: m.role.clone(),
+                    content: m.content.clone(),
+                })
+                .collect(),
         };
 
         let response = self
@@ -182,6 +361,50 @@ impl LLMProvider for AnthropicProvider {
             .first()
             .map(|c| c.text.clone())
             .context("Empty response from Anthropic")
+    }
+
+    async fn complete_with_tools(
+        &self,
+        system_prompt: &str,
+        messages: &[ToolMessage],
+        tools: &[ToolDef],
+    ) -> Result<ProviderTurn> {
+        let api_key = Self::get_api_key()?;
+
+        let request = AnthropicToolRequest {
+            model: self.model.clone(),
+            max_tokens: 4096,
+            system: system_prompt.to_string(),
+            messages,
+            tools,
+        };
+
+        let response = self
+            .client
+            .post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", &api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .json(&request)
+            .send()
+            .await
+            .context("Failed to send tool request to Anthropic API")?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("Anthropic API error ({}): {}", status, body);
+        }
+
+        let parsed: AnthropicToolResponse = response
+            .json()
+            .await
+            .context("Failed to parse Anthropic tool response")?;
+
+        Ok(ProviderTurn {
+            blocks: parsed.content,
+            stop_reason: parsed.stop_reason.unwrap_or_else(|| "end_turn".to_string()),
+        })
     }
 
     fn name(&self) -> &str {
@@ -242,22 +465,26 @@ struct OpenAIResponseMessage {
 
 #[async_trait]
 impl LLMProvider for OpenAIProvider {
-    async fn complete(&self, system_prompt: &str, user_message: &str) -> Result<String> {
+    async fn complete_conversation(
+        &self,
+        system_prompt: &str,
+        messages: &[ChatMessage],
+    ) -> Result<String> {
         let api_key = Self::get_api_key()?;
+
+        let mut openai_messages = vec![OpenAIMessage {
+            role: "system".to_string(),
+            content: system_prompt.to_string(),
+        }];
+        openai_messages.extend(messages.iter().map(|m| OpenAIMessage {
+            role: m.role.clone(),
+            content: m.content.clone(),
+        }));
 
         let request = OpenAIRequest {
             model: self.model.clone(),
             max_tokens: 4096,
-            messages: vec![
-                OpenAIMessage {
-                    role: "system".to_string(),
-                    content: system_prompt.to_string(),
-                },
-                OpenAIMessage {
-                    role: "user".to_string(),
-                    content: user_message.to_string(),
-                },
-            ],
+            messages: openai_messages,
         };
 
         let response = self
@@ -310,8 +537,16 @@ impl FallbackProvider {
 
 #[async_trait]
 impl LLMProvider for FallbackProvider {
-    async fn complete(&self, system_prompt: &str, user_message: &str) -> Result<String> {
-        match self.primary.complete(system_prompt, user_message).await {
+    async fn complete_conversation(
+        &self,
+        system_prompt: &str,
+        messages: &[ChatMessage],
+    ) -> Result<String> {
+        match self
+            .primary
+            .complete_conversation(system_prompt, messages)
+            .await
+        {
             Ok(result) => Ok(result),
             Err(primary_err) => {
                 log::warn!(
@@ -321,7 +556,37 @@ impl LLMProvider for FallbackProvider {
                     self.fallback.name()
                 );
                 self.fallback
-                    .complete(system_prompt, user_message)
+                    .complete_conversation(system_prompt, messages)
+                    .await
+                    .context(format!(
+                        "Both providers failed. Primary: {}. Fallback",
+                        primary_err
+                    ))
+            }
+        }
+    }
+
+    async fn complete_with_tools(
+        &self,
+        system_prompt: &str,
+        messages: &[ToolMessage],
+        tools: &[ToolDef],
+    ) -> Result<ProviderTurn> {
+        match self
+            .primary
+            .complete_with_tools(system_prompt, messages, tools)
+            .await
+        {
+            Ok(result) => Ok(result),
+            Err(primary_err) => {
+                log::warn!(
+                    "Primary provider ({}) tool call failed: {}. Trying fallback ({}).",
+                    self.primary.name(),
+                    primary_err,
+                    self.fallback.name()
+                );
+                self.fallback
+                    .complete_with_tools(system_prompt, messages, tools)
                     .await
                     .context(format!(
                         "Both providers failed. Primary: {}. Fallback",
@@ -347,13 +612,20 @@ pub fn build_provider() -> Result<Arc<dyn LLMProvider>> {
     let has_anthropic = app_settings::has_app_secret("anthropic");
     let has_openai = app_settings::has_app_secret("openai");
 
+    // Use the configured Anthropic model; fall back to the default if settings
+    // are unreadable. OpenAI keeps its built-in default.
+    let anthropic_model = app_settings::load_app_settings()
+        .map(|s| s.agent_model)
+        .unwrap_or_else(|_| app_settings::DEFAULT_ANTHROPIC_MODEL.to_string());
+
     let base: Arc<dyn LLMProvider> = match (has_anthropic, has_openai) {
         (true, true) => {
-            let primary: Arc<dyn LLMProvider> = Arc::new(AnthropicProvider::new(None));
+            let primary: Arc<dyn LLMProvider> =
+                Arc::new(AnthropicProvider::new(Some(anthropic_model)));
             let fallback: Arc<dyn LLMProvider> = Arc::new(OpenAIProvider::new(None));
             Arc::new(FallbackProvider::new(primary, fallback))
         }
-        (true, false) => Arc::new(AnthropicProvider::new(None)),
+        (true, false) => Arc::new(AnthropicProvider::new(Some(anthropic_model))),
         (false, true) => Arc::new(OpenAIProvider::new(None)),
         (false, false) => {
             anyhow::bail!(

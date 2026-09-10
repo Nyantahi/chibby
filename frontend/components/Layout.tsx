@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
-import { FolderGit2, PlusCircle, Settings, Layers } from 'lucide-react';
+import { FolderGit2, PlusCircle, Settings, Layers, Sun, Moon } from 'lucide-react';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { getAppVersion } from '../services/api';
 import { initRunStore } from '../services/runStore';
+import { initAgentStore } from '../services/agentStore';
+import { getPref, setPref, PREF_THEME, type Theme } from '../services/prefs';
 import Toaster from './Toaster';
 import RunningRunsBadge from './RunningRunsBadge';
 
@@ -29,10 +31,20 @@ function ChibbyLogo({ size = 22 }: { size?: number }) {
 function Layout() {
   useKeyboardShortcuts();
   const [version, setVersion] = useState<string>('');
+  const [theme, setTheme] = useState<Theme>(() => getPref<Theme>(PREF_THEME, 'dark'));
+
+  function handleToggleTheme() {
+    const next: Theme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    setPref(PREF_THEME, next);
+    document.documentElement.setAttribute('data-theme', next);
+  }
 
   useEffect(() => {
     // Register the single global pipeline:log listener that feeds the run store.
     initRunStore();
+    // Register the single global agent:session listener for tool sessions.
+    initAgentStore();
     getAppVersion()
       .then(setVersion)
       .catch(() => setVersion('unknown'));
@@ -68,7 +80,18 @@ function Layout() {
             <Settings size={16} />
             <span>Settings</span>
           </NavLink>
-          <span className="version-label">v{version}</span>
+          <div className="sidebar-footer-meta">
+            <button
+              type="button"
+              className="theme-toggle"
+              onClick={handleToggleTheme}
+              title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+              aria-label="Toggle theme"
+            >
+              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+            <span className="version-label">v{version}</span>
+          </div>
         </div>
       </aside>
 

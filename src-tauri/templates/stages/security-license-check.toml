@@ -1,0 +1,15 @@
+[meta]
+name = "Security: License Check"
+description = "Check dependency licenses against the denylist (chibby scan license)"
+author = "chibby"
+version = "1.0.0"
+category = "security"
+tags = ["security", "license", "compliance", "scan"]
+required_tools = []
+template_type = "stage"
+
+[[stages]]
+name = "security-license"
+commands = ["NO_COLOR=true chibby scan license"]
+backend = "local"
+fail_fast = true

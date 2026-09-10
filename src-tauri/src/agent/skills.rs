@@ -209,12 +209,13 @@ pub fn skill_guidance(skill: &SkillMode) -> &'static str {
              6. Explain what each stage does after the config."
         }
         SkillMode::Execute => {
-            "You are being asked to execute a pipeline. Focus on:\n\
-             1. Confirm which pipeline and environment the user wants to run.\n\
-             2. Non-deploy stages will execute automatically.\n\
-             3. Deploy stages MUST pause and request user approval.\n\
-             4. Report progress as stages complete.\n\
-             5. If a stage fails, analyze the failure immediately."
+            "You are taking action on this project using tools. Focus on:\n\
+             1. Investigate first — read files and run safe checks (build/test/lint/validate) before changing anything.\n\
+             2. Run CI/CD commands with run_command; prefer the smallest command that answers the question.\n\
+             3. Edit CI/CD files with edit_ci_file, always providing the COMPLETE new file content.\n\
+             4. Risky commands and edits may pause for approval — wait for the tool result before assuming success.\n\
+             5. Stay strictly within CI/CD; decline unrelated work and offer the CI/CD angle instead.\n\
+             6. When done, summarize what you changed and any follow-up the user should take."
         }
         SkillMode::General => {
             "You are answering a general CI/CD question. Be direct and practical.\n\

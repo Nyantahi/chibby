@@ -719,6 +719,7 @@ import type {
   AgentAnalysis,
   AgentResponse,
   AgentSystemStatus,
+  ChatTurn,
   GeneratedPipeline,
   MemoryEntry,
   PipelineFormat,
@@ -734,13 +735,14 @@ export async function analyzeRun(runId: string): Promise<AgentAnalysis> {
   return invoke<AgentAnalysis>('analyze_run', { runId });
 }
 
-/** Chat with the CI/CD agent. */
+/** Chat with the CI/CD agent, threading prior turns for context. */
 export async function agentChat(
   message: string,
+  history: ChatTurn[] = [],
   projectId?: string,
   runId?: string
 ): Promise<AgentResponse> {
-  return invoke<AgentResponse>('agent_chat', { message, projectId, runId });
+  return invoke<AgentResponse>('agent_chat', { message, history, projectId, runId });
 }
 
 /** Generate a pipeline config for a project. */
@@ -778,6 +780,33 @@ export async function deleteAgentMemory(key: string, projectId?: string): Promis
 /** Rebuild the agent (e.g., after changing API keys). */
 export async function rebuildAgent(): Promise<AgentSystemStatus> {
   return invoke<AgentSystemStatus>('rebuild_agent');
+}
+
+/**
+ * Run an agent session (streams `agent:session` events). When `readOnly` is
+ * true the agent runs in Advise mode — only read/inspect tools are available.
+ */
+export async function agentRunToolSession(
+  sessionId: string,
+  message: string,
+  projectPath: string,
+  readOnly: boolean
+): Promise<string> {
+  return invoke<string>('agent_run_tool_session', {
+    sessionId,
+    message,
+    projectPath,
+    readOnly,
+  });
+}
+
+/** Approve or reject a pending agent action, unblocking the paused session. */
+export async function approveAgentAction(
+  sessionId: string,
+  actionId: string,
+  approved: boolean
+): Promise<void> {
+  return invoke<void>('approve_agent_action', { sessionId, actionId, approved });
 }
 
 // ---------------------------------------------------------------------------

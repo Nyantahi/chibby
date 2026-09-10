@@ -105,6 +105,39 @@ fn builtin_template_entries() -> Vec<(&'static str, &'static str)> {
             "homebrew-core-pr.toml",
             include_str!("../../templates/stages/homebrew-core-pr.toml"),
         ),
+        // Security stage templates
+        (
+            "security-secret-scan.toml",
+            include_str!("../../templates/stages/security-secret-scan.toml"),
+        ),
+        (
+            "security-dependency-audit.toml",
+            include_str!("../../templates/stages/security-dependency-audit.toml"),
+        ),
+        (
+            "security-sast.toml",
+            include_str!("../../templates/stages/security-sast.toml"),
+        ),
+        (
+            "security-container-scan.toml",
+            include_str!("../../templates/stages/security-container-scan.toml"),
+        ),
+        (
+            "security-iac-scan.toml",
+            include_str!("../../templates/stages/security-iac-scan.toml"),
+        ),
+        (
+            "security-license-check.toml",
+            include_str!("../../templates/stages/security-license-check.toml"),
+        ),
+        (
+            "security-commit-lint.toml",
+            include_str!("../../templates/stages/security-commit-lint.toml"),
+        ),
+        (
+            "security-scans.toml",
+            include_str!("../../templates/stages/security-scans.toml"),
+        ),
         // Cloud provider deployment templates
         (
             "flyio-deploy.toml",
