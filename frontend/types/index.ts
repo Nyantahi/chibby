@@ -933,12 +933,7 @@ export interface PipelineTemplate {
 
 /** Where a detected env/secret name was discovered. */
 export type SourceKind =
-  | 'dot_env'
-  | 'docker_compose'
-  | 'gha_workflow'
-  | 'js_code'
-  | 'py_code'
-  | 'rs_code';
+  'dot_env' | 'docker_compose' | 'gha_workflow' | 'js_code' | 'py_code' | 'rs_code';
 
 /** Classification of a detected name. */
 export type Classification = 'secret' | 'variable';
@@ -1036,10 +1031,7 @@ export type HookKind = 'pre_push' | 'pre_commit';
 
 /** What is currently sitting at a repo's hook path. */
 export type HookState =
-  | 'not_installed'
-  | 'chibby_managed'
-  | 'foreign'
-  | 'foreign_with_chibby_block';
+  'not_installed' | 'chibby_managed' | 'foreign' | 'foreign_with_chibby_block';
 
 /** How aggressively to install over an existing hook. */
 export type InstallMode = 'safe' | 'force' | 'append';
