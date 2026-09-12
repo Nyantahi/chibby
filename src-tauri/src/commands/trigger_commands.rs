@@ -4,9 +4,11 @@ use crate::engine::models::PipelineRun;
 use crate::engine::trigger_state::{self, TriggerStateEntry};
 use crate::engine::triggers::hooks::{self, HookKind, HookState, InstallMode};
 use crate::engine::triggers::{self, runner, schedule, HookSpec, TriggersConfig};
+use crate::state::SharedPipelineState;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use tauri::State;
 
 /// How many upcoming fire times `next_run_times` returns by default.
 const DEFAULT_PREVIEW_COUNT: usize = 5;
@@ -20,6 +22,14 @@ pub fn load_triggers(repo_path: String, layered: Option<bool>) -> Result<Trigger
         false => triggers::load_triggers(path),
     };
     config.map_err(|e| e.to_string())
+}
+
+/// Load `.chibby/triggers.local.toml` alone — the per-machine overrides, with
+/// nothing merged in. The editor needs this to save back only what that file
+/// owns; writing the merged view to it would shadow every later team edit.
+#[tauri::command]
+pub fn load_triggers_local(repo_path: String) -> Result<TriggersConfig, String> {
+    triggers::load_triggers_local(Path::new(&repo_path)).map_err(|e| e.to_string())
 }
 
 /// Save triggers to the committed file, or the per-developer local override.
@@ -45,14 +55,22 @@ pub fn next_run_times(cron: String, count: Option<usize>) -> Result<Vec<DateTime
 }
 
 /// Run a configured trigger immediately.
+///
+/// The run state is passed through so the run shows as in progress and can be
+/// cancelled from the window that started it, like any other GUI run.
 #[tauri::command]
 pub async fn fire_trigger_now(
+    pipeline_state: State<'_, SharedPipelineState>,
     repo_path: String,
     trigger_id: String,
 ) -> Result<PipelineRun, String> {
-    runner::fire_trigger_now(Path::new(&repo_path), &trigger_id)
-        .await
-        .map_err(|e| e.to_string())
+    runner::fire_trigger_now(
+        Path::new(&repo_path),
+        &trigger_id,
+        Some(pipeline_state.inner().clone()),
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Install a git hook for a repo.

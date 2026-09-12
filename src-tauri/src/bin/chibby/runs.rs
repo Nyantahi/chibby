@@ -28,12 +28,7 @@ pub(crate) async fn run_pipeline(
 ) -> anyhow::Result<()> {
     printer.banner();
 
-    // Canonicalize so runs are stored under the same path `projects`/`status`
-    // resolve to (e.g. /tmp vs /private/tmp on macOS).
-    let project_path = {
-        let p = crate::project_path(project);
-        p.canonicalize().unwrap_or(p)
-    };
+    let project_path = crate::project_path(project);
 
     printer.header(&format!("{} Running Pipeline", icons::ROCKET));
     printer.kv("Project", &project_path.display().to_string());
@@ -242,11 +237,7 @@ fn format_relative_time(when: chrono::DateTime<Utc>) -> String {
 /// Resolve the tracked project for a `-p`/cwd reference, or bail with guidance.
 fn resolve_project(project: Option<&PathBuf>) -> anyhow::Result<Project> {
     let path = crate::project_path(project);
-    let path_str = path
-        .canonicalize()
-        .unwrap_or(path.clone())
-        .to_string_lossy()
-        .to_string();
+    let path_str = path.to_string_lossy().to_string();
     let projects = persistence::load_projects()?;
     projects
         .into_iter()
@@ -704,11 +695,7 @@ fn resolve_last_good_target(
     })?;
 
     let path = crate::project_path(project);
-    let path_str = path
-        .canonicalize()
-        .unwrap_or_else(|_| path.clone())
-        .to_string_lossy()
-        .to_string();
+    let path_str = path.to_string_lossy().to_string();
 
     let pipeline = run_support::load_selected_pipeline(&path, None)
         .with_context(|| format!("Failed to load pipeline from {}", path.display()))?;

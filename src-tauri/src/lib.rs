@@ -217,6 +217,7 @@ pub fn run() {
             agent_commands::approve_agent_action,
             // Local trigger commands (schedules, watches, git hooks)
             trigger_commands::load_triggers,
+            trigger_commands::load_triggers_local,
             trigger_commands::save_triggers,
             trigger_commands::next_run_times,
             trigger_commands::fire_trigger_now,

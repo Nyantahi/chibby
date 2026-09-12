@@ -9,7 +9,7 @@ use chibby_lib::engine::insights::{
 };
 use chibby_lib::engine::models::CleanupConfig;
 use chibby_lib::engine::run_index;
-use chibby_lib::engine::{insights, persistence};
+use chibby_lib::engine::{cleanup, insights, persistence};
 use owo_colors::OwoColorize;
 use std::path::{Path, PathBuf};
 
@@ -24,17 +24,17 @@ pub(crate) fn show_insights(
     rebuild: bool,
     prune: bool,
 ) -> anyhow::Result<()> {
+    let scope = project.map(|p| resolve_scope(p)).transpose()?;
+
     if rebuild {
         let entries = run_index::rebuild()?;
         printer.success(&format!("Rebuilt run index — {entries} entries"));
     }
     if prune {
-        let defaults = CleanupConfig::default();
-        let dropped = run_index::prune(defaults.index_retention_days, defaults.index_max_entries)?;
+        let dropped = prune_index(project, scope.as_deref())?;
         printer.success(&format!("Pruned {dropped} run index entries"));
     }
 
-    let scope = project.map(|p| resolve_scope(p)).transpose()?;
     let report = insights::report(scope.as_deref(), days)?;
 
     if json {
@@ -46,11 +46,25 @@ pub(crate) fn show_insights(
     Ok(())
 }
 
+/// Prune the index within `--project`'s scope, using that project's own
+/// bounds. Deleting run records is irreversible, so an unscoped `--prune` must
+/// not silently apply one project's (or the built-in) retention to every other
+/// project's history.
+fn prune_index(project: Option<&PathBuf>, scope: Option<&str>) -> anyhow::Result<u32> {
+    let config = match project {
+        Some(path) => cleanup::resolve_cleanup_config(path)?,
+        None => CleanupConfig::default(),
+    };
+    Ok(run_index::prune(
+        scope,
+        config.index_retention_days,
+        config.index_max_entries,
+    )?)
+}
+
 /// Canonical repo path for `--project`, matching how runs are recorded.
 fn resolve_scope(project: &Path) -> anyhow::Result<String> {
-    let path = project
-        .canonicalize()
-        .unwrap_or_else(|_| project.to_path_buf());
+    let path = crate::project_path(Some(&project.to_path_buf()));
     Ok(path.to_string_lossy().to_string())
 }
 

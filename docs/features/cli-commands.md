@@ -225,7 +225,12 @@ chibby insights -p /path/to/project --days 30
 chibby insights --json                 # raw report, for scripting
 chibby insights --rebuild              # regenerate the index from runs/
 chibby insights --prune                # apply index retention now
+chibby insights -p /path/to/project --prune   # ...for that project only
 ```
+
+`--prune` deletes run records permanently. With `-p` it uses that project's
+`.chibby/cleanup.toml` bounds and touches only its entries; without `-p` it
+applies the built-in defaults to every project.
 
 Sections: totals versus the previous window, the project × environment deploy
 matrix (what is live, and whether deploys have failed since), stage reliability

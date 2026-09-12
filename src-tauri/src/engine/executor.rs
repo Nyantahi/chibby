@@ -1,4 +1,6 @@
-use crate::engine::deploy::{build_ssh_command, check_docker_compose_services, run_health_check};
+use crate::engine::deploy::{
+    build_ssh_command, check_docker_compose_services, run_health_check, StageLog,
+};
 use crate::engine::git;
 use crate::engine::locks;
 use crate::engine::models::{
@@ -13,6 +15,7 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -444,40 +447,48 @@ async fn run_stage_attempt(stage: &Stage, ctx: &StageContext<'_>) -> AttemptOutc
             let on_log_ref = ctx.on_log;
             let redactor = ctx.redactor;
 
+            // Collected through shared buffers rather than the futures' return
+            // values: a timeout or a cancel drops these tasks mid-read, and
+            // anything they had gathered would go with them — leaving a
+            // timed-out stage with the timeout marker and none of the output
+            // that explains it.
+            let out_buf = Buffer::default();
+            let err_buf = Buffer::default();
+
             // Redaction happens here, at ingest, so the secret never reaches
             // either the streamed callback or the text persisted to disk.
-            let stdout_task = async {
-                let mut out = String::new();
-                if let Some(pipe) = stdout_pipe {
-                    let reader = BufReader::new(pipe);
-                    let mut lines = reader.lines();
-                    while let Some(line) = lines.next_line().await.unwrap_or(None) {
-                        let line = redactor.redact_log(&line);
-                        out.push_str(&line);
-                        out.push('\n');
-                        if let Some(ref cb) = on_log_ref {
-                            cb(&stage_name_out, "stdout", &line);
+            let stdout_task = {
+                let out_buf = out_buf.clone();
+                async move {
+                    if let Some(pipe) = stdout_pipe {
+                        let reader = BufReader::new(pipe);
+                        let mut lines = reader.lines();
+                        while let Some(line) = lines.next_line().await.unwrap_or(None) {
+                            let line = redactor.redact_log(&line);
+                            push_line(&out_buf, &line);
+                            if let Some(ref cb) = on_log_ref {
+                                cb(&stage_name_out, "stdout", &line);
+                            }
                         }
                     }
                 }
-                out
             };
 
-            let stderr_task = async {
-                let mut err = String::new();
-                if let Some(pipe) = stderr_pipe {
-                    let reader = BufReader::new(pipe);
-                    let mut lines = reader.lines();
-                    while let Some(line) = lines.next_line().await.unwrap_or(None) {
-                        let line = redactor.redact_log(&line);
-                        err.push_str(&line);
-                        err.push('\n');
-                        if let Some(ref cb) = on_log_ref {
-                            cb(&stage_name_err, "stderr", &line);
+            let stderr_task = {
+                let err_buf = err_buf.clone();
+                async move {
+                    if let Some(pipe) = stderr_pipe {
+                        let reader = BufReader::new(pipe);
+                        let mut lines = reader.lines();
+                        while let Some(line) = lines.next_line().await.unwrap_or(None) {
+                            let line = redactor.redact_log(&line);
+                            push_line(&err_buf, &line);
+                            if let Some(ref cb) = on_log_ref {
+                                cb(&stage_name_err, "stderr", &line);
+                            }
                         }
                     }
                 }
-                err
             };
 
             // Cancellation monitor - polls every 200ms and kills the child.
@@ -513,9 +524,7 @@ async fn run_stage_attempt(stage: &Stage, ctx: &StageContext<'_>) -> AttemptOutc
             tokio::select! {
                 biased;
 
-                (out, err) = async { tokio::join!(stdout_task, stderr_task) } => {
-                    stdout.push_str(&out);
-                    stderr.push_str(&err);
+                _ = async { tokio::join!(stdout_task, stderr_task) } => {
                     interrupt = None;
                 }
                 _ = cancel_task => {
@@ -527,6 +536,10 @@ async fn run_stage_attempt(stage: &Stage, ctx: &StageContext<'_>) -> AttemptOutc
                     interrupt = Some(StageStatus::TimedOut);
                 }
             }
+
+            // Whatever was read before the interrupt is still the stage's output.
+            stdout.push_str(&take_buffer(&out_buf));
+            stderr.push_str(&take_buffer(&err_buf));
         }
 
         // Clear the running PID.
@@ -642,6 +655,19 @@ async fn kill_child(child: &mut tokio::process::Child, stage: &Stage, ctx: &Stag
     }
 }
 
+/// Output collected by a reader task, readable even if that task is dropped.
+type Buffer = Arc<Mutex<String>>;
+
+fn push_line(buffer: &Buffer, line: &str) {
+    let mut buf = buffer.lock().unwrap_or_else(|e| e.into_inner());
+    buf.push_str(line);
+    buf.push('\n');
+}
+
+fn take_buffer(buffer: &Buffer) -> String {
+    std::mem::take(&mut *buffer.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
 /// An attempt cut short by user cancellation.
 fn cancelled_outcome(stdout: String, stderr: String) -> AttemptOutcome {
     AttemptOutcome {
@@ -668,6 +694,8 @@ async fn stage_health_result(
         return None;
     }
 
+    let log = StageLog::new(ctx.on_log, ctx.redactor, &stage.name);
+
     if let Some(ref hc) = stage.health_check {
         let passed = run_health_check(
             hc,
@@ -676,20 +704,13 @@ async fn stage_health_result(
             ctx.repo_path,
             &stage.working_dir,
             ctx.env_vars,
-            ctx.on_log,
-            &stage.name,
+            &log,
         )
         .await;
 
         if !passed {
             *stage_status = StageStatus::Failed;
-            if let Some(ref cb) = ctx.on_log {
-                cb(
-                    &stage.name,
-                    "error",
-                    "Health check failed after all retries",
-                );
-            }
+            log.emit("error", "Health check failed after all retries");
         }
         return Some(passed);
     }
@@ -701,14 +722,9 @@ async fn stage_health_result(
             .iter()
             .any(|c| c.contains("docker compose up"))
     {
-        let docker_ok = check_docker_compose_services(
-            ctx.environment,
-            &stage.working_dir,
-            ctx.env_vars,
-            ctx.on_log,
-            &stage.name,
-        )
-        .await;
+        let docker_ok =
+            check_docker_compose_services(ctx.environment, &stage.working_dir, ctx.env_vars, &log)
+                .await;
         if !docker_ok {
             *stage_status = StageStatus::Failed;
         }

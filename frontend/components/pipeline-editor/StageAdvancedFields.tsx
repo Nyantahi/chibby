@@ -121,20 +121,24 @@ function StageAdvancedFields({ stage, onChange }: Props) {
     onChange({ env: { ...env, [`VAR_${Object.keys(env).length + 1}`]: '' } });
   }
 
-  function handleEnvRename(key: string, newKey: string) {
-    const next: Record<string, string> = {};
-    for (const [k, v] of Object.entries(env)) next[k === key ? newKey : k] = v;
-    onChange({ env: next });
+  // Rows are addressed by position, not by name: the name is what the user is
+  // editing, so a name-keyed row would be a different row on every keystroke.
+  function handleEnvRename(index: number, newKey: string) {
+    replaceEnvRow(index, ([, value]) => [newKey, value]);
   }
 
-  function handleEnvValue(key: string, value: string) {
-    onChange({ env: { ...env, [key]: value } });
+  function handleEnvValue(index: number, value: string) {
+    replaceEnvRow(index, ([key]) => [key, value]);
   }
 
-  function handleEnvRemove(key: string) {
-    const next = { ...env };
-    delete next[key];
-    onChange({ env: Object.keys(next).length > 0 ? next : undefined });
+  function replaceEnvRow(index: number, replace: (row: [string, string]) => [string, string]) {
+    const rows = Object.entries(env).map((row, i) => (i === index ? replace(row) : row));
+    onChange({ env: Object.fromEntries(rows) });
+  }
+
+  function handleEnvRemove(index: number) {
+    const rows = Object.entries(env).filter((_, i) => i !== index);
+    onChange({ env: rows.length > 0 ? Object.fromEntries(rows) : undefined });
   }
 
   return (
@@ -353,21 +357,26 @@ function StageAdvancedFields({ stage, onChange }: Props) {
                 <Plus size={12} />
               </button>
             </div>
-            {Object.entries(env).map(([key, value]) => (
-              <div key={key} className="env-var-row">
+            {Object.entries(env).map(([key, value], index) => (
+              // Keyed by position: the row's identity is where it sits, and
+              // keying by the name being typed would make every keystroke a
+              // different row — remounting the input and dropping focus.
+              <div key={index} className="env-var-row">
                 <input
                   className="input input-sm"
                   value={key}
-                  onChange={(e) => handleEnvRename(key, e.target.value)}
+                  onChange={(e) => handleEnvRename(index, e.target.value)}
+                  aria-label={`Variable ${index + 1} name`}
                 />
                 <input
                   className="input input-sm"
                   value={value}
-                  onChange={(e) => handleEnvValue(key, e.target.value)}
+                  onChange={(e) => handleEnvValue(index, e.target.value)}
+                  aria-label={`Variable ${index + 1} value`}
                 />
                 <button
                   className="btn btn-icon btn-sm btn-danger-icon"
-                  onClick={() => handleEnvRemove(key)}
+                  onClick={() => handleEnvRemove(index)}
                   title="Remove variable"
                 >
                   <Trash2 size={12} />

@@ -27,7 +27,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 /// Process-wide lock serializing read-modify-write of `runs-index.json`.
@@ -121,28 +121,60 @@ fn index_file() -> Result<PathBuf> {
     Ok(data_dir()?.join("runs-index.json"))
 }
 
-/// Read the index verbatim. `None` when it is missing, unreadable or corrupt —
-/// all three mean "rebuild", never "fail".
+/// Read the index verbatim. `None` when it is missing or unreadable — both
+/// mean "rebuild", never "fail". A file that exists but does not parse is
+/// moved aside first, so the next write cannot replace it with an empty map.
 fn read_index() -> Option<RunIndex> {
     let path = index_file().ok()?;
     let content = std::fs::read_to_string(&path).ok()?;
-    serde_json::from_str(&content).ok()
+    match serde_json::from_str(&content) {
+        Ok(index) => Some(index),
+        Err(e) => {
+            quarantine_index(&path, &e);
+            None
+        }
+    }
 }
 
+/// Keep an unparseable index instead of overwriting it. Entries whose run JSON
+/// retention already deleted exist nowhere else, so a truncated file is the
+/// only remaining copy of the long-window history — worth a manual recovery.
+fn quarantine_index(path: &Path, err: &serde_json::Error) {
+    let backup = path.with_extension(format!("corrupt-{}.json", Utc::now().timestamp()));
+    log::error!(
+        "Run index at {} is unreadable ({err}) — moving it to {}",
+        path.display(),
+        backup.display()
+    );
+    let _ = std::fs::rename(path, &backup);
+}
+
+/// Write via a temp file and rename, so a crash (or a second process writing
+/// the same file) can never leave a half-written index behind. `save_run`
+/// upserts after every stage, so partial writes would otherwise be likely.
 fn write_index(index: &RunIndex) -> Result<()> {
     let path = index_file()?;
-    std::fs::write(&path, serde_json::to_string(index)?)
-        .with_context(|| format!("Failed to write {}", path.display()))?;
+    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+    std::fs::write(&tmp, serde_json::to_string(index)?)
+        .with_context(|| format!("Failed to write {}", tmp.display()))?;
+    std::fs::rename(&tmp, &path)
+        .with_context(|| format!("Failed to replace {}", path.display()))?;
     Ok(())
 }
 
-/// Atomically load, mutate and persist the index under the process lock.
+/// Load, mutate and persist the index under the process lock.
+///
+/// A missing or quarantined index rebuilds from `runs/` before the mutation:
+/// starting from an empty map would persist the loss on the very next write.
 fn mutate_index<F, R>(f: F) -> Result<R>
 where
     F: FnOnce(&mut RunIndex) -> R,
 {
     let _guard = INDEX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut index = read_index().unwrap_or_default();
+    let mut index = match read_index() {
+        Some(index) => index,
+        None => rebuild_locked()?,
+    };
     let result = f(&mut index);
     write_index(&index)?;
     Ok(result)
@@ -246,11 +278,38 @@ fn load_or_rebuild() -> Result<RunIndex> {
     let backed = index.values().filter(|s| !s.logs_pruned).count();
     let files = run_file_count().unwrap_or(backed);
     if backed >= files {
-        return Ok(index);
+        return refresh_running(index);
     }
 
     log::info!("Run index behind runs/ ({backed} indexed vs {files} files) — rebuilding");
     rebuild_index()
+}
+
+/// Re-read the run records of entries still marked `running`.
+///
+/// The count check above cannot see a *stale* entry, so an index write that
+/// loses a race with another process can leave a finished run showing as
+/// in-flight forever. There are only ever a handful of running entries, so
+/// re-reading exactly those is cheap.
+fn refresh_running(mut index: RunIndex) -> Result<RunIndex> {
+    let stale: Vec<RunSummary> = index
+        .values()
+        .filter(|s| s.status == RunStatus::Running && !s.logs_pruned)
+        .filter_map(|s| crate::engine::persistence::load_run(&s.id).ok().flatten())
+        .filter(|run| run.status != RunStatus::Running)
+        .map(|run| RunSummary::from_run(&run))
+        .collect();
+
+    if stale.is_empty() {
+        return Ok(index);
+    }
+
+    for summary in stale {
+        index.insert(summary.id.clone(), summary);
+    }
+    let _guard = INDEX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    write_index(&index)?;
+    Ok(index)
 }
 
 // ---------------------------------------------------------------------------
@@ -266,9 +325,13 @@ pub fn rebuild() -> Result<usize> {
 /// is real history the runs directory can no longer produce, so a rebuild must
 /// keep it (flagged `logs_pruned`) instead of silently shrinking the metrics.
 fn rebuild_index() -> Result<RunIndex> {
-    let runs = load_runs()?;
     let _guard = INDEX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    rebuild_locked()
+}
 
+/// [`rebuild_index`] with `INDEX_LOCK` already held.
+fn rebuild_locked() -> Result<RunIndex> {
+    let runs = load_runs()?;
     let mut index = read_index().unwrap_or_default();
     for entry in index.values_mut() {
         entry.logs_pruned = true;
@@ -286,12 +349,18 @@ fn rebuild_index() -> Result<RunIndex> {
 /// whichever bites first wins: entries older than `retention_days` go, then
 /// the oldest entries beyond `max_entries`. Returns how many were dropped.
 ///
+/// `scope` limits both bounds to one project. The bounds come from a single
+/// project's cleanup config, so applying them index-wide would let whichever
+/// project ran last delete everyone else's history; `None` is reserved for
+/// callers that genuinely own every project's data.
+///
 /// An entry leaving the index takes any surviving run record with it. The
 /// index bounds are far wider than run retention, so in practice the record
 /// is long gone — but keeping "every run file has an index entry" true is
 /// what lets [`load`] detect drift by counting instead of parsing.
-pub fn prune(retention_days: u32, max_entries: u32) -> Result<u32> {
-    let dropped = mutate_index(|index| drop_beyond_bounds(index, retention_days, max_entries))?;
+pub fn prune(scope: Option<&str>, retention_days: u32, max_entries: u32) -> Result<u32> {
+    let dropped =
+        mutate_index(|index| drop_beyond_bounds(index, scope, retention_days, max_entries))?;
 
     for id in &dropped {
         if let Err(e) = crate::engine::persistence::remove_run_file(id) {
@@ -302,14 +371,25 @@ pub fn prune(retention_days: u32, max_entries: u32) -> Result<u32> {
     Ok(dropped.len() as u32)
 }
 
+/// Whether an entry is in scope: every entry when `scope` is `None`.
+fn in_scope(summary: &RunSummary, scope: Option<&str>) -> bool {
+    scope.map_or(true, |repo| summary.repo_path == repo)
+}
+
 /// Remove out-of-bounds entries from `index`, returning their ids.
-fn drop_beyond_bounds(index: &mut RunIndex, retention_days: u32, max_entries: u32) -> Vec<String> {
+/// Out-of-scope entries are never candidates, for either bound.
+fn drop_beyond_bounds(
+    index: &mut RunIndex,
+    scope: Option<&str>,
+    retention_days: u32,
+    max_entries: u32,
+) -> Vec<String> {
     let mut dropped = Vec::new();
 
     if retention_days > 0 {
         let cutoff = Utc::now() - Duration::days(retention_days as i64);
         index.retain(|id, summary| {
-            let keep = summary.started_at >= cutoff;
+            let keep = summary.started_at >= cutoff || !in_scope(summary, scope);
             if !keep {
                 dropped.push(id.clone());
             }
@@ -317,9 +397,10 @@ fn drop_beyond_bounds(index: &mut RunIndex, retention_days: u32, max_entries: u3
         });
     }
 
-    if max_entries > 0 && index.len() > max_entries as usize {
+    if max_entries > 0 {
         let mut by_age: Vec<(String, DateTime<Utc>)> = index
             .iter()
+            .filter(|(_, s)| in_scope(s, scope))
             .map(|(id, s)| (id.clone(), s.started_at))
             .collect();
         // Newest first, so everything past the limit is the oldest.
@@ -334,15 +415,18 @@ fn drop_beyond_bounds(index: &mut RunIndex, retention_days: u32, max_entries: u3
 }
 
 /// How many entries [`prune`] would drop, without touching anything.
-pub fn prune_preview(retention_days: u32, max_entries: u32) -> Result<u32> {
+pub fn prune_preview(scope: Option<&str>, retention_days: u32, max_entries: u32) -> Result<u32> {
     let index = load_or_rebuild()?;
-    let total = index.len();
+    let total = index.values().filter(|s| in_scope(s, scope)).count();
 
     let dropped_by_age = match retention_days {
         0 => 0,
         days => {
             let cutoff = Utc::now() - Duration::days(days as i64);
-            index.values().filter(|s| s.started_at < cutoff).count()
+            index
+                .values()
+                .filter(|s| in_scope(s, scope) && s.started_at < cutoff)
+                .count()
         }
     };
 
@@ -517,8 +601,8 @@ mod tests {
         save("middle", 10);
         save("oldest", 100);
 
-        assert_eq!(prune_preview(0, 2).unwrap(), 1);
-        assert_eq!(prune(0, 2).unwrap(), 1);
+        assert_eq!(prune_preview(None, 0, 2).unwrap(), 1);
+        assert_eq!(prune(None, 0, 2).unwrap(), 1);
 
         let ids: Vec<String> = load().unwrap().into_iter().map(|s| s.id).collect();
         assert_eq!(ids, vec!["newest".to_string(), "middle".to_string()]);
@@ -530,8 +614,8 @@ mod tests {
         save("recent", 60);
         save("ancient", 60 * 24 * 40);
 
-        assert_eq!(prune_preview(30, 0).unwrap(), 1);
-        assert_eq!(prune(30, 0).unwrap(), 1);
+        assert_eq!(prune_preview(None, 30, 0).unwrap(), 1);
+        assert_eq!(prune(None, 30, 0).unwrap(), 1);
 
         let ids: Vec<String> = load().unwrap().into_iter().map(|s| s.id).collect();
         assert_eq!(ids, vec!["recent".to_string()]);
@@ -543,8 +627,49 @@ mod tests {
         save("a", 1);
         save("b", 60 * 24 * 400);
 
-        assert_eq!(prune_preview(0, 0).unwrap(), 0);
-        assert_eq!(prune(0, 0).unwrap(), 0);
+        assert_eq!(prune_preview(None, 0, 0).unwrap(), 0);
+        assert_eq!(prune(None, 0, 0).unwrap(), 0);
+        assert_eq!(load().unwrap().len(), 2);
+    }
+
+    /// Housekeeping runs after every run, and the bounds come from one
+    /// project's cleanup.toml — so an unscoped prune would let whichever
+    /// project built last delete another project's history.
+    #[test]
+    fn test_prune_never_touches_another_project() {
+        let (_dir, _lock) = scoped_test_data_dir();
+        persistence::save_run(&run_with_logs("mine", REPO, 1)).unwrap();
+        persistence::save_run(&run_with_logs("theirs", "/tmp/other-repo", 60 * 24 * 400)).unwrap();
+
+        assert_eq!(prune_preview(Some(REPO), 30, 1).unwrap(), 0);
+        assert_eq!(prune(Some(REPO), 30, 1).unwrap(), 0);
+
+        let ids: Vec<String> = load().unwrap().into_iter().map(|s| s.id).collect();
+        assert_eq!(ids.len(), 2, "other project's history was pruned: {ids:?}");
+    }
+
+    /// A truncated index is the only copy of summary-only history, so it must
+    /// be moved aside rather than replaced by the next write.
+    #[test]
+    fn test_corrupt_index_is_quarantined_not_overwritten() {
+        let (_dir, _lock) = scoped_test_data_dir();
+        save("a", 1);
+        let path = index_file().unwrap();
+        std::fs::write(&path, "{ truncated").unwrap();
+
+        upsert(&run_with_logs("b", REPO, 1)).unwrap();
+
+        let backups: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().contains("corrupt-"))
+            .collect();
+        assert_eq!(backups.len(), 1, "corrupt index was not kept");
+        assert_eq!(
+            std::fs::read_to_string(backups[0].path()).unwrap(),
+            "{ truncated"
+        );
+        // The rebuild from runs/ means the surviving records are still indexed.
         assert_eq!(load().unwrap().len(), 2);
     }
 

@@ -330,10 +330,17 @@ async fn handle_projects(printer: &Printer, cmd: &ProjectsCmd) -> anyhow::Result
     Ok(())
 }
 
+/// The project to act on: `--project` when given, else the current directory.
+///
+/// Always canonical, so every command agrees on a repo's identity. The run lock
+/// is keyed by this string and runs are filed under it, so `/tmp/app` and
+/// `/private/tmp/app` would otherwise take *different* locks — two concurrent
+/// runs of the same repo — and file runs that `chibby insights -p` cannot find.
 pub(crate) fn project_path(project: Option<&PathBuf>) -> PathBuf {
-    project
+    let path = project
         .cloned()
-        .unwrap_or_else(|| std::env::current_dir().expect("current_dir failed"))
+        .unwrap_or_else(|| std::env::current_dir().expect("current_dir failed"));
+    path.canonicalize().unwrap_or(path)
 }
 
 async fn bootstrap_cmd(

@@ -13,6 +13,39 @@ use tokio::process::Command;
 
 use crate::engine::executor::{build_local_command, LogCallback};
 use crate::engine::models::{Backend, Environment, HealthCheck};
+use crate::engine::redact::Redactor;
+
+/// One stage's log sink, redacting every line before it leaves the process.
+///
+/// Health checks stream through the same callback as stage commands, so they
+/// need the same "redact at ingest" guarantee: a check like
+/// `curl -sv -H "Authorization: Bearer $API_TOKEN" ...` echoes the resolved
+/// token on both the command line and in the response headers.
+pub(crate) struct StageLog<'a> {
+    on_log: &'a Option<LogCallback>,
+    redactor: &'a Redactor,
+    stage_name: &'a str,
+}
+
+impl<'a> StageLog<'a> {
+    pub(crate) fn new(
+        on_log: &'a Option<LogCallback>,
+        redactor: &'a Redactor,
+        stage_name: &'a str,
+    ) -> Self {
+        Self {
+            on_log,
+            redactor,
+            stage_name,
+        }
+    }
+
+    pub(crate) fn emit(&self, kind: &str, line: &str) {
+        if let Some(ref cb) = self.on_log {
+            cb(self.stage_name, kind, &self.redactor.redact_log(line));
+        }
+    }
+}
 
 /// Build an SSH command that executes a command string on a remote host.
 pub(crate) fn build_ssh_command(
@@ -88,20 +121,16 @@ pub(crate) async fn run_health_check(
     repo_path: &Path,
     working_dir: &Option<String>,
     env_vars: &HashMap<String, String>,
-    on_log: &Option<LogCallback>,
-    stage_name: &str,
+    log: &StageLog<'_>,
 ) -> bool {
     for attempt in 1..=health_check.retries {
-        if let Some(ref cb) = on_log {
-            cb(
-                stage_name,
-                "info",
-                &format!(
-                    "Health check attempt {}/{}: {}",
-                    attempt, health_check.retries, health_check.command
-                ),
-            );
-        }
+        log.emit(
+            "info",
+            &format!(
+                "Health check attempt {}/{}: {}",
+                attempt, health_check.retries, health_check.command
+            ),
+        );
 
         let result = match backend {
             Backend::Local => {
@@ -119,45 +148,34 @@ pub(crate) async fn run_health_check(
                     let reader = BufReader::new(stdout);
                     let mut lines = reader.lines();
                     while let Some(line) = lines.next_line().await.unwrap_or(None) {
-                        if let Some(ref cb) = on_log {
-                            cb(stage_name, "stdout", &line);
-                        }
+                        log.emit("stdout", &line);
                     }
                 }
                 if let Some(stderr) = child.stderr.take() {
                     let reader = BufReader::new(stderr);
                     let mut lines = reader.lines();
                     while let Some(line) = lines.next_line().await.unwrap_or(None) {
-                        if let Some(ref cb) = on_log {
-                            cb(stage_name, "stderr", &line);
-                        }
+                        log.emit("stderr", &line);
                     }
                 }
 
                 if let Ok(status) = child.wait().await {
                     if status.success() {
-                        if let Some(ref cb) = on_log {
-                            cb(stage_name, "info", "Health check passed");
-                        }
+                        log.emit("info", "Health check passed");
                         return true;
                     }
                 }
             }
             Err(e) => {
-                if let Some(ref cb) = on_log {
-                    cb(stage_name, "error", &format!("Health check error: {}", e));
-                }
+                log.emit("error", &format!("Health check error: {e}"));
             }
         }
 
         if attempt < health_check.retries {
-            if let Some(ref cb) = on_log {
-                cb(
-                    stage_name,
-                    "info",
-                    &format!("Retrying in {} seconds...", health_check.delay_secs),
-                );
-            }
+            log.emit(
+                "info",
+                &format!("Retrying in {} seconds...", health_check.delay_secs),
+            );
             tokio::time::sleep(std::time::Duration::from_secs(
                 health_check.delay_secs as u64,
             ))
@@ -173,16 +191,9 @@ pub(crate) async fn check_docker_compose_services(
     environment: Option<&Environment>,
     working_dir: &Option<String>,
     env_vars: &HashMap<String, String>,
-    on_log: &Option<LogCallback>,
-    stage_name: &str,
+    log: &StageLog<'_>,
 ) -> bool {
-    if let Some(ref cb) = on_log {
-        cb(
-            stage_name,
-            "info",
-            "Checking Docker Compose service status...",
-        );
-    }
+    log.emit("info", "Checking Docker Compose service status...");
 
     let check_cmd = "docker compose ps --format json";
     let result = build_ssh_command(check_cmd, environment, working_dir, env_vars);
@@ -196,18 +207,14 @@ pub(crate) async fn check_docker_compose_services(
                 while let Some(line) = lines.next_line().await.unwrap_or(None) {
                     output.push_str(&line);
                     output.push('\n');
-                    if let Some(ref cb) = on_log {
-                        cb(stage_name, "stdout", &line);
-                    }
+                    log.emit("stdout", &line);
                 }
             }
             if let Some(stderr) = child.stderr.take() {
                 let reader = BufReader::new(stderr);
                 let mut lines = reader.lines();
                 while let Some(line) = lines.next_line().await.unwrap_or(None) {
-                    if let Some(ref cb) = on_log {
-                        cb(stage_name, "stderr", &line);
-                    }
+                    log.emit("stderr", &line);
                 }
             }
 
@@ -218,40 +225,20 @@ pub(crate) async fn check_docker_compose_services(
                         || output.contains("\"dead\"")
                         || output.contains("\"restarting\"");
                     if has_issues {
-                        if let Some(ref cb) = on_log {
-                            cb(
-                                stage_name,
-                                "error",
-                                "Some Docker Compose services are not healthy",
-                            );
-                        }
+                        log.emit("error", "Some Docker Compose services are not healthy");
                         return false;
                     }
-                    if let Some(ref cb) = on_log {
-                        cb(stage_name, "info", "All Docker Compose services running");
-                    }
+                    log.emit("info", "All Docker Compose services running");
                     true
                 }
                 _ => {
-                    if let Some(ref cb) = on_log {
-                        cb(
-                            stage_name,
-                            "error",
-                            "Failed to check Docker Compose service status",
-                        );
-                    }
+                    log.emit("error", "Failed to check Docker Compose service status");
                     false
                 }
             }
         }
         Err(e) => {
-            if let Some(ref cb) = on_log {
-                cb(
-                    stage_name,
-                    "error",
-                    &format!("Docker Compose check error: {}", e),
-                );
-            }
+            log.emit("error", &format!("Docker Compose check error: {e}"));
             false
         }
     }

@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Info, Loader2, Save, Laptop } from 'lucide-react';
+import { Info, Loader2, Save, Laptop, Users } from 'lucide-react';
 import type { TriggersConfig, TriggerStateEntry } from '../../types';
-import { fireTriggerNow, getTriggerState, loadTriggers, saveTriggers } from '../../services/api';
+import {
+  fireTriggerNow,
+  getTriggerState,
+  loadTriggers,
+  loadTriggersLocal,
+  saveTriggers,
+} from '../../services/api';
 import { notifyError, notifySuccess } from '../../services/notify';
 import HelpTip from '../HelpTip';
 import SchedulesSection from '../triggers/SchedulesSection';
@@ -21,7 +27,22 @@ interface TriggersTabProps {
   environments: string[];
 }
 
+/** Which file the editor is reading and writing. */
+type Scope = 'shared' | 'local';
+
+const SCOPE_FILE: Record<Scope, string> = {
+  shared: 'triggers.toml',
+  local: 'triggers.local.toml',
+};
+
+/**
+ * The editor works on exactly one file at a time, never on the merged view:
+ * saving the merge would publish a developer's machine-local triggers into the
+ * committed file, and copying it into the local file would shadow every later
+ * team edit.
+ */
 function TriggersTab({ repoPath, environments }: TriggersTabProps) {
+  const [scope, setScope] = useState<Scope>('shared');
   const [config, setConfig] = useState<TriggersConfig | null>(null);
   const [triggerState, setTriggerState] = useState<Record<string, TriggerStateEntry>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -36,9 +57,13 @@ function TriggersTab({ repoPath, environments }: TriggersTabProps) {
 
   useEffect(() => {
     let ignore = false;
-    loadTriggers(repoPath)
+    const load = scope === 'local' ? loadTriggersLocal(repoPath) : loadTriggers(repoPath, false);
+    load
       .then((cfg) => {
-        if (!ignore) setConfig(cfg ?? EMPTY_CONFIG);
+        if (!ignore) {
+          setConfig(cfg ?? EMPTY_CONFIG);
+          setLoadError(null);
+        }
       })
       .catch((err) => {
         if (!ignore) {
@@ -49,19 +74,21 @@ function TriggersTab({ repoPath, environments }: TriggersTabProps) {
     return () => {
       ignore = true;
     };
-  }, [repoPath]);
+  }, [repoPath, scope]);
 
   useEffect(() => {
     refreshState();
   }, [refreshState]);
 
-  async function handleSave(local: boolean) {
+  async function handleSave() {
     if (!config) return;
     setSaving(true);
     try {
-      await saveTriggers(repoPath, config, local);
+      await saveTriggers(repoPath, config, scope === 'local');
       notifySuccess(
-        local ? 'Saved to triggers.local.toml (this machine only)' : 'Saved to triggers.toml'
+        scope === 'local'
+          ? 'Saved to triggers.local.toml (this machine only)'
+          : 'Saved to triggers.toml'
       );
     } catch (err) {
       notifyError('Save triggers failed', err);
@@ -104,24 +131,34 @@ function TriggersTab({ repoPath, environments }: TriggersTabProps) {
           </h3>
           <div className="trigger-save-actions">
             <button
-              className="btn btn-sm btn-primary"
-              onClick={() => handleSave(false)}
+              className={`btn btn-sm ${scope === 'shared' ? 'btn-secondary' : 'btn-ghost'}`}
+              onClick={() => setScope('shared')}
               disabled={saving}
+              title="Edit .chibby/triggers.toml — committed, shared with the team"
             >
-              <Save size={14} /> {saving ? 'Saving…' : 'Save'}
+              <Users size={14} /> Shared
             </button>
             <button
-              className="btn btn-sm btn-secondary"
-              onClick={() => handleSave(true)}
+              className={`btn btn-sm ${scope === 'local' ? 'btn-secondary' : 'btn-ghost'}`}
+              onClick={() => setScope('local')}
               disabled={saving}
-              title="Write to .chibby/triggers.local.toml — gitignored, so it never fires on a teammate's machine"
+              title="Edit .chibby/triggers.local.toml — gitignored, so it never fires on a teammate's machine"
             >
-              <Laptop size={14} /> Save for this machine
+              <Laptop size={14} /> This machine
+            </button>
+            <button className="btn btn-sm btn-primary" onClick={handleSave} disabled={saving}>
+              <Save size={14} /> {saving ? 'Saving…' : `Save ${SCOPE_FILE[scope]}`}
             </button>
           </div>
         </div>
 
         <div className="trigger-note">
+          <p>
+            Editing <code>.chibby/{SCOPE_FILE[scope]}</code>
+            {scope === 'local'
+              ? ' — gitignored, and layered over the shared file at run time.'
+              : ' — committed, and shared with everyone on the repo.'}
+          </p>
           <p>
             Schedules and file watches only fire <strong>while something is running</strong> — this
             app open, or <code>chibby schedule</code> / <code>chibby watch</code> in a terminal.

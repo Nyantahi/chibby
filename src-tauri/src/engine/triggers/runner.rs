@@ -8,12 +8,14 @@ use super::schedule::{self, Decision};
 use super::watch::{self, Debounce, DebounceDecision};
 use super::{ScheduleTrigger, TriggersConfig, WatchTrigger};
 use crate::engine::models::{RunKind, RunStatus};
-use crate::engine::run_support::{execute_run, ExecuteRunRequest};
+use crate::engine::run_support::{self, execute_run, ExecuteRunRequest};
 use crate::engine::{locks, persistence, trigger_state};
 use crate::state::SharedPipelineState;
 use anyhow::Result;
 use chrono::Utc;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// How often the scheduler re-reads config and re-evaluates cron expressions.
@@ -21,6 +23,9 @@ pub const TICK_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Longest a watch loop sleeps with nothing pending.
 const WATCH_IDLE_POLL: Duration = Duration::from_secs(1);
+
+/// How often a running watch loop re-reads triggers.toml to notice a change.
+const CONFIG_RECHECK: Duration = Duration::from_secs(30);
 
 /// What happened to one trigger during a tick.
 #[derive(Debug, Clone, PartialEq)]
@@ -45,7 +50,14 @@ pub struct TriggerRunner {
     /// The GUI's in-process run state, when hosted by the app.
     pipeline_state: Option<SharedPipelineState>,
     tick: Duration,
+    /// Repos whose schedule evaluation is still in flight.
+    ticking: Busy,
+    /// Repos that already have a watch loop.
+    watching: Busy,
 }
+
+/// Set of repos with work already running, so reconciliation is idempotent.
+type Busy = Arc<Mutex<HashSet<PathBuf>>>;
 
 impl Default for TriggerRunner {
     fn default() -> Self {
@@ -53,6 +65,8 @@ impl Default for TriggerRunner {
             repos: Vec::new(),
             pipeline_state: None,
             tick: TICK_INTERVAL,
+            ticking: Busy::default(),
+            watching: Busy::default(),
         }
     }
 }
@@ -73,40 +87,59 @@ impl TriggerRunner {
     }
 
     /// Evaluate every schedule once and fire what is due. Used by
-    /// `chibby schedule --once` (launchd/systemd) and by each loop tick.
+    /// `chibby schedule --once` (launchd/systemd).
     pub async fn tick_once(&self) -> Vec<TriggerOutcome> {
         let mut outcomes = Vec::new();
         for repo in self.target_repos() {
-            let Ok(config) = load_active_config(&repo) else {
-                continue;
-            };
-            for trig in &config.schedules {
-                if let Some(outcome) = self.evaluate_schedule(&repo, trig).await {
-                    outcomes.push(outcome);
-                }
+            outcomes.extend(self.tick_repo(&repo).await);
+        }
+        outcomes
+    }
+
+    /// Evaluate one repo's schedules and fire what is due.
+    async fn tick_repo(&self, repo: &Path) -> Vec<TriggerOutcome> {
+        let Ok(config) = load_active_config(repo) else {
+            return Vec::new();
+        };
+        let mut outcomes = Vec::new();
+        for trig in &config.schedules {
+            if let Some(outcome) = self.evaluate_schedule(repo, trig).await {
+                outcomes.push(outcome);
             }
         }
         outcomes
     }
 
-    /// Tick forever. Also starts one watch loop per repo that has watches.
+    /// Tick forever, reconciling against config on every tick.
     pub async fn run_forever(self) {
-        for repo in self.target_repos() {
-            let Ok(config) = load_active_config(&repo) else {
-                continue;
-            };
-            if config.watches.iter().any(|w| w.enabled) {
-                let state = self.pipeline_state.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = watch_loop(repo.clone(), state).await {
-                        log::warn!("[triggers] watch loop for {} ended: {e}", repo.display());
-                    }
-                });
-            }
-        }
-
+        let runner = Arc::new(self);
         loop {
-            for outcome in self.tick_once().await {
+            runner.clone().reconcile();
+            tokio::time::sleep(runner.tick).await;
+        }
+    }
+
+    /// Start whatever should be running now: a schedule evaluation for every
+    /// repo not already evaluating, and a watch loop for every repo with
+    /// enabled watches that is not already watched.
+    ///
+    /// Each repo gets its own task, so a repo whose pipeline takes ten minutes
+    /// cannot delay another repo's minute-level schedule. Re-running this every
+    /// tick is also what picks up a project added — or a trigger enabled —
+    /// since startup, without an app restart.
+    fn reconcile(self: Arc<Self>) {
+        for repo in self.target_repos() {
+            self.clone().spawn_tick(repo.clone());
+            self.clone().spawn_watch(repo);
+        }
+    }
+
+    fn spawn_tick(self: Arc<Self>, repo: PathBuf) {
+        if !claim(&self.ticking, &repo) {
+            return;
+        }
+        tokio::spawn(async move {
+            for outcome in self.tick_repo(&repo).await {
                 log::info!(
                     "[triggers] {} / {}: {:?}",
                     outcome.repo_path,
@@ -114,8 +147,27 @@ impl TriggerRunner {
                     outcome.action
                 );
             }
-            tokio::time::sleep(self.tick).await;
+            release(&self.ticking, &repo);
+        });
+    }
+
+    fn spawn_watch(self: Arc<Self>, repo: PathBuf) {
+        let has_watches = load_active_config(&repo)
+            .map(|c| c.watches.iter().any(|w| w.enabled))
+            .unwrap_or(false);
+        if !has_watches || !claim(&self.watching, &repo) {
+            return;
         }
+
+        let state = self.pipeline_state.clone();
+        tokio::spawn(async move {
+            if let Err(e) = watch_loop(repo.clone(), state).await {
+                log::warn!("[triggers] watch loop for {} ended: {e}", repo.display());
+            }
+            // Released so the next reconcile can restart it — that is how a
+            // config change takes effect.
+            release(&self.watching, &repo);
+        });
     }
 
     fn target_repos(&self) -> Vec<PathBuf> {
@@ -177,10 +229,21 @@ impl TriggerRunner {
                     trigger_id: Some(format!("scheduled:{}", trig.id)),
                     ..Default::default()
                 };
-                outcome(fire(&repo_path, &trig.id, request).await)
+                outcome(fire(&repo_path, &trig.id, request, self.pipeline_state.clone()).await)
             }
         }
     }
+}
+
+/// Reserve `repo`, or report that it is already taken.
+fn claim(busy: &Busy, repo: &Path) -> bool {
+    let mut set = busy.lock().unwrap_or_else(|e| e.into_inner());
+    set.insert(repo.to_path_buf())
+}
+
+fn release(busy: &Busy, repo: &Path) {
+    let mut set = busy.lock().unwrap_or_else(|e| e.into_inner());
+    set.remove(repo);
 }
 
 /// Load a repo's triggers, or an empty config when triggers are switched off.
@@ -212,8 +275,19 @@ async fn busy_reason(
 }
 
 /// Execute a triggered run and record the resulting run id.
-async fn fire(repo_path: &str, trigger_id: &str, request: ExecuteRunRequest) -> TriggerAction {
-    match execute_run(request, None, None, None).await {
+///
+/// `pipeline_state` is the GUI's run state when the app hosts the runtime.
+/// Passing it is what makes a scheduled or watch run visible to
+/// `is_pipeline_running` and stoppable from the window it started in.
+async fn fire(
+    repo_path: &str,
+    trigger_id: &str,
+    request: ExecuteRunRequest,
+    pipeline_state: Option<SharedPipelineState>,
+) -> TriggerAction {
+    let run_kind = request.run_kind;
+
+    match execute_run(request, None, pipeline_state, None).await {
         Ok(run) => {
             let _ = trigger_state::record_run_id(repo_path, trigger_id, &run.id);
             TriggerAction::Fired {
@@ -221,9 +295,14 @@ async fn fire(repo_path: &str, trigger_id: &str, request: ExecuteRunRequest) -> 
                 status: run.status,
             }
         }
-        Err(e) => TriggerAction::Failed {
-            error: e.to_string(),
-        },
+        Err(e) => {
+            let error = e.to_string();
+            // Failing here means no run record exists, so post-run housekeeping
+            // never ran and nothing has told the user their nightly did not
+            // happen — the exact silent failure the unattended policy covers.
+            run_support::notify_trigger_failure(repo_path, trigger_id, run_kind, &error).await;
+            TriggerAction::Failed { error }
+        }
     }
 }
 
@@ -234,6 +313,7 @@ async fn fire(repo_path: &str, trigger_id: &str, request: ExecuteRunRequest) -> 
 pub async fn fire_trigger_now(
     repo: &Path,
     trigger_id: &str,
+    pipeline_state: Option<SharedPipelineState>,
 ) -> Result<crate::engine::models::PipelineRun> {
     let repo_path = repo.to_string_lossy().to_string();
     let config = super::load_triggers_layered(repo)?;
@@ -263,7 +343,7 @@ pub async fn fire_trigger_now(
     };
 
     trigger_state::record_fired(&repo_path, trigger_id, Utc::now())?;
-    let run = execute_run(request, None, None, None).await?;
+    let run = execute_run(request, None, pipeline_state, None).await?;
     let _ = trigger_state::record_run_id(&repo_path, trigger_id, &run.id);
     Ok(run)
 }
@@ -276,14 +356,37 @@ pub async fn fire_trigger_now(
 /// can print something. The GUI passes `None`.
 pub type RunReporter = std::sync::Arc<dyn Fn(&str, &TriggerAction) + Send + Sync>;
 
-/// Watch a repo and run its watch triggers. Runs until the watcher dies.
+/// Watch a repo and run its watch triggers. Runs until the watcher dies, or
+/// until the repo's watch config changes — the runner then starts a fresh loop
+/// from the new config, so enabling or disabling a watch takes effect without
+/// an app restart.
 pub async fn watch_loop(repo: PathBuf, pipeline_state: Option<SharedPipelineState>) -> Result<()> {
-    let config = load_active_config(&repo)?;
-    let triggers: Vec<WatchTrigger> = config.watches.into_iter().filter(|w| w.enabled).collect();
+    let triggers = enabled_watches(&repo);
     if triggers.is_empty() {
         anyhow::bail!("No enabled watch triggers in {}", repo.display());
     }
-    watch_with(repo, triggers, pipeline_state, None).await
+
+    tokio::select! {
+        result = watch_with(repo.clone(), triggers.clone(), pipeline_state, None) => result,
+        _ = watches_changed(repo.clone(), triggers) => Ok(()),
+    }
+}
+
+/// The repo's enabled watch triggers; empty when triggers are off or unreadable.
+fn enabled_watches(repo: &Path) -> Vec<WatchTrigger> {
+    load_active_config(repo)
+        .map(|c| c.watches.into_iter().filter(|w| w.enabled).collect())
+        .unwrap_or_default()
+}
+
+/// Resolves once the repo's enabled watches differ from `current`.
+async fn watches_changed(repo: PathBuf, current: Vec<WatchTrigger>) {
+    loop {
+        tokio::time::sleep(CONFIG_RECHECK).await;
+        if enabled_watches(&repo) != current {
+            return;
+        }
+    }
 }
 
 /// Watch a repo against an explicit trigger list — also powers the ad-hoc
@@ -297,6 +400,9 @@ pub async fn watch_with(
     let repo_path = repo.to_string_lossy().to_string();
     // Held for the life of the loop: dropping the watcher stops the watch.
     let (_watcher, mut rx) = watch::watch_repo(&repo)?;
+    // FSEvents reports canonical paths (`/private/var/...` on macOS), so
+    // resolve the repo once here instead of on every event.
+    let watch_root = repo.canonicalize().unwrap_or_else(|_| repo.clone());
     let started = Instant::now();
     let mut debouncers: Vec<Debounce> = triggers.iter().map(Debounce::from_trigger).collect();
 
@@ -319,7 +425,7 @@ pub async fn watch_with(
         tokio::select! {
             event = rx.recv() => {
                 let Some(path) = event else { return Ok(()) };
-                let Some(rel) = watch::relative_to_repo(&repo, &path) else { continue };
+                let Some(rel) = watch::relative_to_repo(&watch_root, &path) else { continue };
                 let now = elapsed_ms(started);
                 for (trig, debounce) in triggers.iter().zip(debouncers.iter_mut()) {
                     if watch::matches_watch(trig, &rel) {
@@ -351,7 +457,7 @@ pub async fn watch_with(
                 trigger_id: Some(format!("watch:{}", trig.id)),
                 ..Default::default()
             };
-            let action = fire(&repo_path, &trig.id, request).await;
+            let action = fire(&repo_path, &trig.id, request, pipeline_state.clone()).await;
             log::info!("[triggers] watch '{}': {action:?}", trig.id);
             if let Some(ref report) = on_run {
                 report(&trig.id, &action);

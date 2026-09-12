@@ -158,6 +158,29 @@ fn check_rollback_config(pipeline: &Pipeline) -> Vec<PipelineWarning> {
             continue;
         }
 
+        // Auto-rollback only ever fires from a failed health check, and a
+        // pipeline-wide `on_health_failure` resolves onto *every* stage — so
+        // holding stages that have no health check to that policy's
+        // requirements would mark a perfectly working pipeline invalid. Only a
+        // stage that opted in itself is worth flagging, and only as dead config.
+        if stage.health_check.is_none() {
+            if stage.on_health_failure.is_some() {
+                warnings.push(PipelineWarning {
+                    stage_name: stage.name.clone(),
+                    command: "on_health_failure".to_string(),
+                    message: format!(
+                        "Stage '{}' configures on_health_failure but has no health_check, so it can never trigger",
+                        stage.name
+                    ),
+                    suggestion: Some(
+                        "Add a health_check to the stage, or remove on_health_failure.".to_string(),
+                    ),
+                    severity: WarningSeverity::Warning,
+                });
+            }
+            continue;
+        }
+
         if policy.mode == RollbackMode::LastGood {
             wants_last_good = true;
         }
@@ -179,22 +202,6 @@ fn check_rollback_config(pipeline: &Pipeline) -> Vec<PipelineWarning> {
                 ),
                 suggestion: Some("Add rollback_commands to the stage, or switch the mode to \"last_good\".".to_string()),
                 severity: WarningSeverity::Error,
-            });
-        }
-
-        // Auto-rollback only ever fires from a failed health check.
-        if stage.on_health_failure.is_some() && stage.health_check.is_none() {
-            warnings.push(PipelineWarning {
-                stage_name: stage.name.clone(),
-                command: "on_health_failure".to_string(),
-                message: format!(
-                    "Stage '{}' configures on_health_failure but has no health_check, so it can never trigger",
-                    stage.name
-                ),
-                suggestion: Some(
-                    "Add a health_check to the stage, or remove on_health_failure.".to_string(),
-                ),
-                severity: WarningSeverity::Warning,
             });
         }
     }
@@ -707,6 +714,43 @@ mod tests {
             .iter()
             .any(|w| w.severity == WarningSeverity::Error
                 && w.message.contains("no rollback_commands")));
+    }
+
+    /// A pipeline-wide policy resolves onto every stage, but only stages with
+    /// a health check can ever trigger it — the others must not be errors.
+    #[test]
+    fn test_pipeline_wide_commands_policy_ignores_stages_without_health_checks() {
+        let pipeline = Pipeline {
+            name: "Test".to_string(),
+            on_health_failure: Some(RollbackPolicy {
+                mode: RollbackMode::Commands,
+                ..Default::default()
+            }),
+            stages: vec![
+                Stage {
+                    name: "build".to_string(),
+                    commands: vec!["echo build".to_string()],
+                    ..Default::default()
+                },
+                Stage {
+                    name: "deploy".to_string(),
+                    commands: vec!["echo deploy".to_string()],
+                    health_check: Some(HealthCheck {
+                        command: "echo ok".to_string(),
+                        retries: 1,
+                        delay_secs: 1,
+                    }),
+                    rollback_commands: Some(vec!["echo undo".to_string()]),
+                    ..Default::default()
+                },
+            ],
+        };
+
+        let temp = TempDir::new().unwrap();
+        let validation = validate_pipeline(&pipeline, temp.path());
+
+        assert!(validation.is_valid, "{:?}", validation.warnings);
+        assert!(validation.warnings.is_empty(), "{:?}", validation.warnings);
     }
 
     /// Auto-rollback only fires from a health check, so configuring it without

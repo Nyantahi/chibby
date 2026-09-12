@@ -1,7 +1,7 @@
 use crate::engine::executor;
 use crate::engine::models::{DeploymentRecord, PipelineRun, RunKind};
 use crate::engine::run_support::{execute_run, ExecuteRunRequest};
-use crate::engine::{persistence, pipeline, preflight, run_support};
+use crate::engine::{locks, persistence, pipeline, preflight, run_support};
 use crate::state::SharedPipelineState;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, State};
@@ -126,13 +126,22 @@ pub fn get_run(id: String) -> Result<Option<PipelineRun>, String> {
 }
 
 /// Cancel a running pipeline.
+///
+/// Sets both flags: the in-process one for runs this window started, and the
+/// cross-process cancel file for a run owned by another process — a headless
+/// `chibby schedule --once`, or a CLI run in a terminal.
 #[tauri::command]
 pub async fn cancel_pipeline(
     pipeline_state: State<'_, SharedPipelineState>,
     repo_path: String,
 ) -> Result<(), String> {
-    let mut state = pipeline_state.write().await;
-    state.cancel(&repo_path);
+    {
+        let mut state = pipeline_state.write().await;
+        state.cancel(&repo_path);
+    }
+    if let Err(e) = locks::request_cancel(&repo_path) {
+        log::warn!("Failed to request cross-process cancel for {repo_path}: {e}");
+    }
     Ok(())
 }
 

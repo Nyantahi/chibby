@@ -156,7 +156,9 @@ still live, so it must not look like "no policy configured".
 ### 3. Local triggers
 
 `.chibby/triggers.toml`, layered with a gitignored `.chibby/triggers.local.toml` so a
-schedule can be per-machine rather than fired on every teammate's checkout.
+schedule can be per-machine rather than fired on every teammate's checkout. The Triggers
+tab edits one of the two files at a time (a Shared / This machine switch), never the
+merged view — saving the merge would publish local triggers into the committed file.
 
 - **Schedules** — cron (5- and 6-field forms), with a missed-run policy. A newly added
   schedule fires forward rather than immediately, and `run_once` fires **exactly once** no
@@ -164,7 +166,9 @@ schedule can be per-machine rather than fired on every teammate's checkout.
   run seven deploys.
 - **Watches** — glob include/exclude with debounce. `.git/` and `.chibby/` are always
   excluded; the latter is mandatory, since runs write there and omitting it is an infinite
-  loop.
+  loop. Patterns match at any depth (`target/**` also excludes `src-tauri/target/**`, so a
+  nested workspace's own build cannot re-trigger the watch); a leading `/` anchors a
+  pattern to the repo root.
 - **Git hooks** — sentinel-delimited blocks that refuse to clobber an existing hook,
   offering append or backup-and-replace instead, and failing open if the binary is missing
   rather than bricking `git push`.
@@ -203,8 +207,10 @@ problems. Run retention was global rather than per-project, so a busy project si
 deleted every other project's history; it is now per-project and the default rose from 50
 to 200. And because a summary is a fraction of a run's size, summaries outlive the logs
 they describe — trends survive log pruning, bounded separately by
-`index_retention_days` / `index_max_entries`. `chibby insights --rebuild` / `--prune`, and
-equivalents in the UI, keep it inspectable and repairable.
+`index_retention_days` / `index_max_entries` — and, like run retention, scoped per
+project, so housekeeping after one project's run never prunes another's history.
+`chibby insights --rebuild` / `--prune`, and equivalents in the UI, keep it inspectable
+and repairable.
 
 ## Still open
 

@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import StageAdvancedFields from '../../components/pipeline-editor/StageAdvancedFields';
 import type { Stage } from '../../types';
 
@@ -124,5 +126,38 @@ describe('StageAdvancedFields rollback policy', () => {
 
     expect(screen.getByText('Rollback Commands')).toBeInTheDocument();
     expect(screen.getByDisplayValue('kubectl rollout undo deploy/api')).toBeInTheDocument();
+  });
+});
+
+/** Stateful host: the parent feeding edits back is what remounts a keyed row. */
+function EnvHost({ initial }: { initial: Stage }) {
+  const [stage, setStage] = useState(initial);
+  return (
+    <StageAdvancedFields stage={stage} onChange={(patch) => setStage({ ...stage, ...patch })} />
+  );
+}
+
+describe('StageAdvancedFields stage environment', () => {
+  it('keeps focus while a variable name is typed', async () => {
+    const user = userEvent.setup();
+    render(<EnvHost initial={createStage({ env: { VAR_1: '' } })} />);
+    await user.click(screen.getByText('Advanced'));
+
+    const name = screen.getByLabelText('Variable 1 name');
+    await user.clear(name);
+    await user.type(name, 'API_URL');
+
+    expect(screen.getByLabelText('Variable 1 name')).toHaveValue('API_URL');
+  });
+
+  it('edits the row at a position, not the row with a name', async () => {
+    const user = userEvent.setup();
+    render(<EnvHost initial={createStage({ env: { A: '1', B: '2' } })} />);
+    await user.click(screen.getByText('Advanced'));
+
+    await user.type(screen.getByLabelText('Variable 2 value'), '3');
+
+    expect(screen.getByLabelText('Variable 1 name')).toHaveValue('A');
+    expect(screen.getByLabelText('Variable 2 value')).toHaveValue('23');
   });
 });

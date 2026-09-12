@@ -117,7 +117,6 @@ pub(crate) async fn handle_watch(
     min_interval_secs: u64,
 ) -> anyhow::Result<()> {
     let path = crate::project_path(project);
-    let path = path.canonicalize().unwrap_or(path);
 
     printer.header(&format!("{} Watching", icons::GEAR));
     printer.kv("Project", &path.display().to_string());
@@ -183,7 +182,6 @@ pub(crate) async fn handle_hooks(printer: &Printer, cmd: &HooksCmd) -> anyhow::R
             non_blocking,
         } => {
             let path = crate::project_path(project.as_ref());
-            let path = path.canonicalize().unwrap_or(path);
             let mode = match (force, append) {
                 (true, _) => InstallMode::Force,
                 (_, true) => InstallMode::Append,
@@ -381,7 +379,6 @@ where
 /// started by the desktop app or a scheduled trigger — not just this terminal.
 pub(crate) fn cancel_run(printer: &Printer, project: Option<&PathBuf>) -> anyhow::Result<()> {
     let path = crate::project_path(project);
-    let path = path.canonicalize().unwrap_or(path);
     let repo_path = path.to_string_lossy().to_string();
 
     printer.header(&format!("{} Cancel Pipeline", icons::WARN));

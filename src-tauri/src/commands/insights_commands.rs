@@ -25,13 +25,19 @@ pub fn rebuild_run_index() -> Result<usize, String> {
 
 /// Apply the index's retention bounds now. Returns how many entries were
 /// dropped. Omitted bounds fall back to the cleanup defaults.
+///
+/// `repo_path` scopes the prune to one project; omitting it prunes every
+/// project's entries, so the UI only leaves it out for an explicit
+/// "all projects" action.
 #[tauri::command]
 pub fn prune_run_index(
+    repo_path: Option<String>,
     retention_days: Option<u32>,
     max_entries: Option<u32>,
 ) -> Result<u32, String> {
     let defaults = CleanupConfig::default();
     run_index::prune(
+        repo_path.as_deref(),
         retention_days.unwrap_or(defaults.index_retention_days),
         max_entries.unwrap_or(defaults.index_max_entries),
     )

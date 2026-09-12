@@ -51,6 +51,7 @@ const FOREIGN_REPORT: InstallReport = {
 
 function renderTab(config: TriggersConfig = CONFIG) {
   vi.mocked(api.loadTriggers).mockResolvedValue(config);
+  vi.mocked(api.loadTriggersLocal).mockResolvedValue(config);
   vi.mocked(api.getTriggerState).mockResolvedValue({
     nightly: { last_fired_at: '2026-09-09T03:00:00Z', last_run_id: 'run-9' },
   });
@@ -81,7 +82,9 @@ describe('TriggersTab', () => {
     expect(screen.getByText('pre-push')).toBeInTheDocument();
     expect(screen.getByText('pre-commit')).toBeInTheDocument();
 
-    expect(api.loadTriggers).toHaveBeenCalledWith(REPO);
+    // The committed file alone — never the merged view, which saving back
+    // would publish a developer's local triggers into.
+    expect(api.loadTriggers).toHaveBeenCalledWith(REPO, false);
   });
 
   it('says plainly that nothing fires in the background', async () => {
@@ -135,13 +138,26 @@ describe('TriggersTab', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /done/i })).toBeDisabled());
   });
 
-  it('writes to the per-machine file when saving for this machine', async () => {
+  it('saves the committed file by default', async () => {
     const user = userEvent.setup();
     vi.mocked(api.saveTriggers).mockResolvedValue(undefined);
     renderTab();
 
-    await user.click(await screen.findByRole('button', { name: /save for this machine/i }));
+    await user.click(await screen.findByRole('button', { name: /save triggers\.toml/i }));
 
+    expect(api.saveTriggers).toHaveBeenCalledWith(REPO, CONFIG, false);
+  });
+
+  it('reads and writes the per-machine file when scoped to this machine', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.saveTriggers).mockResolvedValue(undefined);
+    renderTab();
+
+    await screen.findByText('nightly');
+    await user.click(screen.getByRole('button', { name: /this machine/i }));
+    await user.click(await screen.findByRole('button', { name: /save triggers\.local\.toml/i }));
+
+    expect(api.loadTriggersLocal).toHaveBeenCalledWith(REPO);
     expect(api.saveTriggers).toHaveBeenCalledWith(REPO, CONFIG, true);
   });
 });

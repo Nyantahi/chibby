@@ -221,10 +221,14 @@ pub fn render_block(repo: &Path, kind: HookKind, spec: &HookSpec) -> String {
     if let Some(file) = &spec.pipeline_file {
         command.push_str(&format!(" --pipeline {}", shell_quote(file)));
     }
-    // Non-blocking hooks report but never stand between the user and git.
-    if !spec.blocking {
-        command.push_str(" || true");
-    }
+    // `sh` exits with the status of its *last* command, and `--append` puts
+    // this block above the user's own hook body, so a blocking failure has to
+    // exit on the spot or it would be discarded. Non-blocking hooks report but
+    // never stand between the user and git.
+    command.push_str(match spec.blocking {
+        true => " || exit 1",
+        false => " || true",
+    });
 
     [
         BLOCK_START,
@@ -233,12 +237,14 @@ pub fn render_block(repo: &Path, kind: HookKind, spec: &HookSpec) -> String {
         "if [ ! -x \"$CHIBBY_BIN\" ]; then",
         "  CHIBBY_BIN=\"$(command -v chibby 2>/dev/null)\"",
         "fi",
-        "# Fail open: a missing binary must never brick `git push`.",
+        // Fail open, but only for Chibby's own command: an `exit 0` here would
+        // also skip the rest of a foreign hook the block was appended to, so a
+        // missing binary would silently stop the user's lint/test hook too.
         "if [ -z \"$CHIBBY_BIN\" ]; then",
         "  echo \"[chibby] binary not found — skipping hook\" >&2",
-        "  exit 0",
+        "else",
+        &format!("  {command}"),
         "fi",
-        &command,
         BLOCK_END,
     ]
     .join("\n")
@@ -248,15 +254,21 @@ pub fn render_block(repo: &Path, kind: HookKind, spec: &HookSpec) -> String {
 ///
 /// Prefers a sibling `chibby-cli`/`chibby` next to the running executable so a
 /// hook installed from the desktop app still points at the CLI. The generated
-/// script falls back to `command -v chibby` when the path stops resolving.
+/// script falls back to `command -v chibby` when nothing is found here.
+///
+/// Never falls back to the running executable itself: the CLI binary is
+/// feature-gated and is not bundled in the .app, so that would put the desktop
+/// binary in the hook — `git push` would launch a second app window (and, for
+/// a blocking hook, wait for the user to close it) instead of running the
+/// pipeline, with `[ -x ]` passing so the `command -v` fallback never fires.
 fn resolve_cli_binary() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
+
     ["chibby-cli", "chibby"]
         .iter()
         .map(|name| dir.join(name))
         .find(|candidate| candidate.is_file())
-        .or(Some(exe))
 }
 
 /// Single-quote a value for `/bin/sh`.
@@ -392,12 +404,54 @@ mod tests {
         install(temp.path(), HookKind::PrePush, &spec(), InstallMode::Safe).unwrap();
         let body = read_hook(temp.path());
 
+        // Either an absolute sibling CLI or empty — never a relative path, and
+        // never the running (possibly GUI) executable.
+        let exe = std::env::current_exe().unwrap();
         assert!(
-            body.contains("CHIBBY_BIN='/"),
+            body.contains("CHIBBY_BIN='/") || body.contains("CHIBBY_BIN=''"),
             "not an absolute path: {body}"
         );
+        assert!(
+            !body.contains(&format!("CHIBBY_BIN='{}'", exe.display())),
+            "hook points at the running executable: {body}"
+        );
         assert!(body.contains("command -v chibby"));
-        assert!(body.contains("exit 0"), "missing fail-open guard: {body}");
+        assert!(
+            body.contains("skipping hook"),
+            "missing fail-open guard: {body}"
+        );
+    }
+
+    /// The fail-open branch must skip only Chibby's command: an `exit 0` there
+    /// would also stop the foreign hook body an appended block sits above.
+    #[test]
+    fn test_fail_open_does_not_abort_a_foreign_hook() {
+        let temp = repo_with_hooks();
+        std::fs::write(hook_path(temp.path(), HookKind::PrePush), FOREIGN).unwrap();
+
+        install(temp.path(), HookKind::PrePush, &spec(), InstallMode::Append).unwrap();
+        let body = read_hook(temp.path());
+
+        assert!(body.contains("else"), "fail-open should branch: {body}");
+        assert!(
+            !body.contains("  exit 0"),
+            "fail-open still aborts the script: {body}"
+        );
+        assert!(
+            body.contains("echo \"my own pre-push\""),
+            "lost the foreign body"
+        );
+    }
+
+    /// Blocking hooks sit above the foreign body under `--append`, so they must
+    /// exit on failure rather than let the last command decide the status.
+    #[test]
+    fn test_blocking_spec_exits_on_failure() {
+        let temp = repo_with_hooks();
+
+        install(temp.path(), HookKind::PrePush, &spec(), InstallMode::Safe).unwrap();
+
+        assert!(read_hook(temp.path()).contains("|| exit 1"));
     }
 
     #[test]

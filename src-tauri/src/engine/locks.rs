@@ -14,6 +14,8 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -94,30 +96,51 @@ pub fn acquire_run_lock_with_id(repo_path: &str, run_id: Option<&str>) -> Result
     let _guard = ACQUIRE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let path = lock_path(repo_path)?;
 
-    if let Some(holder) = read_lock(&path) {
-        if is_holder_alive(&holder) {
-            return Ok(None);
-        }
-        log::info!(
-            "[lock] reclaiming stale lock for {repo_path} (pid {} is gone)",
-            holder.pid
-        );
-        let _ = std::fs::remove_file(cancel_path(&path));
-        let _ = std::fs::remove_file(&path);
-    }
-
     let info = RunLockInfo {
         pid: std::process::id(),
         started_at: Utc::now(),
         run_id: run_id.map(str::to_string),
     };
-    std::fs::write(&path, serde_json::to_string_pretty(&info)?)
-        .with_context(|| format!("Failed to write {}", path.display()))?;
+    let body = serde_json::to_string_pretty(&info)?;
 
-    Ok(Some(RunLock {
-        path,
-        repo_path: repo_path.to_string(),
-    }))
+    // `create_new` is the atomic part: two processes reaching here together
+    // cannot both succeed, so a check-then-write race can no longer hand the
+    // same repo to the GUI and a headless `chibby schedule --once` at once.
+    // At most one retry: the only reason to loop is reclaiming a stale lock,
+    // and whoever reclaims it first wins the create that follows.
+    for _ in 0..2 {
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(mut file) => {
+                file.write_all(body.as_bytes())
+                    .with_context(|| format!("Failed to write {}", path.display()))?;
+                // A cancel flag can outlive its run when the run ends between
+                // `request_cancel`'s read and its write. Clearing it here keeps
+                // the stray flag from cancelling this unrelated run.
+                let _ = std::fs::remove_file(cancel_path(&path));
+                return Ok(Some(RunLock {
+                    path,
+                    repo_path: repo_path.to_string(),
+                }));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => match read_lock(&path) {
+                Some(holder) if is_holder_alive(&holder) => return Ok(None),
+                holder => {
+                    log::info!(
+                        "[lock] reclaiming stale lock for {repo_path} (pid {} is gone)",
+                        holder.map(|h| h.pid.to_string()).unwrap_or("?".into())
+                    );
+                    let _ = std::fs::remove_file(cancel_path(&path));
+                    let _ = std::fs::remove_file(&path);
+                }
+            },
+            Err(e) => {
+                return Err(e).with_context(|| format!("Failed to create {}", path.display()))
+            }
+        }
+    }
+
+    // Another process reclaimed the same stale lock and got there first.
+    Ok(None)
 }
 
 /// The process currently running `repo_path`, if any.
@@ -256,6 +279,21 @@ mod tests {
             current_holder(REPO).unwrap().map(|h| h.pid),
             Some(std::process::id())
         );
+    }
+
+    /// `request_cancel` reads the lock and then writes the flag, so a run that
+    /// finishes in between leaves the flag behind. The next run for that repo
+    /// must not be cancelled at its first command because of it.
+    #[test]
+    fn test_a_new_lock_clears_an_orphaned_cancel_flag() {
+        let (_dir, _guard) = scoped_test_data_dir();
+        let path = lock_path(REPO).unwrap();
+        std::fs::write(cancel_path(&path), "1234").unwrap();
+
+        let lock = acquire_run_lock(REPO).unwrap().expect("acquire");
+
+        assert!(!lock.cancel_requested(), "stale cancel flag survived");
+        assert!(!cancel_requested(REPO));
     }
 
     #[test]

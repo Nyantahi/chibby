@@ -54,24 +54,43 @@ fn normalise(rel_path: &str) -> String {
 fn any_pattern_matches<'a>(patterns: impl Iterator<Item = &'a str>, path: &str) -> bool {
     patterns
         .filter_map(|p| Pattern::new(p).ok())
-        .any(|pattern| {
-            if pattern.matches(path) {
-                return true;
-            }
-            // A bare pattern like `*.log` or `.DS_Store` is meant to apply at any
-            // depth, so also test it against the file name alone.
-            !pattern.as_str().contains('/')
-                && path
-                    .rsplit('/')
-                    .next()
-                    .is_some_and(|name| pattern.matches(name))
-        })
+        .any(|pattern| matches_at_any_depth(&pattern, path))
+}
+
+/// Patterns are repo-relative but not repo-anchored: `target/**` has to
+/// exclude `src-tauri/target/**` too, or a nested workspace re-triggers its
+/// own watch with every build and the repo runs forever. Testing each path
+/// suffix also covers bare names like `*.log` at any depth.
+///
+/// A leading `/` opts into anchoring: `/dist/**` is only the top-level one.
+fn matches_at_any_depth(pattern: &Pattern, path: &str) -> bool {
+    if let Some(anchored) = pattern.as_str().strip_prefix('/') {
+        return Pattern::new(anchored).is_ok_and(|p| p.matches(path));
+    }
+
+    pattern.matches(path)
+        || path
+            .match_indices('/')
+            .any(|(i, _)| pattern.matches(&path[i + 1..]))
 }
 
 /// Make a watched path repo-relative, or `None` when it escapes the repo.
+///
+/// Both sides are canonicalised: macOS reports FSEvents paths under
+/// `/private/var/...` while the repo path is the `/var/...` symlink, and a
+/// plain `strip_prefix` of one against the other never matches — the watch
+/// would then silently never fire.
 pub fn relative_to_repo(repo: &Path, path: &Path) -> Option<String> {
-    let rel = path.strip_prefix(repo).ok()?;
-    Some(normalise(&rel.to_string_lossy()))
+    let rel = strip(repo, path).or_else(|| strip(&canonical(repo), &canonical(path)))?;
+    Some(normalise(&rel))
+}
+
+fn strip(repo: &Path, path: &Path) -> Option<String> {
+    Some(path.strip_prefix(repo).ok()?.to_string_lossy().to_string())
+}
+
+fn canonical(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
 
 // ---------------------------------------------------------------------------
@@ -259,6 +278,32 @@ mod tests {
         ] {
             assert!(!matches_watch(&trig, path), "should be excluded: {path}");
         }
+    }
+
+    /// Build output rarely sits at the repo root: this repo builds into
+    /// `src-tauri/target/`, and a watch that reacts to its own build re-arms
+    /// the debounce and runs forever.
+    #[test]
+    fn test_builtin_denylist_reaches_nested_build_output() {
+        let trig = trigger(&[], &[]);
+
+        for path in [
+            "src-tauri/target/debug/chibby",
+            "frontend/node_modules/left-pad/index.js",
+            "packages/web/dist/app.js",
+            "crates/api/.git/HEAD",
+        ] {
+            assert!(!matches_watch(&trig, path), "should be excluded: {path}");
+        }
+    }
+
+    /// A leading slash is the escape hatch for "top level only".
+    #[test]
+    fn test_anchored_exclude_only_matches_the_repo_root() {
+        let trig = trigger(&[], &["/generated/**"]);
+
+        assert!(!matches_watch(&trig, "generated/api.rs"));
+        assert!(matches_watch(&trig, "src/generated/api.rs"));
     }
 
     #[test]

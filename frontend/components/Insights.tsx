@@ -113,7 +113,10 @@ function Insights() {
           <HotspotsTable hotspots={report.hotspots} />
           <SlowestStagesTable stages={report.slowest_stages} />
           <DailyTable daily={report.daily} />
-          <RunIndexCard onChanged={loadReport} />
+          <RunIndexCard
+            repoPath={repoPath === ALL_PROJECTS ? null : repoPath}
+            onChanged={loadReport}
+          />
         </div>
       ) : (
         <div className="empty-state">

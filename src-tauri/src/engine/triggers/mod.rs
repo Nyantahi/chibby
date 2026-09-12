@@ -63,7 +63,7 @@ pub struct ScheduleTrigger {
 }
 
 /// A filesystem-watch trigger.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WatchTrigger {
     pub id: String,
     #[serde(default = "default_true")]

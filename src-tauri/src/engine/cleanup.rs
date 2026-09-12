@@ -99,8 +99,8 @@ pub fn run_cleanup(
         &mut result,
     )?;
 
-    // 3. Prune the run index by its own, much longer, bounds
-    prune_run_index(cleanup_config, dry_run, &mut result)?;
+    // 3. Prune this project's run index entries by their own, much longer, bounds
+    prune_run_index(repo_path, cleanup_config, dry_run, &mut result)?;
 
     if dry_run {
         log::info!(
@@ -222,16 +222,24 @@ fn prune_run_history(
 
 /// Apply the index's own retention bounds and report its size, so the file
 /// never grows unnoticed.
+///
+/// Scoped to this project for the same reason `prune_run_history` is: the
+/// bounds come from this project's cleanup.toml, and housekeeping runs after
+/// every run, so an unscoped prune would let whichever project built last
+/// delete history the other projects are still inside their retention for.
 fn prune_run_index(
+    repo_path: &Path,
     config: &CleanupConfig,
     dry_run: bool,
     result: &mut CleanupResult,
 ) -> Result<()> {
     let (days, max) = (config.index_retention_days, config.index_max_entries);
+    let repo = repo_path.to_string_lossy();
+    let scope = Some(repo.as_ref());
 
     result.index_entries_pruned = match dry_run {
-        true => run_index::prune_preview(days, max)?,
-        false => run_index::prune(days, max)?,
+        true => run_index::prune_preview(scope, days, max)?,
+        false => run_index::prune(scope, days, max)?,
     };
     if dry_run && result.index_entries_pruned > 0 {
         result.details.push(format!(
@@ -397,7 +405,7 @@ mod tests {
         };
 
         let mut preview = empty_result();
-        prune_run_index(&config, true, &mut preview).unwrap();
+        prune_run_index(Path::new(REPO), &config, true, &mut preview).unwrap();
         assert_eq!(preview.index_entries_pruned, 1);
         assert_eq!(preview.index_entries, 2);
         assert!(preview.index_bytes > 0);
@@ -407,7 +415,7 @@ mod tests {
             .any(|d| d == "Would remove 1 run index entries"));
 
         let mut applied = empty_result();
-        prune_run_index(&config, false, &mut applied).unwrap();
+        prune_run_index(Path::new(REPO), &config, false, &mut applied).unwrap();
         assert_eq!(applied.index_entries_pruned, 1);
         assert_eq!(applied.index_entries, 1);
     }

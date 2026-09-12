@@ -921,6 +921,15 @@ export async function loadTriggers(repoPath: string, layered = true): Promise<Tr
   return invoke<TriggersConfig>('load_triggers', { repoPath, layered });
 }
 
+/**
+ * Load `.chibby/triggers.local.toml` alone — per-machine overrides only, with
+ * nothing merged in. Editing the merged view and saving it back is what turns
+ * a local override into a permanent shadow of the committed file.
+ */
+export async function loadTriggersLocal(repoPath: string): Promise<TriggersConfig> {
+  return invoke<TriggersConfig>('load_triggers_local', { repoPath });
+}
+
 /** Save triggers to the committed file, or to the gitignored per-machine override. */
 export async function saveTriggers(
   repoPath: string,
@@ -984,12 +993,18 @@ export async function rebuildRunIndex(): Promise<number> {
   return invoke<number>('rebuild_run_index');
 }
 
-/** Apply the index's retention bounds now. Returns how many entries were dropped. */
+/**
+ * Apply the index's retention bounds now. Returns how many entries were dropped.
+ *
+ * `repoPath` scopes the prune to one project; `null` prunes every project's
+ * entries, so only pass it for an explicit "all projects" action.
+ */
 export async function pruneRunIndex(
+  repoPath: string | null,
   retentionDays: number | null,
   maxEntries: number | null
 ): Promise<number> {
-  return invoke<number>('prune_run_index', { retentionDays, maxEntries });
+  return invoke<number>('prune_run_index', { repoPath, retentionDays, maxEntries });
 }
 
 /** Entry count and on-disk size of the run index. */

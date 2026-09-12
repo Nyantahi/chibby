@@ -6,6 +6,8 @@ import { formatBytes } from '../../utils/insights';
 import type { IndexStats } from '../../types';
 
 interface RunIndexCardProps {
+  /** Project the page is scoped to; null means every project. */
+  repoPath: string | null;
   /** Re-fetch the report after maintenance changed what the index holds. */
   onChanged: () => void;
 }
@@ -14,7 +16,7 @@ interface RunIndexCardProps {
  * The run index is what makes every number on this page cheap to compute, so
  * it has to be inspectable and fixable by hand when the numbers look wrong.
  */
-function RunIndexCard({ onChanged }: RunIndexCardProps) {
+function RunIndexCard({ repoPath, onChanged }: RunIndexCardProps) {
   const [stats, setStats] = useState<IndexStats | null>(null);
   const [busy, setBusy] = useState<'rebuild' | 'prune' | null>(null);
 
@@ -48,11 +50,18 @@ function RunIndexCard({ onChanged }: RunIndexCardProps) {
   }
 
   async function handlePrune() {
-    if (!window.confirm('Apply retention to the run index now? Dropped entries leave metrics.'))
+    // Dropping entries is irreversible, so the prompt has to say whose history
+    // is at stake: the page's project, or every project.
+    const scope = repoPath ? 'this project' : 'every project';
+    if (
+      !window.confirm(
+        `Apply retention to the run index for ${scope}? Dropped entries leave metrics.`
+      )
+    )
       return;
     try {
       setBusy('prune');
-      const dropped = await pruneRunIndex(null, null);
+      const dropped = await pruneRunIndex(repoPath, null, null);
       notifySuccess(`Run index pruned — ${dropped} entries dropped`);
       await loadStats();
       onChanged();

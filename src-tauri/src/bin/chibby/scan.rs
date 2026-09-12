@@ -7,11 +7,7 @@ use owo_colors::OwoColorize;
 use std::path::PathBuf;
 
 fn resolve_project_path(project: Option<&PathBuf>) -> anyhow::Result<PathBuf> {
-    let p = project
-        .cloned()
-        .unwrap_or_else(|| std::env::current_dir().unwrap());
-    let abs = p.canonicalize().unwrap_or(p);
-    Ok(abs)
+    Ok(crate::project_path(project))
 }
 
 pub(crate) async fn handle_scan(printer: &Printer, cmd: &ScanCmd) -> anyhow::Result<()> {

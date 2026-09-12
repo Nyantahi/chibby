@@ -107,9 +107,12 @@ pub fn due_now(
         return Decision::NotDue;
     };
 
-    // The ordinary case: exactly one occurrence, and it just happened.
-    let on_time = elapsed.len() == 1 && now - latest <= Duration::seconds(ON_TIME_GRACE_SECS);
-    if on_time {
+    // "On time" is decided by the most recent occurrence, never by how many
+    // elapsed: a second- or minute-level cron legitimately produces several
+    // occurrences per tick and is not behind — they coalesce into this one
+    // run. Only a latest occurrence outside the grace window means the machine
+    // was actually away.
+    if now - latest <= Duration::seconds(ON_TIME_GRACE_SECS) {
         return Decision::Fire {
             scheduled_for: latest,
         };
@@ -244,6 +247,28 @@ mod tests {
             Decision::Skip { reason } => assert!(reason.contains("1 missed"), "{reason}"),
             other => panic!("expected Skip, got {other:?}"),
         }
+    }
+
+    /// A second-level cron produces several occurrences inside one 30s tick.
+    /// Those coalesce into one on-time run — they are not a missed backlog,
+    /// which under the default policy would mean it could never fire at all.
+    #[test]
+    fn test_due_now_fires_a_frequent_cron_despite_several_occurrences() {
+        let mut trig = nightly(MissedPolicy::Skip);
+        trig.cron = "*/30 * * * * *".to_string();
+
+        let decision = due_now(
+            &trig,
+            Some(at("2024-05-01T03:00:00Z")),
+            at("2024-05-01T03:01:00Z"),
+        );
+
+        assert_eq!(
+            decision,
+            Decision::Fire {
+                scheduled_for: at("2024-05-01T03:01:00Z")
+            }
+        );
     }
 
     #[test]

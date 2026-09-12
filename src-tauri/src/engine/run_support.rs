@@ -193,6 +193,47 @@ pub async fn post_run_housekeeping(repo_path: &str, run: &PipelineRun) {
     }
 }
 
+/// Announce a triggered run that failed *before* it produced a run record —
+/// a lock held by another process, an unparseable pipeline, a secret that
+/// would not resolve.
+///
+/// [`post_run_housekeeping`] only runs once a run exists, so without this a
+/// nightly that never started is silent, which is precisely what the
+/// unattended notification policy exists to prevent.
+pub async fn notify_trigger_failure(
+    repo_path: &str,
+    trigger_id: &str,
+    run_kind: RunKind,
+    error: &str,
+) {
+    let path = Path::new(repo_path);
+    let config = match notify::resolve_notify_config(path) {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("Failed to load notify config for {repo_path}: {e}");
+            return;
+        }
+    };
+
+    let project = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| repo_path.to_string());
+
+    let payload = NotifyPayload {
+        project,
+        version: None,
+        environment: None,
+        status: RunStatus::Failed,
+        duration_ms: None,
+        message: format!("Trigger '{trigger_id}' could not start: {error}"),
+        rollback: None,
+        run_kind: Some(run_kind),
+        trigger_id: Some(trigger_id.to_string()),
+    };
+    notify::send_notifications(&config, &payload).await;
+}
+
 /// Track a pipeline as running for `repo_path` for the duration of `operation`.
 /// Cleanup always runs, so a failed run never leaves a stale "running" entry.
 pub async fn with_pipeline_tracking<T, E, F>(
