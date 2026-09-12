@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-12
+
 ### Added
 
+- **Universal Docker CI template** — a language-agnostic `docker-ci` pipeline for any repo with a compose file: a `docker-build` gate that proves the image compiles, and an optional `docker-smoke` gate that proves it boots healthy (`compose up -d --wait`) with teardown guaranteed by a trap that always runs `compose down -v --remove-orphans` and preserves the real exit code.
 - **Agent provider selection** — new `AgentProvider` setting (`auto` / `anthropic` / `openai`) so users with more than one API key can force a provider; `build_provider()` honors it with a clear error when the chosen provider's key is missing. Surfaced as a **Provider** dropdown in Settings.
 - **`chibby init --ai` and `pipeline generate --ai` now call the real agent** — previously stubs that slept and printed canned success. A shared `agent::build_agent()` plus a new CLI `aigen` module summarizes the project, generates a pipeline, and writes `.chibby/pipeline.toml`.
 - **Per-project Run & Delete quick actions** on the Projects page — both Cards and Table views now expose Run-pipeline and Delete buttons on each project, so you can run or remove a project without opening it.
@@ -41,6 +44,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`--color-error`** was referenced by four failure-state CSS rules but never defined, so failed stage cards had no error styling.
 - **`NO_COLOR` handling** — honor the [`NO_COLOR`](https://no-color.org/) standard and no longer crash when `NO_COLOR=1`.
 - **npm audit** — patched 6 advisories (react-router, postcss, nanoid, brace-expansion, babel).
+- **The run index no longer cross-deletes projects' history** — housekeeping runs after every run, and index pruning applied one project's retention bounds to the shared index, so a busy project deleted other projects' run summaries. Index pruning is now per project, like run retention; `chibby insights --prune` honors `-p` scope and the project's configured bounds.
+- **The run lock is now race-free** — acquisition was check-then-write, so the desktop app and a headless `chibby schedule --once` could both start the same repo at once. It now creates the lock atomically. Canonical project paths mean `/tmp/app` and `/private/tmp/app` take the same lock instead of two.
+- **The run index survives corruption and crashes** — writes are atomic (temp + rename), an unparseable index is quarantined rather than overwritten (it is the only copy of summary-only history), and a stale `running` entry is refreshed from its run record.
+- **Watch triggers no longer loop forever on their own build output** — built-in excludes (`target/**`, `node_modules/**`, …) now match at any depth, so a nested workspace's build cannot re-trigger the watch; a leading `/` anchors a pattern to the repo root. FSEvents' `/private/...` paths now resolve against the repo.
+- **Git hooks never launch the desktop app** — hook installation could resolve `CHIBBY_BIN` to the running GUI binary, so `git push` opened a second app window instead of running the pipeline. Blocking hooks now exit on failure, and the fail-open path skips only Chibby's command rather than aborting a foreign hook body it was appended to.
+- **Health-check output is redacted** — a health check that echoed a secret (e.g. `curl -H "Authorization: Bearer $TOKEN"`) leaked it to the log stream despite `mask_secrets_in_logs`. Health-check and compose-check output is now redacted at ingest like every other stage line.
+- **Triggered runs are visible and stoppable, and never fail silently** — scheduled / watch / "run now" runs are tracked in the GUI's run state (so `cancel` reaches them, cross-process), and a trigger that dies before producing a run record (locked repo, unparseable pipeline, unresolved secret) now sends the unattended-failure notification instead of vanishing.
+- **A timed-out or cancelled stage keeps its partial output** instead of persisting only the timeout marker.
+- **A pipeline-wide rollback policy no longer marks working pipelines invalid** — it resolved onto every stage, so stages with no health check were flagged as errors; the rule now only applies to stages that can actually trigger a rollback.
+- **Triggers tab edits one file at a time** — it loaded and saved the *merged* view, so "Save" published a developer's machine-local triggers into the committed file and "Save for this machine" copied the whole committed config into the local file (shadowing future team edits). A Shared / This machine switch now edits the base or local file directly.
+- **Stage environment variable names keep focus while typing** — rows were keyed by the name being edited, so each keystroke remounted the input and dropped focus.
+- **Second-level cron schedules can fire** — a tick observing more than one occurrence was treated as a missed backlog and skipped; "on time" is now decided by the most recent occurrence.
 
 ## [0.3.1] - 2026-08-16
 

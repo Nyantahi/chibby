@@ -1,6 +1,6 @@
 # Roadmap & Gap Analysis
 
-Where Chibby v0.3.1 stands against what a CI/CD tool is expected to do, ranked by
+Where Chibby v0.4.0 stands against what a CI/CD tool is expected to do, ranked by
 urgency.
 
 ## Method
