@@ -1,0 +1,46 @@
+[meta]
+name = "Docker CI"
+description = "Universal container CI: prove the image builds, optionally prove it boots healthy, and always tear it down afterwards. Works for any project with a docker-compose file, not just one language."
+author = "chibby"
+version = "1.0.0"
+category = "docker"
+tags = ["docker", "compose", "container", "ci", "universal"]
+project_types = ["docker"]
+required_tools = ["docker"]
+template_type = "pipeline"
+
+[pipeline]
+name = "{{project_name}} Docker CI"
+
+# The fast gate: does the image compile at all? For most Dockerfiles this also
+# runs the app's own build step (next build, cargo build, go build, ...), so a
+# green build already proves the code compiles inside the container. Run this
+# stage alone (`chibby run --stage docker-build`) when all you want is "it builds".
+[[pipeline.stages]]
+name = "docker-build"
+commands = ["docker compose build"]
+backend = "local"
+fail_fast = true
+timeout_secs = 1800
+
+# The runtime gate: does the image actually start and become healthy? Building
+# an image never proves the container boots — wrong CMD, missing runtime env, a
+# multi-stage build that dropped a dependency all pass `build` and fail here.
+#
+# `up -d --wait` blocks until every service reports healthy (per the healthcheck
+# in your compose file) and fails if it never does. Give each service a
+# `healthcheck:` so this means "serves traffic", not just "process started".
+#
+# Teardown is guaranteed: the trap fires on ANY exit — success or the --wait
+# failing — so a broken image can never leave a container running on the machine.
+# `$code` is preserved so the stage still fails when the app was unhealthy, even
+# though `down` itself succeeds. This is one command on purpose: the trap only
+# spans a single shell, so run + teardown must live in the same command string.
+[[pipeline.stages]]
+name = "docker-smoke"
+commands = [
+  "trap 'code=$?; docker compose down -v --remove-orphans; exit $code' EXIT; docker compose up -d --wait",
+]
+backend = "local"
+fail_fast = true
+timeout_secs = 600

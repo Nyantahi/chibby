@@ -60,6 +60,10 @@ fn builtin_template_entries() -> Vec<(&'static str, &'static str)> {
             "docker-compose-deploy.toml",
             include_str!("../../templates/pipelines/docker-compose-deploy.toml"),
         ),
+        (
+            "docker-ci.toml",
+            include_str!("../../templates/pipelines/docker-ci.toml"),
+        ),
         // Stage snippet templates
         (
             "github-release.toml",
