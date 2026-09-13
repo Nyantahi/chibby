@@ -27,5 +27,18 @@ export default defineConfig({
     minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
     sourcemap: !!process.env.TAURI_DEBUG,
     outDir: 'dist',
+    rollupOptions: {
+      output: {
+        // Keep the framework in its own chunk: it rarely changes, so it stays
+        // cached across app updates while our own code (and the lazy route
+        // chunks) are what actually turn over. Rolldown (Vite 8) wants the
+        // function form of manualChunks, not the object form.
+        manualChunks(id) {
+          if (/node_modules\/(react|react-dom|react-router|react-router-dom|scheduler)\//.test(id)) {
+            return 'react-vendor';
+          }
+        },
+      },
+    },
   },
 });
