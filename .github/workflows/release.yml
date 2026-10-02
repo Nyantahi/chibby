@@ -152,6 +152,10 @@ jobs:
           fi
 
       - name: Package standalone CLI
+        # Force bash on every platform — windows-latest defaults to PowerShell,
+        # which can't parse this bash `if [[ … ]]`. bash (Git Bash) is available
+        # on GitHub's Windows runners.
+        shell: bash
         run: |
           mkdir -p cli-dist
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
