@@ -420,10 +420,25 @@ pub fn generate_draft_pipeline(
                     vec![&in_dir(&d, "swiftlint lint --strict")],
                 ));
             }
-            stages.push(local_stage(
-                "xcode-build",
-                vec![&in_dir(&d, "xcodebuild build CODE_SIGNING_ALLOWED=NO")],
-            ));
+            // Point xcodebuild at the project/workspace BY PATH rather than cd-ing
+            // and relying on a bare `xcodebuild` (which fails with "directory does
+            // not contain an Xcode project" when nested, and is ambiguous when a
+            // dir holds more than one). Path is quoted to tolerate spaces.
+            let xcode_target = scripts
+                .iter()
+                .find(|s| s.script_type == ScriptType::Swift && is_xcode_bundle(&s.file_name));
+            let build_cmd = match xcode_target {
+                Some(s) if s.file_name.ends_with(".xcworkspace") => format!(
+                    "xcodebuild -workspace \"{}\" build CODE_SIGNING_ALLOWED=NO",
+                    s.file_name
+                ),
+                Some(s) => format!(
+                    "xcodebuild -project \"{}\" build CODE_SIGNING_ALLOWED=NO",
+                    s.file_name
+                ),
+                None => "xcodebuild build CODE_SIGNING_ALLOWED=NO".to_string(),
+            };
+            stages.push(local_stage("xcode-build", vec![&build_cmd]));
         }
     }
 
@@ -710,6 +725,45 @@ mod tests {
         let pipeline = generate_draft_pipeline("ios-app", &scripts, tmp.path());
         let cmds: Vec<_> = pipeline.stages.iter().flat_map(|s| &s.commands).collect();
         assert!(cmds.iter().any(|c| c.contains("xcodebuild")));
+    }
+
+    #[test]
+    fn test_generate_draft_pipeline_nested_xcodeproj_uses_project_path() {
+        // Nested .xcodeproj: xcodebuild must be pointed at it by path so it works
+        // from the repo root (the "directory does not contain an Xcode project" fix).
+        let tmp = tempfile::tempdir().unwrap();
+        let scripts = vec![DetectedScript {
+            file_name: "KibokoKids/KibokoKids.xcodeproj".to_string(),
+            file_path: "/test/KibokoKids/KibokoKids.xcodeproj".to_string(),
+            script_type: ScriptType::Swift,
+        }];
+        let pipeline = generate_draft_pipeline("KibokoKids", &scripts, tmp.path());
+        let build = pipeline
+            .stages
+            .iter()
+            .find(|s| s.name == "xcode-build")
+            .unwrap();
+        assert_eq!(
+            build.commands[0],
+            "xcodebuild -project \"KibokoKids/KibokoKids.xcodeproj\" build CODE_SIGNING_ALLOWED=NO"
+        );
+    }
+
+    #[test]
+    fn test_generate_draft_pipeline_xcworkspace_uses_workspace_flag() {
+        let tmp = tempfile::tempdir().unwrap();
+        let scripts = vec![DetectedScript {
+            file_name: "App/App.xcworkspace".to_string(),
+            file_path: "/test/App/App.xcworkspace".to_string(),
+            script_type: ScriptType::Swift,
+        }];
+        let pipeline = generate_draft_pipeline("App", &scripts, tmp.path());
+        let build = pipeline
+            .stages
+            .iter()
+            .find(|s| s.name == "xcode-build")
+            .unwrap();
+        assert!(build.commands[0].contains("-workspace \"App/App.xcworkspace\""));
     }
 
     #[test]
