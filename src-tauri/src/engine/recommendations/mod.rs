@@ -21,7 +21,7 @@ mod universal;
 use crate::engine::models::{
     FileRecommendation, ProjectRecommendations, RecommendationPriority, RecommendationSummary,
 };
-use detect::detect_project_types;
+pub use detect::detect_project_types;
 use std::path::Path;
 
 /// Analyze a repository and generate CI/CD recommendations.

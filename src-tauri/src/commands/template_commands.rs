@@ -23,6 +23,13 @@ pub fn get_template(name: String, repo_path: Option<String>) -> Result<PipelineT
         .ok_or_else(|| format!("Template '{}' not found", name))
 }
 
+/// Pipeline templates matching the repo's detected project type(s), so the UI
+/// can point users at a fuller curated pipeline than auto-detect produced.
+#[tauri::command]
+pub fn recommend_templates(repo_path: String) -> Result<Vec<PipelineTemplate>, String> {
+    Ok(templates::recommend_templates(Path::new(&repo_path)))
+}
+
 /// Extract the `{{variable}}` placeholders from a template.
 #[tauri::command]
 pub fn get_template_variables(

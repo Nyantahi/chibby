@@ -9,6 +9,7 @@ import {
   generatePipelineWithDeploy,
   savePipeline,
   saveProjectMeta,
+  recommendTemplates,
   getGithubWorkflows,
   workflowsToPipelineStages,
   detectDeploymentMethod,
@@ -79,6 +80,9 @@ function AddProject() {
     name: string;
     vars: Record<string, string>;
   } | null>(null);
+  // Curated templates matching the detected project type, surfaced as a nudge
+  // in the CI Stages step so auto-detect users can jump to a fuller pipeline.
+  const [recommendedTemplates, setRecommendedTemplates] = useState<PipelineTemplate[]>([]);
   // Template pre-selected from the Templates page — waits for repo selection before applying
   const [pendingTemplate, setPendingTemplate] = useState<PipelineTemplate | null>(incomingTemplate);
 
@@ -132,7 +136,7 @@ function AddProject() {
       const name = repoName.trim() || repoNameFromPath(repoPath);
       setRepoName(name);
 
-      const [detected, pipeline, wfs, detectedDeploy, suggestedDeploys, projType] =
+      const [detected, pipeline, wfs, detectedDeploy, suggestedDeploys, projType, recTemplates] =
         await Promise.all([
           detectScripts(repoPath),
           generatePipelineWithDeploy(repoPath, name, undefined), // Generate without deploy for now
@@ -140,11 +144,13 @@ function AddProject() {
           detectDeploymentMethod(repoPath).catch(() => 'skip' as DeploymentMethod),
           getSuggestedDeployMethods(repoPath).catch(() => ['skip'] as DeploymentMethod[]),
           detectProjectType(repoPath).catch(() => 'Unknown' as ProjectType),
+          recommendTemplates(repoPath).catch(() => [] as PipelineTemplate[]),
         ]);
 
       setScripts(detected);
       setAutoDraft(pipeline);
       setDraft(pipeline);
+      setRecommendedTemplates(recTemplates);
       setWorkflows(wfs);
       setProjectType(projType);
       setDetectedDeployMethod(detectedDeploy);
@@ -387,10 +393,12 @@ function AddProject() {
           pipelineSource={pipelineSource}
           stageSelection={stageSelection}
           suggestions={suggestions}
+          recommendedTemplates={recommendedTemplates}
           anySelected={anySelected}
           loading={loading}
           onToggleStage={toggleStage}
           onAddSuggestion={addSuggestion}
+          onUseTemplate={(t) => setSelectedTemplate(t)}
           onBack={() => setStep('source')}
           onContinue={() => (anySelected ? setStep('deploy') : handleCreate())}
         />

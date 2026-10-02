@@ -1,5 +1,5 @@
-import { ArrowLeft, ArrowRight, Plus } from 'lucide-react';
-import type { Pipeline } from '../../types';
+import { ArrowLeft, ArrowRight, Plus, Sparkles } from 'lucide-react';
+import type { Pipeline, PipelineTemplate } from '../../types';
 import type { PipelineSource } from './constants';
 
 interface Suggestion {
@@ -13,10 +13,12 @@ interface ConfigureStepProps {
   pipelineSource: PipelineSource;
   stageSelection: Record<number, boolean>;
   suggestions: Suggestion[];
+  recommendedTemplates: PipelineTemplate[];
   anySelected: boolean;
   loading: boolean;
   onToggleStage: (idx: number) => void;
   onAddSuggestion: (name: string, commands: string[]) => void;
+  onUseTemplate: (template: PipelineTemplate) => void;
   onBack: () => void;
   onContinue: () => void;
 }
@@ -26,13 +28,17 @@ function ConfigureStep({
   pipelineSource,
   stageSelection,
   suggestions,
+  recommendedTemplates,
   anySelected,
   loading,
   onToggleStage,
   onAddSuggestion,
+  onUseTemplate,
   onBack,
   onContinue,
 }: ConfigureStepProps) {
+  // Only nudge toward a curated template when these stages came from auto-detect.
+  const showTemplateNudge = pipelineSource === 'auto' && recommendedTemplates.length > 0;
   return (
     <div className="onboarding-card onboarding-card--wide">
       <h3>Select pipeline stages</h3>
@@ -41,6 +47,34 @@ function ConfigureStep({
           ? 'Stages imported from your GitHub Actions workflows. Toggle the ones you want.'
           : 'Stages auto-detected from your project. Toggle the ones you want.'}
       </p>
+
+      {showTemplateNudge && (
+        <div className="wizard-template-nudge">
+          <Sparkles size={16} />
+          <div>
+            <strong>
+              There{recommendedTemplates.length > 1 ? ' are' : "'s"} a curated template for this
+              project type
+            </strong>
+            <p>
+              Auto-detect gives a minimal starting point. A template offers a fuller, hand-tuned
+              pipeline you can customize.
+            </p>
+            <div className="wizard-template-nudge-actions">
+              {recommendedTemplates.map((t) => (
+                <button
+                  key={t.meta.name}
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => onUseTemplate(t)}
+                >
+                  Use “{t.meta.name}” ({t.pipeline?.stages.length ?? 0} stages)
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="wizard-stage-list">
         {draft.stages.map((stage, idx) => {

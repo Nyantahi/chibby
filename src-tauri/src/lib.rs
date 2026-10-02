@@ -201,6 +201,7 @@ pub fn run() {
             // Template commands
             template_commands::get_templates,
             template_commands::get_template,
+            template_commands::recommend_templates,
             template_commands::get_template_variables,
             template_commands::apply_template,
             template_commands::save_custom_template,

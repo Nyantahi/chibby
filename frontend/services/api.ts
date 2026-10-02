@@ -872,6 +872,11 @@ export async function getTemplate(name: string, repoPath?: string): Promise<Pipe
   return invoke<PipelineTemplate>('get_template', { name, repoPath: repoPath ?? null });
 }
 
+/** Pipeline templates matching the repo's detected project type(s). */
+export async function recommendTemplates(repoPath: string): Promise<PipelineTemplate[]> {
+  return invoke<PipelineTemplate[]>('recommend_templates', { repoPath });
+}
+
 /** Extract the {{variable}} placeholders from a template. */
 export async function getTemplateVariables(
   name: string,

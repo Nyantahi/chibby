@@ -338,6 +338,23 @@ pub fn get_template_by_name(name: &str, repo_path: Option<&Path>) -> Option<Pipe
         .find(|t| t.meta.name == name)
 }
 
+/// Templates whose declared `project_types` match the repo's detected types.
+/// Used to point a user at a fuller curated pipeline (e.g. the Swift iOS App
+/// template) when auto-detect only produced a minimal draft.
+pub fn recommend_templates(repo_path: &Path) -> Vec<PipelineTemplate> {
+    let detected = crate::engine::recommendations::detect_project_types(repo_path);
+    get_all_templates(Some(repo_path))
+        .into_iter()
+        .filter(|t| {
+            t.meta.template_type == TemplateType::Pipeline
+                && t.meta
+                    .project_types
+                    .iter()
+                    .any(|pt| detected.iter().any(|d| d == pt))
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // Public API — variable extraction & substitution
 // ---------------------------------------------------------------------------
@@ -769,6 +786,27 @@ fail_fast = true
             assert_eq!(t.source, TemplateSource::BuiltIn);
             assert!(!t.meta.name.is_empty());
         }
+    }
+
+    #[test]
+    fn test_recommend_templates_matches_ios() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("App/App.xcodeproj")).unwrap();
+        let names: Vec<_> = recommend_templates(tmp.path())
+            .into_iter()
+            .map(|t| t.meta.name)
+            .collect();
+        assert!(
+            names.contains(&"Swift iOS App".to_string()),
+            "expected Swift iOS App in {names:?}"
+        );
+    }
+
+    #[test]
+    fn test_recommend_templates_empty_for_unknown() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("README.md"), "# nothing").unwrap();
+        assert!(recommend_templates(tmp.path()).is_empty());
     }
 
     #[test]

@@ -40,6 +40,8 @@ describe('AddProject', () => {
     vi.mocked(api.detectProjectType).mockResolvedValue('Node');
     vi.mocked(api.detectDeploymentMethod).mockResolvedValue('skip');
     vi.mocked(api.getSuggestedDeployMethods).mockResolvedValue(['docker_compose_ssh', 'skip']);
+    // Template recommendations (used in handleScan)
+    vi.mocked(api.recommendTemplates).mockResolvedValue([]);
   });
 
   describe('Initial select step', () => {

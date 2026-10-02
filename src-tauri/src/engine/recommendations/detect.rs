@@ -24,7 +24,7 @@ fn has_nested_ext(repo_path: &Path, ext: &str) -> bool {
 /// Detect project types based on manifest files. Every build system is matched
 /// with a shallow nested walk (not root-only) so monorepo / mobile layouts are
 /// classified instead of falling back to "unknown".
-pub(super) fn detect_project_types(repo_path: &Path) -> Vec<String> {
+pub fn detect_project_types(repo_path: &Path) -> Vec<String> {
     let mut types = Vec::new();
 
     // Node.js / JavaScript / TypeScript

@@ -405,8 +405,21 @@ pub fn generate_draft_pipeline(
             stages.push(local_stage("swift-build", vec![&in_dir(&d, "swift build")]));
             stages.push(local_stage("swift-test", vec![&in_dir(&d, "swift test")]));
         } else {
-            // Xcode app project: best-effort build. See the "Swift iOS App"
+            // Xcode app project: build-only core. We intentionally do NOT emit a
+            // simulator `xcodebuild test` stage — it's macOS-only, slow, and breaks
+            // when the hardcoded simulator name is absent on a runner. `xcodebuild
+            // build` compiles against the SDK and auto-resolves SPM packages, which
+            // is the robust "does it compile" gate. Apply the "Swift iOS App"
             // template for a full scheme-based lint/test/build pipeline.
+            let has_swiftlint = repo_path.join(".swiftlint.yml").exists()
+                || repo_path.join(".swiftlint.yaml").exists()
+                || (!d.is_empty() && repo_path.join(&d).join(".swiftlint.yml").exists());
+            if has_swiftlint {
+                stages.push(local_stage(
+                    "lint",
+                    vec![&in_dir(&d, "swiftlint lint --strict")],
+                ));
+            }
             stages.push(local_stage(
                 "xcode-build",
                 vec![&in_dir(&d, "xcodebuild build CODE_SIGNING_ALLOWED=NO")],
@@ -537,6 +550,17 @@ fn append_security_gate_stages(repo_path: &Path, stages: &mut Vec<Stage>) {
         ));
     };
 
+    // Container and IaC scans only make sense when the repo actually has those
+    // artifacts. Adding them to, say, a pure iOS app just pads the pipeline with
+    // gates that scan nothing. Scope them to the relevant files (shallow walk).
+    let has_container = exists_within(repo_path, NESTED_SCAN_DEPTH, &|n: &str| {
+        n == "Dockerfile" || is_docker_compose_file(n)
+    });
+    let has_iac = exists_within(repo_path, NESTED_SCAN_DEPTH, &|n: &str| {
+        n.ends_with(".tf") || n.ends_with(".tf.json") || n == "Chart.yaml"
+    });
+
+    // Universal gates: apply to any repo.
     if config.secret_scanning != GateMode::Off {
         push(stages, "secrets", "secrets");
     }
@@ -546,10 +570,11 @@ fn append_security_gate_stages(repo_path: &Path, stages: &mut Vec<Stage>) {
     if config.sast != GateMode::Off {
         push(stages, "sast", "sast");
     }
-    if config.container_scan != GateMode::Off {
+    // File-scoped gates: only when the artifact they scan is present.
+    if config.container_scan != GateMode::Off && has_container {
         push(stages, "container", "container");
     }
-    if config.iac_scan != GateMode::Off {
+    if config.iac_scan != GateMode::Off && has_iac {
         push(stages, "iac", "iac");
     }
     if config.license_check != GateMode::Off {
@@ -564,6 +589,50 @@ fn append_security_gate_stages(repo_path: &Path, stages: &mut Vec<Stage>) {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn test_generate_draft_pipeline_ios_build_only() {
+        // Xcode app project: build-only core, NO simulator test stage.
+        let tmp = tempfile::tempdir().unwrap();
+        let scripts = vec![DetectedScript {
+            file_name: "MyApp.xcodeproj".to_string(),
+            file_path: "/test/MyApp.xcodeproj".to_string(),
+            script_type: ScriptType::Swift,
+        }];
+        let pipeline = generate_draft_pipeline("MyApp", &scripts, tmp.path());
+        let names: Vec<_> = pipeline.stages.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"xcode-build"));
+        // No simulator test stage (macOS-only / fragile).
+        let cmds: Vec<_> = pipeline.stages.iter().flat_map(|s| &s.commands).collect();
+        assert!(!cmds.iter().any(|c| c.contains("xcodebuild test")));
+        assert!(!names.contains(&"test"));
+    }
+
+    #[test]
+    fn test_security_gates_scoped_to_relevant_files() {
+        use std::fs;
+        let tmp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join(".chibby")).unwrap();
+        fs::write(
+            tmp.path().join(".chibby/gates.toml"),
+            "secret_scanning = \"block\"\ncontainer_scan = \"block\"\niac_scan = \"block\"\n",
+        )
+        .unwrap();
+
+        // No Dockerfile / IaC present: container + iac gates are skipped.
+        let pipeline = generate_draft_pipeline("x", &[], tmp.path());
+        let names: Vec<_> = pipeline.stages.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"security-secrets"));
+        assert!(!names.contains(&"security-container"));
+        assert!(!names.contains(&"security-iac"));
+
+        // Add a Dockerfile: the container gate now applies.
+        fs::write(tmp.path().join("Dockerfile"), "FROM scratch").unwrap();
+        let pipeline2 = generate_draft_pipeline("x", &[], tmp.path());
+        let names2: Vec<_> = pipeline2.stages.iter().map(|s| s.name.as_str()).collect();
+        assert!(names2.contains(&"security-container"));
+        assert!(!names2.contains(&"security-iac"));
+    }
 
     #[test]
     fn test_generate_draft_pipeline_fallback() {

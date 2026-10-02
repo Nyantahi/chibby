@@ -1416,6 +1416,39 @@ select.input {
   font-weight: 500;
 }
 
+.wizard-template-nudge {
+  display: flex;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+  padding: var(--space-md);
+  background: var(--color-primary-bg);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+}
+
+.wizard-template-nudge > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--color-primary);
+}
+
+.wizard-template-nudge strong {
+  font-size: var(--font-size-sm);
+}
+
+.wizard-template-nudge p {
+  margin: var(--space-xs) 0 var(--space-sm);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.wizard-template-nudge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
 .wizard-suggestion-item .suggestion-reason {
   color: var(--color-text-dim);
   font-size: var(--font-size-xs);
