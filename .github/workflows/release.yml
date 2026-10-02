@@ -170,6 +170,10 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
+          # Keep the release a draft — this step runs during the build matrix, and
+          # omitting draft lets the action flip the release to published before all
+          # platforms finish. publish-release does the final publish.
+          draft: true
           files: |
             cli-dist/chibby-cli-*.tar.gz
             cli-dist/chibby-cli-*.zip
@@ -212,6 +216,8 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
+          # Keep draft until publish-release; see note on "Upload CLI to release".
+          draft: true
           files: cli-dist/chibby-cli-macos-universal.tar.gz
 
   publish-release:
