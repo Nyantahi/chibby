@@ -62,13 +62,23 @@ function Projects() {
   }, []);
 
   const stats = useMemo(() => {
-    const todayRuns = runs.filter((r) => isToday(r.started_at));
+    // Merge persisted runs (fetched on mount) with runs that just finished in the
+    // live store, deduped by id, so stats update when a run completes without a
+    // manual reload. finishedRun carries the same id the backend persists.
+    const byId = new Map<string, PipelineRun>();
+    for (const run of runs) byId.set(run.id, run);
+    for (const active of activeRuns) {
+      if (active.finishedRun) byId.set(active.finishedRun.id, active.finishedRun);
+    }
+    const allRuns = [...byId.values()];
+
+    const todayRuns = allRuns.filter((r) => isToday(r.started_at));
     const todaySuccess = todayRuns.filter((r) => r.status === 'success').length;
     const todayTotal = todayRuns.length;
     const successRate = todayTotal > 0 ? Math.round((todaySuccess / todayTotal) * 100) : 0;
 
     const latestByProject = new Map<string, PipelineRun>();
-    for (const run of runs) {
+    for (const run of allRuns) {
       const existing = latestByProject.get(run.repo_path);
       if (!existing || new Date(run.started_at) > new Date(existing.started_at)) {
         latestByProject.set(run.repo_path, run);
@@ -79,7 +89,7 @@ function Projects() {
     ).length;
 
     return { totalProjects: projects.length, runsToday: todayTotal, successRate, needsAttention };
-  }, [projects, runs]);
+  }, [projects, runs, activeRuns]);
 
   // Run a project's default pipeline straight from the list. Stops the click
   // from bubbling to the card/row navigation.

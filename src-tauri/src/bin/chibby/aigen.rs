@@ -76,21 +76,17 @@ pub fn project_info(path: &Path) -> String {
 /// Generate a Chibby pipeline via the AI agent and write it to
 /// `<path>/.chibby/pipeline.toml`. Returns the model's explanation of the stages.
 pub async fn generate_pipeline_toml(path: &Path) -> Result<String> {
-    let agent = agent::build_agent()
-        .context("AI is not configured. Add an API key and select a provider in the desktop app's Settings.")?;
+    let agent = agent::build_agent().context(
+        "AI is not configured. Add an API key and select a provider in the desktop app's Settings.",
+    )?;
 
     let info = project_info(path);
     let generated = agent
-        .generate_pipeline(
-            &path.to_string_lossy(),
-            PipelineFormat::Chibby,
-            &info,
-        )
+        .generate_pipeline(&path.to_string_lossy(), PipelineFormat::Chibby, &info)
         .await?;
 
     let dir = path.join(".chibby");
-    std::fs::create_dir_all(&dir)
-        .with_context(|| format!("Failed to create {}", dir.display()))?;
+    std::fs::create_dir_all(&dir).with_context(|| format!("Failed to create {}", dir.display()))?;
     let file = dir.join("pipeline.toml");
     std::fs::write(&file, &generated.content)
         .with_context(|| format!("Failed to write {}", file.display()))?;

@@ -1,0 +1,76 @@
+[meta]
+name = "Tauri Desktop Release"
+description = "Release pipeline for Tauri desktop apps: verify a clean tree, build the bundle, bump the version across package.json + Cargo.toml + tauri.conf.json (lockfile synced), tag, push, and open a draft GitHub release with the built artifact. Safe to re-run — build happens before the bump and the GitHub release step is idempotent."
+author = "chibby"
+version = "1.0.0"
+category = "rust"
+tags = ["tauri", "release", "desktop", "github", "publish"]
+project_types = ["tauri"]
+required_tools = ["npm", "cargo", "git", "gh"]
+template_type = "pipeline"
+
+[pipeline]
+name = "{{project_name}} Release"
+
+# Refuse to release from a dirty tree so stray changes can't be swept into the
+# version-bump commit.
+[[pipeline.stages]]
+name = "preflight"
+commands = [
+    '''test -z "$(git status --porcelain)" || { echo "Working tree is dirty — commit or stash first."; exit 1; }''',
+]
+backend = "local"
+fail_fast = true
+
+# Build BEFORE bumping the version. A build failure then leaves the version,
+# commit and tag untouched — no manual cleanup, no double-bump on retry.
+[[pipeline.stages]]
+name = "build"
+commands = ["npm run tauri:build"]
+backend = "local"
+fail_fast = true
+timeout_secs = 3600
+
+# Bump only after a green build. Updates package.json + both src-tauri manifests,
+# re-syncs Cargo.lock (so the commit is consistent), refuses to clobber an
+# existing tag, then commits and annotates the tag. {{bump_level}}: patch/minor/major.
+[[pipeline.stages]]
+name = "version-tag"
+commands = [
+    '''npm version {{bump_level}} --no-git-tag-version --ignore-scripts \
+&& V=$(node -p "require('./package.json').version") \
+&& sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$V\"/" src-tauri/tauri.conf.json \
+&& sed -i '' "s/^version = \"[^\"]*\"/version = \"$V\"/" src-tauri/Cargo.toml \
+&& (cd src-tauri && cargo update --workspace) \
+&& { git rev-parse "v$V" >/dev/null 2>&1 && { echo "Tag v$V already exists — aborting."; exit 1; } || true; } \
+&& git add package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock \
+&& git commit -m "chore: bump version to $V" \
+&& git tag -a "v$V" -m "Release $V"''',
+]
+backend = "local"
+fail_fast = true
+
+# Push the version commit and tag together.
+[[pipeline.stages]]
+name = "push"
+commands = ["git push --follow-tags"]
+backend = "local"
+fail_fast = true
+
+# Create (or update) a DRAFT GitHub release. Idempotent: re-running uploads the
+# artifact to the existing draft with --clobber instead of failing.
+[[pipeline.stages]]
+name = "github-release-upload"
+commands = [
+    '''V=$(node -p "require('./package.json').version") \
+&& DMG=$(find src-tauri/target/release/bundle/dmg -name '*.dmg' 2>/dev/null | head -1) \
+&& if gh release view "v$V" >/dev/null 2>&1; then \
+     if [ -n "$DMG" ]; then gh release upload "v$V" "$DMG" --clobber; else echo "Release v$V exists; nothing to upload."; fi; \
+   elif [ -n "$DMG" ]; then \
+     gh release create "v$V" --generate-notes --draft "$DMG"; \
+   else \
+     gh release create "v$V" --generate-notes --draft; \
+   fi''',
+]
+backend = "local"
+fail_fast = true

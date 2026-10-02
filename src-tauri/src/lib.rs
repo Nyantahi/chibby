@@ -96,6 +96,9 @@ pub fn run() {
             // Pipeline commands
             pipeline_commands::detect_scripts,
             pipeline_commands::generate_pipeline,
+            pipeline_commands::regenerate_pipeline,
+            pipeline_commands::save_project_meta,
+            pipeline_commands::get_project_meta,
             pipeline_commands::save_pipeline,
             pipeline_commands::load_pipeline,
             pipeline_commands::list_pipelines,

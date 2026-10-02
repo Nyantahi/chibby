@@ -18,7 +18,7 @@ If a project template has the same name as a built-in template, the project vers
 
 Chibby ships with built-in templates covering common languages and deployment patterns.
 
-### Full Pipeline Templates (9)
+### Full Pipeline Templates (12)
 
 | Template | Category | Description |
 | -------- | -------- | ----------- |
@@ -31,6 +31,10 @@ Chibby ships with built-in templates covering common languages and deployment pa
 | Static Site | deployment | Build, optimize, and deploy static assets |
 | Tauri Desktop | rust | Frontend build, Tauri bundle, and code signing |
 | Docker Compose Deploy | docker | Build, push, deploy via docker-compose over SSH |
+| Docker CI | docker | Build, test, and scan a Docker image |
+| Swift iOS App | swift | Resolve packages, lint, test, and build with xcodebuild |
+| Kotlin Android App | kotlin | Lint, unit test, and assemble a release APK via Gradle |
+| Tauri Desktop Release | tauri | Build, version-bump, tag, push, and draft a GitHub release with the bundle (build-before-bump, idempotent) |
 
 ### Stage Snippet Templates (12)
 

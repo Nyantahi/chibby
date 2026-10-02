@@ -40,9 +40,8 @@ pub fn guard_project_path(project_path: &str, rel_path: &str) -> Result<PathBuf,
         std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {e}"))?;
     }
 
-    let canonical_parent =
-        std::fs::canonicalize(full_path.parent().unwrap_or(&canonical_project))
-            .map_err(|e| format!("Failed to resolve path: {e}"))?;
+    let canonical_parent = std::fs::canonicalize(full_path.parent().unwrap_or(&canonical_project))
+        .map_err(|e| format!("Failed to resolve path: {e}"))?;
 
     if !canonical_parent.starts_with(&canonical_project) {
         return Err("File path resolves outside the project directory".to_string());

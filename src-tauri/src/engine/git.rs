@@ -106,7 +106,10 @@ pub fn head_short_commit(repo: &Path) -> Option<String> {
 
 /// Commits (ahead, behind) upstream. `(None, None)` when there is no upstream.
 pub fn ahead_behind(repo: &Path) -> (Option<u32>, Option<u32>) {
-    match run_git(repo, &["rev-list", "--left-right", "--count", "HEAD...@{upstream}"]) {
+    match run_git(
+        repo,
+        &["rev-list", "--left-right", "--count", "HEAD...@{upstream}"],
+    ) {
         Ok(text) => {
             let parts: Vec<&str> = text.split('\t').collect();
             if parts.len() == 2 {

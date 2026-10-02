@@ -111,8 +111,7 @@ impl MemoryStore {
         hasher.update(project_id.as_bytes());
         let digest = hasher.finalize();
         let hash: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
-        self.base_dir
-            .join(format!("projects/{}/memory.json", hash))
+        self.base_dir.join(format!("projects/{}/memory.json", hash))
     }
 }
 

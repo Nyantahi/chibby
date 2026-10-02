@@ -267,6 +267,14 @@ pub fn save_generated_pipeline(
         &format!("project={} file={}", project_path, file_path),
     );
 
+    // Back up any existing file before overwriting so an AI-generated pipeline
+    // can't silently destroy a user's config (same idiom as agent CI edits).
+    if full_path.exists() {
+        let bak = std::path::PathBuf::from(format!("{}.bak", full_path.display()));
+        std::fs::copy(&full_path, &bak)
+            .map_err(|e| format!("Failed to back up existing pipeline file: {}", e))?;
+    }
+
     std::fs::write(&full_path, &content)
         .map_err(|e| format!("Failed to write pipeline file: {}", e))?;
 

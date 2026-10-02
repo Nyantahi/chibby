@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-02
+
+### Added
+
+- **Swift iOS and Kotlin Android pipeline templates** — scheme-based lint/test/build for iOS (`xcodebuild` + `swiftlint`) and lint/unit-test/assemble-release for Android (Gradle).
+- **Tauri Desktop Release template** — a reusable release pipeline (build → version-bump across `package.json`/`Cargo.toml`/`tauri.conf.json` with `Cargo.lock` synced → tag → push → draft GitHub release with the bundle). Builds before bumping so a failed build leaves no version/tag residue, refuses to clobber an existing tag, and the GitHub release step is idempotent. Chibby's own `.chibby/release.toml` now uses this flow.
+- **Nested project detection** — monorepo, mobile and `src/<App>/` layouts are now recognized for Swift/iOS, Android/Gradle, Go, Maven, Ruby, PHP, .NET, C/C++ (CMake/Meson) and nested Node/Python/Rust, instead of being reported as "unknown" and falling back to a generic `echo` pipeline. Detection shallow-walks subdirectories (skipping vendor/build/bundle dirs), and the draft pipeline runs a nested build system's commands in its own directory.
+- **C/C++ projects reported in the detected-type label** — CMake and Meson repos are now classified, not just handled by draft generation.
+- **Template provenance** — the template a project was created from, plus the variables used, is recorded in `.chibby/meta.toml`. **Regenerate now re-applies that template** instead of re-detecting, so a template-based project is never clobbered by a detection miss. Detection is used only when there is no template (or it has been removed).
+
+### Changed
+
+- **Regenerate is recoverable and confirmed** — it asks before replacing the pipeline and backs up the existing `pipeline.toml` (and `deploy.toml`) to `*.bak.toml` first.
+- **Home-screen stats update live** — Success Rate, Runs Today and Needs Attention now reflect runs that finish after the page loaded, instead of staying stale until a reload.
+
+### Fixed
+
+- **iOS/Android projects with a nested `.xcodeproj` or module were detected as "unknown"**, so Regenerate produced a generic pipeline and overwrote the template chosen at setup. Detection now finds nested Xcode bundles, `Package.swift`, Gradle modules and `AndroidManifest.xml`.
+- **Rust projects using the standard Tauri layout (`src-tauri/Cargo.toml`) were mislabeled** as a non-Rust project in the detected-type label and recommendations.
+- **Pipeline generation no longer silently overwrites a user-edited `deploy.toml`**, and the AI "Save to Project" action backs up any existing file before writing.
+
+### Security
+
+- **npm audit** — bumped `brace-expansion` to clear a high-severity ReDoS / uncontrolled-recursion advisory (GHSA-q2hr-2g5m-vwhr and related); 0 vulnerabilities.
+
 ## [0.4.0] - 2026-09-12
 
 ### Added

@@ -142,6 +142,34 @@ export async function generatePipeline(repoPath: string, repoName: string): Prom
   return invoke<Pipeline>('generate_pipeline', { repoPath, repoName });
 }
 
+/**
+ * Regenerate the pipeline from fresh detection. Backs up the current
+ * pipeline.toml to pipeline.bak.toml first, then saves and returns the new one.
+ */
+export async function regeneratePipeline(repoPath: string, repoName: string): Promise<Pipeline> {
+  return invoke<Pipeline>('regenerate_pipeline', { repoPath, repoName });
+}
+
+/** Project provenance stored in .chibby/meta.toml. */
+export interface ProjectMeta {
+  template?: string;
+  template_vars: Record<string, string>;
+}
+
+/** Save which template a project's pipeline was created from (+ variables used). */
+export async function saveProjectMeta(
+  repoPath: string,
+  template: string | undefined,
+  templateVars: Record<string, string>
+): Promise<void> {
+  return invoke<void>('save_project_meta', { repoPath, template, templateVars });
+}
+
+/** Load project provenance from .chibby/meta.toml (defaults when absent). */
+export async function getProjectMeta(repoPath: string): Promise<ProjectMeta> {
+  return invoke<ProjectMeta>('get_project_meta', { repoPath });
+}
+
 /** Save a pipeline to .chibby/pipeline.toml. */
 export async function savePipeline(repoPath: string, p: Pipeline): Promise<void> {
   return invoke<void>('save_pipeline', { repoPath, p });
