@@ -13,8 +13,7 @@ import {
   loadSecretsConfig,
   runPreflight,
   detectScripts,
-  generatePipeline,
-  savePipeline,
+  regeneratePipeline,
   validatePipeline,
   getGitInfo,
   getRecommendations,
@@ -301,13 +300,20 @@ function ProjectDetail() {
 
   async function handleRegenerate() {
     if (!project) return;
+    // Regenerate overwrites the current pipeline (e.g. a template picked at
+    // setup). Confirm first; the backend also backs up pipeline.toml so it's recoverable.
+    if (
+      !window.confirm(
+        'Regenerate will replace the current pipeline with one detected from scratch. A backup (pipeline.bak.toml) is saved first. Continue?'
+      )
+    )
+      return;
     try {
       setError(null);
       // Clear pipeline run statuses when regenerating
       if (!running) clearRun(project.project.path);
       setSelectedStageResult(null);
-      const newPipeline = await generatePipeline(project.project.path, project.project.name);
-      await savePipeline(project.project.path, newPipeline);
+      await regeneratePipeline(project.project.path, project.project.name);
       await loadData();
     } catch (err) {
       setError(String(err));

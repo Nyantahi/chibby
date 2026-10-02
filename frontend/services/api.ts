@@ -142,6 +142,14 @@ export async function generatePipeline(repoPath: string, repoName: string): Prom
   return invoke<Pipeline>('generate_pipeline', { repoPath, repoName });
 }
 
+/**
+ * Regenerate the pipeline from fresh detection. Backs up the current
+ * pipeline.toml to pipeline.bak.toml first, then saves and returns the new one.
+ */
+export async function regeneratePipeline(repoPath: string, repoName: string): Promise<Pipeline> {
+  return invoke<Pipeline>('regenerate_pipeline', { repoPath, repoName });
+}
+
 /** Save a pipeline to .chibby/pipeline.toml. */
 export async function savePipeline(repoPath: string, p: Pipeline): Promise<void> {
   return invoke<void>('save_pipeline', { repoPath, p });

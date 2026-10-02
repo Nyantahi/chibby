@@ -222,6 +222,20 @@ const SUGGESTION_RULES: {
     keywords: ['pip', 'pytest', 'python'],
     stages: [{ name: 'python-test', commands: ['pip install -e .', 'pytest'] }],
   },
+  {
+    filePattern: 'Package.swift',
+    keywords: ['swift build', 'swift test', 'xcodebuild'],
+    stages: [
+      { name: 'swift-build', commands: ['swift build'] },
+      { name: 'swift-test', commands: ['swift test'] },
+    ],
+  },
+  {
+    // Xcode app project (matches e.g. "MyApp.xcodeproj").
+    filePattern: '.xcodeproj',
+    keywords: ['xcodebuild', 'swift build'],
+    stages: [{ name: 'xcode-build', commands: ['xcodebuild build CODE_SIGNING_ALLOWED=NO'] }],
+  },
 ];
 
 export function computeSuggestions(

@@ -1,5 +1,6 @@
 //! Project-type detection from manifest files, plus fullstack heuristics.
 
+use crate::engine::detector::{exists_within, is_android_project, is_xcode_bundle, NESTED_SCAN_DEPTH};
 use std::path::Path;
 
 /// Detect project types based on manifest files.
@@ -32,12 +33,36 @@ pub(super) fn detect_project_types(repo_path: &Path) -> Vec<String> {
         types.push("go".to_string());
     }
 
-    // Java / Kotlin
-    if repo_path.join("pom.xml").exists()
-        || repo_path.join("build.gradle").exists()
-        || repo_path.join("build.gradle.kts").exists()
-    {
+    // Java / Kotlin. Gradle/Android modules often nest below the root
+    // (`mobile/app/build.gradle.kts`), so shallow-walk rather than scanning
+    // root only.
+    let has_gradle_kts = exists_within(repo_path, NESTED_SCAN_DEPTH, &|n: &str| {
+        n == "build.gradle.kts"
+    });
+    let has_build_system = repo_path.join("pom.xml").exists()
+        || exists_within(repo_path, NESTED_SCAN_DEPTH, &|n: &str| n == "build.gradle")
+        || has_gradle_kts;
+    if has_build_system {
         types.push("java".to_string());
+        // Kotlin DSL build scripts signal a Kotlin project.
+        if has_gradle_kts {
+            types.push("kotlin".to_string());
+        }
+        if is_android_project(repo_path) {
+            types.push("android".to_string());
+        }
+    }
+
+    // Swift / iOS. Xcode projects usually sit a level or two down
+    // (`App/App.xcodeproj`), so shallow-walk rather than scanning root only.
+    let has_xcode_app = exists_within(repo_path, NESTED_SCAN_DEPTH, &is_xcode_bundle);
+    let has_spm = exists_within(repo_path, NESTED_SCAN_DEPTH, &|n: &str| n == "Package.swift");
+    if has_spm || has_xcode_app {
+        types.push("swift".to_string());
+        // An Xcode project/workspace signals an iOS app; an SPM package alone does not.
+        if has_xcode_app {
+            types.push("ios".to_string());
+        }
     }
 
     // .NET / C#
@@ -271,4 +296,70 @@ fn has_extension_in_dir(dir: &Path, ext: &str) -> bool {
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn touch(dir: &Path, rel: &str) {
+        let p = dir.join(rel);
+        if let Some(parent) = p.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(p, "").unwrap();
+    }
+
+    #[test]
+    fn test_detect_swift_spm() {
+        let tmp = tempfile::tempdir().unwrap();
+        touch(tmp.path(), "Package.swift");
+        let types = detect_project_types(tmp.path());
+        assert!(types.contains(&"swift".to_string()));
+        // SPM package is not an app, so no "ios".
+        assert!(!types.contains(&"ios".to_string()));
+    }
+
+    #[test]
+    fn test_detect_swift_ios_app() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("MyApp.xcodeproj")).unwrap();
+        let types = detect_project_types(tmp.path());
+        assert!(types.contains(&"swift".to_string()));
+        assert!(types.contains(&"ios".to_string()));
+    }
+
+    #[test]
+    fn test_detect_swift_ios_app_nested() {
+        // Standard iOS layout nests the project bundle a level down.
+        let tmp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("KibokoKids/KibokoKids.xcodeproj")).unwrap();
+        let types = detect_project_types(tmp.path());
+        assert!(types.contains(&"swift".to_string()));
+        assert!(types.contains(&"ios".to_string()));
+        assert!(!types.contains(&"unknown".to_string()));
+    }
+
+    #[test]
+    fn test_detect_kotlin_android() {
+        let tmp = tempfile::tempdir().unwrap();
+        touch(tmp.path(), "build.gradle.kts");
+        touch(tmp.path(), "app/src/main/AndroidManifest.xml");
+        let types = detect_project_types(tmp.path());
+        assert!(types.contains(&"kotlin".to_string()));
+        assert!(types.contains(&"android".to_string()));
+    }
+
+    #[test]
+    fn test_detect_kotlin_android_nested() {
+        // Gradle module + manifest nested below the root (monorepo layout).
+        let tmp = tempfile::tempdir().unwrap();
+        touch(tmp.path(), "mobile/app/build.gradle.kts");
+        touch(tmp.path(), "mobile/app/src/main/AndroidManifest.xml");
+        let types = detect_project_types(tmp.path());
+        assert!(types.contains(&"kotlin".to_string()));
+        assert!(types.contains(&"android".to_string()));
+        assert!(!types.contains(&"unknown".to_string()));
+    }
 }

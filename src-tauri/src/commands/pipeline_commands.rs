@@ -77,6 +77,21 @@ pub fn generate_pipeline(repo_path: String, repo_name: String) -> Result<Pipelin
     Ok(draft)
 }
 
+/// Regenerate the pipeline from fresh detection, backing up the current
+/// `.chibby/pipeline.toml` to `pipeline.bak.toml` first so the change is
+/// recoverable. Returns the new pipeline (already saved to disk).
+#[tauri::command]
+pub fn regenerate_pipeline(repo_path: String, repo_name: String) -> Result<Pipeline, String> {
+    let path = Path::new(&repo_path);
+    // Preserve the existing pipeline so a bad regen (e.g. detection miss) can be reverted.
+    if let Err(e) = pipeline::backup_pipeline(path) {
+        log::warn!("Failed to back up pipeline before regenerate: {}", e);
+    }
+    let draft = generate_pipeline(repo_path.clone(), repo_name)?;
+    pipeline::save_pipeline(path, &draft).map_err(|e| e.to_string())?;
+    Ok(draft)
+}
+
 /// Save a pipeline to .chibby/pipeline.toml.
 #[tauri::command]
 pub fn save_pipeline(repo_path: String, p: Pipeline) -> Result<(), String> {

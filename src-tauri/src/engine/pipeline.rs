@@ -25,6 +25,20 @@ pub fn save_pipeline(repo_path: &Path, pipeline: &Pipeline) -> Result<()> {
     Ok(())
 }
 
+/// Back up the current `.chibby/pipeline.toml` to `pipeline.bak.toml` so a
+/// regeneration can be reverted. No-op when no pipeline exists yet.
+pub fn backup_pipeline(repo_path: &Path) -> Result<()> {
+    let src = repo_path.join(".chibby").join("pipeline.toml");
+    if !src.exists() {
+        return Ok(());
+    }
+    let dst = repo_path.join(".chibby").join("pipeline.bak.toml");
+    std::fs::copy(&src, &dst)
+        .with_context(|| format!("Failed to back up pipeline to {}", dst.display()))?;
+    log::info!("Backed up pipeline to {}", dst.display());
+    Ok(())
+}
+
 /// Load a Pipeline from .chibby/pipeline.toml.
 pub fn load_pipeline(repo_path: &Path) -> Result<Pipeline> {
     let file_path = repo_path.join(".chibby").join("pipeline.toml");

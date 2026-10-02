@@ -64,6 +64,14 @@ fn builtin_template_entries() -> Vec<(&'static str, &'static str)> {
             "docker-ci.toml",
             include_str!("../../templates/pipelines/docker-ci.toml"),
         ),
+        (
+            "swift-ios.toml",
+            include_str!("../../templates/pipelines/swift-ios.toml"),
+        ),
+        (
+            "kotlin-android.toml",
+            include_str!("../../templates/pipelines/kotlin-android.toml"),
+        ),
         // Stage snippet templates
         (
             "github-release.toml",
@@ -377,6 +385,16 @@ fn well_known_variable(name: &str) -> Option<(String, String, bool)> {
         "download_url" => Some((
             "Public download URL for the release asset".into(),
             String::new(),
+            true,
+        )),
+        "scheme" => Some((
+            "Xcode scheme to build and test".into(),
+            String::new(),
+            true,
+        )),
+        "simulator" => Some((
+            "iOS Simulator device name for test/build destination".into(),
+            "iPhone 15".into(),
             true,
         )),
         _ => None,

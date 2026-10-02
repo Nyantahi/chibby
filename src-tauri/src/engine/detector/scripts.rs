@@ -63,6 +63,8 @@ const SCRIPT_PATTERNS: &[&str] = &[
     "build.gradle",
     "build.gradle.kts",
     "gradlew",
+    // Swift / iOS
+    "Package.swift",
     // .NET / C#
     "global.json",
     // PHP
@@ -168,6 +170,8 @@ pub enum ScriptType {
     // Java / Kotlin
     Maven,
     Gradle,
+    // Swift / iOS
+    Swift,
     // .NET
     DotNet,
     // PHP
@@ -355,6 +359,14 @@ pub fn detect_scripts(repo_path: &Path) -> Vec<DetectedScript> {
                     file_path: entry.path().to_string_lossy().to_string(),
                     script_type: ScriptType::DotNet,
                 });
+            } else if is_xcode_bundle(&name)
+                && !found.iter().any(|s| s.script_type == ScriptType::Swift)
+            {
+                found.push(DetectedScript {
+                    file_name: name,
+                    file_path: entry.path().to_string_lossy().to_string(),
+                    script_type: ScriptType::Swift,
+                });
             } else if is_docker_compose_file(&name) && !found.iter().any(|s| s.file_name == name) {
                 // Detect docker-compose variants (docker-compose.prod.yml, etc.)
                 found.push(DetectedScript {
@@ -363,6 +375,39 @@ pub fn detect_scripts(repo_path: &Path) -> Vec<DetectedScript> {
                     script_type: ScriptType::DockerCompose,
                 });
             }
+        }
+    }
+
+    // Nested iOS/Swift fallback: Xcode projects usually live one or more levels
+    // down (e.g. `KibokoKids/KibokoKids.xcodeproj`), which the root scans above
+    // miss. Shallow-walk for an `.xcodeproj`/`.xcworkspace` (or nested
+    // `Package.swift`) so the draft pipeline detects Swift instead of falling
+    // back to the generic `echo` build.
+    if !found.iter().any(|s| s.script_type == ScriptType::Swift) {
+        let nested = find_within(repo_path, NESTED_SCAN_DEPTH, &is_xcode_bundle)
+            .or_else(|| find_within(repo_path, NESTED_SCAN_DEPTH, &|n: &str| n == "Package.swift"));
+        if let Some(path) = nested {
+            found.push(DetectedScript {
+                file_name: rel_display_name(repo_path, &path),
+                file_path: path.to_string_lossy().to_string(),
+                script_type: ScriptType::Swift,
+            });
+        }
+    }
+
+    // Nested Gradle fallback: Android/Gradle modules often live below the root
+    // (e.g. `mobile/app/build.gradle.kts`), which the root scans miss. Shallow-walk
+    // for a Gradle build script so the draft pipeline detects Gradle/Android.
+    if !found.iter().any(|s| s.script_type == ScriptType::Gradle) {
+        let nested = find_within(repo_path, NESTED_SCAN_DEPTH, &|n: &str| {
+            n == "build.gradle" || n == "build.gradle.kts"
+        });
+        if let Some(path) = nested {
+            found.push(DetectedScript {
+                file_name: rel_display_name(repo_path, &path),
+                file_path: path.to_string_lossy().to_string(),
+                script_type: ScriptType::Gradle,
+            });
         }
     }
 
@@ -460,6 +505,8 @@ fn classify_file(name: &str) -> ScriptType {
         // Java / Kotlin
         "pom.xml" => ScriptType::Maven,
         "build.gradle" | "build.gradle.kts" | "gradlew" => ScriptType::Gradle,
+        // Swift / iOS
+        "Package.swift" => ScriptType::Swift,
         // .NET
         "global.json" => ScriptType::DotNet,
         // PHP
@@ -507,6 +554,19 @@ fn classify_file(name: &str) -> ScriptType {
         _ if name.ends_with(".sh") => ScriptType::ShellScript,
         _ => ScriptType::Unknown,
     }
+}
+
+/// Whether the repo is an Android project: an `app/` module with a Gradle build
+/// or, anywhere within a shallow walk, an `AndroidManifest.xml` (the definitive
+/// Android signal). The nested walk covers layouts where the module sits below
+/// the root (e.g. `mobile/app/src/main/AndroidManifest.xml`). Shared by draft
+/// generation and recommendations so both classify a repo the same way.
+pub fn is_android_project(repo_path: &Path) -> bool {
+    repo_path.join("app/build.gradle").exists()
+        || repo_path.join("app/build.gradle.kts").exists()
+        || exists_within(repo_path, ANDROID_MANIFEST_SCAN_DEPTH, &|n: &str| {
+            n == "AndroidManifest.xml"
+        })
 }
 
 /// Check if a file is an environment variable file (.env, .env.local, etc.).
@@ -565,6 +625,91 @@ pub(crate) fn read_package_scripts(repo_path: &Path) -> std::collections::HashMa
         }
     }
     scripts
+}
+
+/// How many directory levels below the repo root to shallow-walk when probing
+/// for nested project files (e.g. a nested `.xcodeproj`). Depth 0 = root only.
+pub(crate) const NESTED_SCAN_DEPTH: usize = 3;
+
+/// Deeper scan for `AndroidManifest.xml`: it lives at `<module>/src/main/`, two
+/// levels below the module root, so the default depth doesn't reach a nested
+/// module's manifest. Covers `app/src/main/` and `mobile/app/src/main/`.
+const ANDROID_MANIFEST_SCAN_DEPTH: usize = 5;
+
+/// Directories never worth descending into when probing for nested project
+/// files (vendored deps, build output, VCS internals, bundle dirs).
+const NESTED_SKIP_DIRS: &[&str] = &[
+    "node_modules",
+    "Pods",
+    "Carthage",
+    "DerivedData",
+    "build",
+    ".build",
+    "target",
+    "dist",
+    "out",
+    "vendor",
+    ".gradle",
+    "__pycache__",
+];
+
+/// Find the first entry at or below `dir` (within `max_depth` levels; depth 0 =
+/// `dir` itself) whose file name satisfies `pred`. Skips vendor/build/bundle
+/// dirs and hidden dirs so a shallow walk stays cheap and avoids false hits
+/// inside `.xcodeproj`/`.xcworkspace` bundles.
+pub(crate) fn find_within<F>(dir: &Path, max_depth: usize, pred: &F) -> Option<std::path::PathBuf>
+where
+    F: Fn(&str) -> bool,
+{
+    let entries = std::fs::read_dir(dir).ok()?;
+    let mut subdirs = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if pred(&name) {
+            return Some(entry.path());
+        }
+        if max_depth > 0 {
+            let path = entry.path();
+            if path.is_dir() && !name.starts_with('.') && !is_skip_dir(&name) {
+                subdirs.push(path);
+            }
+        }
+    }
+    subdirs
+        .iter()
+        .find_map(|sub| find_within(sub, max_depth - 1, pred))
+}
+
+/// Whether any entry at or below `dir` (within `max_depth`) matches `pred`.
+pub(crate) fn exists_within<F>(dir: &Path, max_depth: usize, pred: &F) -> bool
+where
+    F: Fn(&str) -> bool,
+{
+    find_within(dir, max_depth, pred).is_some()
+}
+
+/// Dirs to never descend into (vendor/build output and Xcode bundle dirs).
+fn is_skip_dir(name: &str) -> bool {
+    NESTED_SKIP_DIRS.contains(&name)
+        || name.ends_with(".xcodeproj")
+        || name.ends_with(".xcworkspace")
+}
+
+/// Whether a file name is an Xcode project or workspace bundle.
+pub(crate) fn is_xcode_bundle(name: &str) -> bool {
+    name.ends_with(".xcodeproj") || name.ends_with(".xcworkspace")
+}
+
+/// Display name for a detected file: its path relative to the repo root (POSIX
+/// separators) so nested matches read as `KibokoKids/KibokoKids.xcodeproj`.
+/// Falls back to the full path, then the bare file name.
+fn rel_display_name(repo_path: &Path, path: &Path) -> String {
+    path.strip_prefix(repo_path)
+        .unwrap_or(path)
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// Read the immediate filenames in a directory (case-preserving, no recursion).
@@ -703,5 +848,67 @@ mod tests {
         assert!(scripts
             .iter()
             .any(|s| s.script_type == ScriptType::CargoToml));
+    }
+
+    #[test]
+    fn test_detect_scripts_nested_xcodeproj() {
+        // Standard iOS layout: project bundle nested one level down.
+        let temp = TempDir::new().unwrap();
+        std::fs::create_dir_all(temp.path().join("KibokoKids/KibokoKids.xcodeproj")).unwrap();
+
+        let scripts = detect_scripts(temp.path());
+        let swift = scripts
+            .iter()
+            .find(|s| s.script_type == ScriptType::Swift)
+            .expect("nested .xcodeproj should be detected as Swift");
+        assert_eq!(swift.file_name, "KibokoKids/KibokoKids.xcodeproj");
+    }
+
+    #[test]
+    fn test_detect_scripts_skips_vendor_dirs() {
+        // An .xcodeproj only inside Pods/ must not count as the app project.
+        let temp = TempDir::new().unwrap();
+        std::fs::create_dir_all(temp.path().join("Pods/Pods.xcodeproj")).unwrap();
+
+        let scripts = detect_scripts(temp.path());
+        assert!(!scripts.iter().any(|s| s.script_type == ScriptType::Swift));
+    }
+
+    #[test]
+    fn test_detect_scripts_root_xcodeproj_still_works() {
+        let temp = TempDir::new().unwrap();
+        std::fs::create_dir_all(temp.path().join("MyApp.xcodeproj")).unwrap();
+
+        let scripts = detect_scripts(temp.path());
+        assert!(scripts.iter().any(|s| s.script_type == ScriptType::Swift));
+    }
+
+    #[test]
+    fn test_detect_scripts_nested_gradle() {
+        // Gradle module nested below the root (monorepo-style layout).
+        let temp = TempDir::new().unwrap();
+        std::fs::create_dir_all(temp.path().join("mobile/app")).unwrap();
+        std::fs::write(temp.path().join("mobile/app/build.gradle.kts"), "").unwrap();
+
+        let scripts = detect_scripts(temp.path());
+        let gradle = scripts
+            .iter()
+            .find(|s| s.script_type == ScriptType::Gradle)
+            .expect("nested build.gradle.kts should be detected as Gradle");
+        assert_eq!(gradle.file_name, "mobile/app/build.gradle.kts");
+    }
+
+    #[test]
+    fn test_is_android_project_nested_manifest() {
+        // AndroidManifest below the root with no root-level `app/` module.
+        let temp = TempDir::new().unwrap();
+        std::fs::create_dir_all(temp.path().join("mobile/app/src/main")).unwrap();
+        std::fs::write(
+            temp.path().join("mobile/app/src/main/AndroidManifest.xml"),
+            "",
+        )
+        .unwrap();
+
+        assert!(is_android_project(temp.path()));
     }
 }

@@ -1,0 +1,31 @@
+[meta]
+name = "Kotlin Android App"
+description = "CI pipeline for Android apps built with Kotlin: lint, unit test, and assemble a release APK via Gradle"
+author = "chibby"
+version = "1.0.0"
+category = "kotlin"
+tags = ["kotlin", "android", "gradle", "mobile"]
+project_types = ["kotlin", "android"]
+required_tools = ["gradle"]
+template_type = "pipeline"
+
+[pipeline]
+name = "{{project_name}} Pipeline"
+
+[[pipeline.stages]]
+name = "lint"
+commands = ["./gradlew lintDebug"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "test"
+commands = ["./gradlew testDebugUnitTest"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "build"
+commands = ["./gradlew assembleRelease"]
+backend = "local"
+fail_fast = true

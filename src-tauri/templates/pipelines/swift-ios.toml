@@ -1,0 +1,41 @@
+[meta]
+name = "Swift iOS App"
+description = "CI pipeline for iOS apps built with Swift: resolve packages, lint, test, and build with xcodebuild"
+author = "chibby"
+version = "1.0.0"
+category = "swift"
+tags = ["swift", "ios", "xcode", "mobile"]
+project_types = ["swift", "ios"]
+required_tools = ["xcodebuild", "swiftlint"]
+template_type = "pipeline"
+
+[pipeline]
+name = "{{project_name}} Pipeline"
+
+[[pipeline.stages]]
+name = "resolve-packages"
+commands = ["xcodebuild -resolvePackageDependencies -scheme {{scheme}}"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "lint"
+commands = ["swiftlint lint --strict"]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "test"
+commands = [
+  "xcodebuild test -scheme {{scheme}} -destination 'platform=iOS Simulator,name={{simulator}}' CODE_SIGNING_ALLOWED=NO"
+]
+backend = "local"
+fail_fast = true
+
+[[pipeline.stages]]
+name = "build"
+commands = [
+  "xcodebuild build -scheme {{scheme}} -destination 'platform=iOS Simulator,name={{simulator}}' -configuration Release CODE_SIGNING_ALLOWED=NO"
+]
+backend = "local"
+fail_fast = true

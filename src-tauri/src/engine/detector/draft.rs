@@ -336,21 +336,44 @@ pub fn generate_draft_pipeline(
         stages.push(local_stage("mvn-test", vec!["mvn test"]));
     }
 
-    // ── Java / Gradle ─────────────────────────────────────────────
+    // ── Java / Kotlin / Gradle ────────────────────────────────────
     if has(ScriptType::Gradle) {
         let gradle_cmd = if has_file("gradlew") {
             "./gradlew"
         } else {
             "gradle"
         };
-        stages.push(local_stage(
-            "gradle-build",
-            vec![&format!("{} build", gradle_cmd)],
-        ));
-        stages.push(local_stage(
-            "gradle-test",
-            vec![&format!("{} test", gradle_cmd)],
-        ));
+        let gradle = |sub: &str| format!("{gradle_cmd} {sub}");
+        if is_android_project(repo_path) {
+            stages.push(local_stage("android-lint", vec![&gradle("lintDebug")]));
+            stages.push(local_stage(
+                "android-test",
+                vec![&gradle("testDebugUnitTest")],
+            ));
+            stages.push(local_stage(
+                "android-build",
+                vec![&gradle("assembleRelease")],
+            ));
+        } else {
+            stages.push(local_stage("gradle-build", vec![&gradle("build")]));
+            stages.push(local_stage("gradle-test", vec![&gradle("test")]));
+        }
+    }
+
+    // ── Swift / iOS ───────────────────────────────────────────────
+    if has(ScriptType::Swift) {
+        if has_file("Package.swift") {
+            // Swift Package Manager: builds headless without a scheme.
+            stages.push(local_stage("swift-build", vec!["swift build"]));
+            stages.push(local_stage("swift-test", vec!["swift test"]));
+        } else {
+            // Xcode app project: best-effort build. See the "Swift iOS App"
+            // template for a full scheme-based lint/test/build pipeline.
+            stages.push(local_stage(
+                "xcode-build",
+                vec!["xcodebuild build CODE_SIGNING_ALLOWED=NO"],
+            ));
+        }
     }
 
     // ── .NET ──────────────────────────────────────────────────────
@@ -520,6 +543,59 @@ mod tests {
         // Should detect Rust and add cargo stages
         let stage_commands: Vec<_> = pipeline.stages.iter().flat_map(|s| &s.commands).collect();
         assert!(stage_commands.iter().any(|c| c.contains("cargo")));
+    }
+
+    #[test]
+    fn test_generate_draft_pipeline_swift_spm() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("Package.swift"), "").unwrap();
+        let scripts = vec![DetectedScript {
+            file_name: "Package.swift".to_string(),
+            file_path: tmp
+                .path()
+                .join("Package.swift")
+                .to_string_lossy()
+                .to_string(),
+            script_type: ScriptType::Swift,
+        }];
+
+        let pipeline = generate_draft_pipeline("swift-pkg", &scripts, tmp.path());
+        let cmds: Vec<_> = pipeline.stages.iter().flat_map(|s| &s.commands).collect();
+        assert!(cmds.iter().any(|c| c.contains("swift build")));
+        assert!(cmds.iter().any(|c| c.contains("swift test")));
+    }
+
+    #[test]
+    fn test_generate_draft_pipeline_swift_xcode() {
+        // No Package.swift on disk -> Xcode app path.
+        let tmp = tempfile::tempdir().unwrap();
+        let scripts = vec![DetectedScript {
+            file_name: "MyApp.xcodeproj".to_string(),
+            file_path: "/test/MyApp.xcodeproj".to_string(),
+            script_type: ScriptType::Swift,
+        }];
+
+        let pipeline = generate_draft_pipeline("ios-app", &scripts, tmp.path());
+        let cmds: Vec<_> = pipeline.stages.iter().flat_map(|s| &s.commands).collect();
+        assert!(cmds.iter().any(|c| c.contains("xcodebuild")));
+    }
+
+    #[test]
+    fn test_generate_draft_pipeline_android_gradle() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("app")).unwrap();
+        std::fs::write(tmp.path().join("app/build.gradle"), "").unwrap();
+        let scripts = vec![DetectedScript {
+            file_name: "build.gradle".to_string(),
+            file_path: "/test/build.gradle".to_string(),
+            script_type: ScriptType::Gradle,
+        }];
+
+        let pipeline = generate_draft_pipeline("android-app", &scripts, tmp.path());
+        let cmds: Vec<_> = pipeline.stages.iter().flat_map(|s| &s.commands).collect();
+        // Android-aware stages, not the generic gradle build/test.
+        assert!(cmds.iter().any(|c| c.contains("assembleRelease")));
+        assert!(cmds.iter().any(|c| c.contains("testDebugUnitTest")));
     }
 
     #[test]
