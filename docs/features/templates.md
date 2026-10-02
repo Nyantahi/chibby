@@ -34,6 +34,7 @@ Chibby ships with built-in templates covering common languages and deployment pa
 | Docker CI | docker | Build, test, and scan a Docker image |
 | Swift iOS App | swift | Resolve packages, lint, test, and build with xcodebuild |
 | Kotlin Android App | kotlin | Lint, unit test, and assemble a release APK via Gradle |
+| Tauri Desktop Release | tauri | Build, version-bump, tag, push, and draft a GitHub release with the bundle (build-before-bump, idempotent) |
 
 ### Stage Snippet Templates (12)
 

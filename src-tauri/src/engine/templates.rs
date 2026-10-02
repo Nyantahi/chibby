@@ -72,6 +72,10 @@ fn builtin_template_entries() -> Vec<(&'static str, &'static str)> {
             "kotlin-android.toml",
             include_str!("../../templates/pipelines/kotlin-android.toml"),
         ),
+        (
+            "tauri-release.toml",
+            include_str!("../../templates/pipelines/tauri-release.toml"),
+        ),
         // Stage snippet templates
         (
             "github-release.toml",
@@ -754,9 +758,45 @@ fail_fast = true
             !templates.is_empty(),
             "Should have at least one built-in template"
         );
+        // Every registered entry must parse — a bad template is silently dropped
+        // by load_builtin_templates, so assert nothing was lost.
+        assert_eq!(
+            templates.len(),
+            builtin_template_entries().len(),
+            "A built-in template failed to parse"
+        );
         for t in &templates {
             assert_eq!(t.source, TemplateSource::BuiltIn);
             assert!(!t.meta.name.is_empty());
         }
+    }
+
+    #[test]
+    fn test_tauri_release_template_applies() {
+        let template = get_template_by_name("Tauri Desktop Release", None)
+            .expect("Tauri Desktop Release template should be registered");
+        let mut vars = HashMap::new();
+        vars.insert("project_name".to_string(), "myapp".to_string());
+        vars.insert("bump_level".to_string(), "minor".to_string());
+        let pipeline = apply_template_variables(&template, &vars).unwrap();
+        assert_eq!(pipeline.name, "myapp Release");
+        let stage_names: Vec<_> = pipeline.stages.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(
+            stage_names,
+            [
+                "preflight",
+                "build",
+                "version-tag",
+                "push",
+                "github-release-upload"
+            ]
+        );
+        // The bump level was substituted into the version-tag command.
+        let vt = pipeline
+            .stages
+            .iter()
+            .find(|s| s.name == "version-tag")
+            .unwrap();
+        assert!(vt.commands[0].contains("npm version minor"));
     }
 }
