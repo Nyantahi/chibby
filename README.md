@@ -14,7 +14,7 @@ Chibby helps developers turn existing scripts into visual, repeatable pipelines 
 
 ## Features
 
-- **Pipeline Templates** — 45 built-in templates (10 full pipelines + 35 stage snippets, including one-click cloud deploy targets — AWS, GCP, Azure, DigitalOcean, Fly.io, Render, Railway, Vercel, S3 — plus security-scan stages) with variable substitution, import/export, and 3-layer resolution ([Templates docs](docs/features/templates.md))
+- **Pipeline Templates** — 48 built-in templates (13 full pipelines + 35 stage snippets, including iOS (Swift) and Android (Kotlin) mobile pipelines, a Tauri desktop release pipeline, one-click cloud deploy targets — AWS, GCP, Azure, DigitalOcean, Fly.io, Render, Railway, Vercel, S3 — plus security-scan stages) with variable substitution, import/export, and 3-layer resolution ([Templates docs](docs/features/templates.md))
 - **GitHub Actions Import** — Import stages from existing `.github/workflows/` into your pipeline
 - **CLI** — Standalone command-line interface for headless servers and scripting ([CLI docs](docs/features/cli-commands.md))
 - **Script Import** — Detect and import existing scripts from your repo

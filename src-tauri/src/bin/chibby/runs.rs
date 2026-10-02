@@ -356,8 +356,10 @@ pub(crate) async fn handle_pipeline(printer: &Printer, cmd: &PipelineCmd) -> any
         PipelineCmd::Generate { project, ai } => {
             let path = crate::project_path(project.as_ref());
             if *ai {
-                let spin =
-                    cli::spinner(&format!("{} Generating pipeline with AI...", icons::SPARKLE));
+                let spin = cli::spinner(&format!(
+                    "{} Generating pipeline with AI...",
+                    icons::SPARKLE
+                ));
                 let result = crate::aigen::generate_pipeline_toml(&path).await;
                 spin.finish_and_clear();
                 match result {

@@ -46,8 +46,7 @@ async fn main() {
     // Handle color preferences. Per the NO_COLOR standard (https://no-color.org),
     // any non-empty value disables color — read presence manually so values like
     // NO_COLOR=1 don't fail clap's bool parsing.
-    let no_color = cli_args.no_color
-        || std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
+    let no_color = cli_args.no_color || std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
     if no_color {
         owo_colors::set_override(false);
     }
@@ -649,7 +648,10 @@ async fn init_project(printer: &Printer, path: Option<&PathBuf>, ai: bool) -> an
     printer.newline();
 
     if ai {
-        let spin = cli::spinner(&format!("{} Generating pipeline with AI...", icons::SPARKLE));
+        let spin = cli::spinner(&format!(
+            "{} Generating pipeline with AI...",
+            icons::SPARKLE
+        ));
         let result = aigen::generate_pipeline_toml(&path).await;
         spin.finish_and_clear();
         match result {
