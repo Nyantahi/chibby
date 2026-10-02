@@ -1,5 +1,7 @@
 use crate::engine::leak_scanner::{self, LeakMatch};
-use crate::engine::models::{Environment, EnvironmentsConfig, Pipeline, SecretRef, SecretsConfig};
+use crate::engine::models::{
+    Environment, EnvironmentsConfig, Pipeline, ProjectMeta, SecretRef, SecretsConfig,
+};
 use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
@@ -25,18 +27,49 @@ pub fn save_pipeline(repo_path: &Path, pipeline: &Pipeline) -> Result<()> {
     Ok(())
 }
 
-/// Back up the current `.chibby/pipeline.toml` to `pipeline.bak.toml` so a
-/// regeneration can be reverted. No-op when no pipeline exists yet.
-pub fn backup_pipeline(repo_path: &Path) -> Result<()> {
-    let src = repo_path.join(".chibby").join("pipeline.toml");
+/// Back up `.chibby/<name>.toml` to `<name>.bak.toml` so a regeneration or
+/// overwrite can be reverted. No-op when the file doesn't exist yet.
+pub fn backup_pipeline_named(repo_path: &Path, name: &str) -> Result<()> {
+    let src = repo_path.join(".chibby").join(format!("{name}.toml"));
     if !src.exists() {
         return Ok(());
     }
-    let dst = repo_path.join(".chibby").join("pipeline.bak.toml");
+    let dst = repo_path.join(".chibby").join(format!("{name}.bak.toml"));
     std::fs::copy(&src, &dst)
-        .with_context(|| format!("Failed to back up pipeline to {}", dst.display()))?;
-    log::info!("Backed up pipeline to {}", dst.display());
+        .with_context(|| format!("Failed to back up {} to {}", src.display(), dst.display()))?;
+    log::info!("Backed up {} to {}", src.display(), dst.display());
     Ok(())
+}
+
+/// Back up the current `.chibby/pipeline.toml` to `pipeline.bak.toml`.
+pub fn backup_pipeline(repo_path: &Path) -> Result<()> {
+    backup_pipeline_named(repo_path, "pipeline")
+}
+
+/// Save project provenance to `.chibby/meta.toml`.
+pub fn save_project_meta(repo_path: &Path, meta: &ProjectMeta) -> Result<()> {
+    let chibby_dir = repo_path.join(".chibby");
+    std::fs::create_dir_all(&chibby_dir).with_context(|| {
+        format!(
+            "Failed to create .chibby directory in {}",
+            repo_path.display()
+        )
+    })?;
+    let toml_str = toml::to_string_pretty(meta).context("Failed to serialize project meta")?;
+    let file_path = chibby_dir.join("meta.toml");
+    std::fs::write(&file_path, &toml_str)
+        .with_context(|| format!("Failed to write {}", file_path.display()))?;
+    Ok(())
+}
+
+/// Load project provenance from `.chibby/meta.toml`, or the default (no
+/// template) when the file is absent or unreadable.
+pub fn load_project_meta(repo_path: &Path) -> ProjectMeta {
+    let file_path = repo_path.join(".chibby").join("meta.toml");
+    std::fs::read_to_string(&file_path)
+        .ok()
+        .and_then(|c| toml::from_str(&c).ok())
+        .unwrap_or_default()
 }
 
 /// Load a Pipeline from .chibby/pipeline.toml.
@@ -566,6 +599,41 @@ mod tests {
     fn test_has_pipeline_false() {
         let temp = TempDir::new().unwrap();
         assert!(!has_pipeline(temp.path()));
+    }
+
+    #[test]
+    fn test_project_meta_round_trip() {
+        let temp = TempDir::new().unwrap();
+        // Absent meta -> default (no template).
+        assert!(load_project_meta(temp.path()).template.is_none());
+
+        let mut vars = std::collections::HashMap::new();
+        vars.insert("scheme".to_string(), "App".to_string());
+        let meta = ProjectMeta {
+            template: Some("Swift iOS App".to_string()),
+            template_vars: vars,
+        };
+        save_project_meta(temp.path(), &meta).unwrap();
+
+        let loaded = load_project_meta(temp.path());
+        assert_eq!(loaded.template.as_deref(), Some("Swift iOS App"));
+        assert_eq!(loaded.template_vars.get("scheme").unwrap(), "App");
+    }
+
+    #[test]
+    fn test_backup_pipeline_named() {
+        let temp = TempDir::new().unwrap();
+        // No-op when the file is absent.
+        backup_pipeline_named(temp.path(), "deploy").unwrap();
+        assert!(!temp.path().join(".chibby/deploy.bak.toml").exists());
+
+        // Backs up an existing file with its contents preserved.
+        save_pipeline_by_name(temp.path(), "deploy", &sample_pipeline()).unwrap();
+        backup_pipeline_named(temp.path(), "deploy").unwrap();
+        let bak = temp.path().join(".chibby/deploy.bak.toml");
+        assert!(bak.exists());
+        let original = std::fs::read_to_string(temp.path().join(".chibby/deploy.toml")).unwrap();
+        assert_eq!(std::fs::read_to_string(&bak).unwrap(), original);
     }
 
     #[test]

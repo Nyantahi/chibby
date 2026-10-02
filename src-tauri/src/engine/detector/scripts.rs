@@ -378,38 +378,82 @@ pub fn detect_scripts(repo_path: &Path) -> Vec<DetectedScript> {
         }
     }
 
-    // Nested iOS/Swift fallback: Xcode projects usually live one or more levels
-    // down (e.g. `KibokoKids/KibokoKids.xcodeproj`), which the root scans above
-    // miss. Shallow-walk for an `.xcodeproj`/`.xcworkspace` (or nested
-    // `Package.swift`) so the draft pipeline detects Swift instead of falling
-    // back to the generic `echo` build.
-    if !found.iter().any(|s| s.script_type == ScriptType::Swift) {
-        let nested = find_within(repo_path, NESTED_SCAN_DEPTH, &is_xcode_bundle)
-            .or_else(|| find_within(repo_path, NESTED_SCAN_DEPTH, &|n: &str| n == "Package.swift"));
-        if let Some(path) = nested {
-            found.push(DetectedScript {
-                file_name: rel_display_name(repo_path, &path),
-                file_path: path.to_string_lossy().to_string(),
-                script_type: ScriptType::Swift,
-            });
-        }
-    }
-
-    // Nested Gradle fallback: Android/Gradle modules often live below the root
-    // (e.g. `mobile/app/build.gradle.kts`), which the root scans miss. Shallow-walk
-    // for a Gradle build script so the draft pipeline detects Gradle/Android.
-    if !found.iter().any(|s| s.script_type == ScriptType::Gradle) {
-        let nested = find_within(repo_path, NESTED_SCAN_DEPTH, &|n: &str| {
-            n == "build.gradle" || n == "build.gradle.kts"
-        });
-        if let Some(path) = nested {
-            found.push(DetectedScript {
-                file_name: rel_display_name(repo_path, &path),
-                file_path: path.to_string_lossy().to_string(),
-                script_type: ScriptType::Gradle,
-            });
-        }
-    }
+    // Nested single-build-system fallbacks. In monorepo / mobile / `src/<App>/`
+    // layouts the primary manifest sits below the root, which the root scans
+    // above miss — leaving the draft pipeline on its generic `echo` fallback.
+    // Shallow-walk for each so the real build system is detected. Only fires
+    // when that build system wasn't already found at the root or in a fullstack
+    // subdir. Swift and Gradle search deeper (bundles / `app/src/main`).
+    push_nested_fallback(
+        &mut found,
+        repo_path,
+        ScriptType::Swift,
+        NESTED_SCAN_DEPTH,
+        is_xcode_bundle,
+    );
+    push_nested_fallback(
+        &mut found,
+        repo_path,
+        ScriptType::Swift,
+        NESTED_SCAN_DEPTH,
+        |n| n == "Package.swift",
+    );
+    push_nested_fallback(
+        &mut found,
+        repo_path,
+        ScriptType::Gradle,
+        DEEP_NESTED_SCAN_DEPTH,
+        |n| n == "build.gradle" || n == "build.gradle.kts",
+    );
+    push_nested_fallback(
+        &mut found,
+        repo_path,
+        ScriptType::GoMod,
+        NESTED_SCAN_DEPTH,
+        |n| n == "go.mod",
+    );
+    push_nested_fallback(
+        &mut found,
+        repo_path,
+        ScriptType::Maven,
+        NESTED_SCAN_DEPTH,
+        |n| n == "pom.xml",
+    );
+    push_nested_fallback(
+        &mut found,
+        repo_path,
+        ScriptType::Gemfile,
+        NESTED_SCAN_DEPTH,
+        |n| n == "Gemfile",
+    );
+    push_nested_fallback(
+        &mut found,
+        repo_path,
+        ScriptType::Composer,
+        NESTED_SCAN_DEPTH,
+        |n| n == "composer.json",
+    );
+    push_nested_fallback(
+        &mut found,
+        repo_path,
+        ScriptType::CMake,
+        NESTED_SCAN_DEPTH,
+        |n| n == "CMakeLists.txt",
+    );
+    push_nested_fallback(
+        &mut found,
+        repo_path,
+        ScriptType::Meson,
+        NESTED_SCAN_DEPTH,
+        |n| n == "meson.build",
+    );
+    push_nested_fallback(
+        &mut found,
+        repo_path,
+        ScriptType::DotNet,
+        NESTED_SCAN_DEPTH,
+        |n| n.ends_with(".csproj") || n.ends_with(".sln"),
+    );
 
     // Scan scripts/ directory for shell scripts
     let scripts_dir = repo_path.join("scripts");
@@ -564,7 +608,7 @@ fn classify_file(name: &str) -> ScriptType {
 pub fn is_android_project(repo_path: &Path) -> bool {
     repo_path.join("app/build.gradle").exists()
         || repo_path.join("app/build.gradle.kts").exists()
-        || exists_within(repo_path, ANDROID_MANIFEST_SCAN_DEPTH, &|n: &str| {
+        || exists_within(repo_path, DEEP_NESTED_SCAN_DEPTH, &|n: &str| {
             n == "AndroidManifest.xml"
         })
 }
@@ -631,10 +675,11 @@ pub(crate) fn read_package_scripts(repo_path: &Path) -> std::collections::HashMa
 /// for nested project files (e.g. a nested `.xcodeproj`). Depth 0 = root only.
 pub(crate) const NESTED_SCAN_DEPTH: usize = 3;
 
-/// Deeper scan for `AndroidManifest.xml`: it lives at `<module>/src/main/`, two
-/// levels below the module root, so the default depth doesn't reach a nested
-/// module's manifest. Covers `app/src/main/` and `mobile/app/src/main/`.
-const ANDROID_MANIFEST_SCAN_DEPTH: usize = 5;
+/// Deeper scan depth for build files that nest further than usual: an
+/// `AndroidManifest.xml` lives at `<module>/src/main/` (two levels below the
+/// module root) and Gradle modules can sit several levels down. Covers
+/// `app/src/main/` and `mobile/app/src/main/`.
+pub(crate) const DEEP_NESTED_SCAN_DEPTH: usize = 5;
 
 /// Directories never worth descending into when probing for nested project
 /// files (vendored deps, build output, VCS internals, bundle dirs).
@@ -686,6 +731,31 @@ where
     F: Fn(&str) -> bool,
 {
     find_within(dir, max_depth, pred).is_some()
+}
+
+/// If no script of `stype` was detected yet, shallow-walk for the first file
+/// matching `pred` and record it (relative to the repo root). Keeps nested
+/// monorepo / mobile / `src/<App>/` layouts from falling through to the generic
+/// `echo` fallback pipeline.
+fn push_nested_fallback<F>(
+    found: &mut Vec<DetectedScript>,
+    repo_path: &Path,
+    stype: ScriptType,
+    max_depth: usize,
+    pred: F,
+) where
+    F: Fn(&str) -> bool,
+{
+    if found.iter().any(|s| s.script_type == stype) {
+        return;
+    }
+    if let Some(path) = find_within(repo_path, max_depth, &pred) {
+        found.push(DetectedScript {
+            file_name: rel_display_name(repo_path, &path),
+            file_path: path.to_string_lossy().to_string(),
+            script_type: stype,
+        });
+    }
 }
 
 /// Dirs to never descend into (vendor/build output and Xcode bundle dirs).
@@ -896,6 +966,26 @@ mod tests {
             .find(|s| s.script_type == ScriptType::Gradle)
             .expect("nested build.gradle.kts should be detected as Gradle");
         assert_eq!(gradle.file_name, "mobile/app/build.gradle.kts");
+    }
+
+    #[test]
+    fn test_detect_scripts_nested_go_ruby_php() {
+        for (rel, stype) in [
+            ("services/api/go.mod", ScriptType::GoMod),
+            ("backend/Gemfile", ScriptType::Gemfile),
+            ("web/composer.json", ScriptType::Composer),
+            ("src/app/CMakeLists.txt", ScriptType::CMake),
+        ] {
+            let temp = TempDir::new().unwrap();
+            let p = temp.path().join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, "").unwrap();
+            let scripts = detect_scripts(temp.path());
+            assert!(
+                scripts.iter().any(|s| s.script_type == stype),
+                "{rel} should be detected as {stype:?}"
+            );
+        }
     }
 
     #[test]

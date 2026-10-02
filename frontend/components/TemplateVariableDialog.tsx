@@ -8,8 +8,11 @@ interface Props {
   repoPath?: string;
   /** Pre-fill {{project_name}} with this value. */
   projectName?: string;
-  /** Called with the resulting Pipeline after successful variable substitution. */
-  onApplied: (pipeline: Pipeline) => void;
+  /**
+   * Called after successful variable substitution with the resulting Pipeline,
+   * the template name, and the variable values used (for provenance).
+   */
+  onApplied: (pipeline: Pipeline, templateName: string, values: Record<string, string>) => void;
   onCancel: () => void;
 }
 
@@ -61,7 +64,7 @@ function TemplateVariableDialog({ template, repoPath, projectName, onApplied, on
       setApplying(true);
       setError(null);
       const pipeline = await applyTemplate(template.meta.name, values, repoPath);
-      onApplied(pipeline);
+      onApplied(pipeline, template.meta.name, values);
     } catch (err) {
       setError(String(err));
     } finally {

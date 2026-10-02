@@ -304,7 +304,7 @@ function ProjectDetail() {
     // setup). Confirm first; the backend also backs up pipeline.toml so it's recoverable.
     if (
       !window.confirm(
-        'Regenerate will replace the current pipeline with one detected from scratch. A backup (pipeline.bak.toml) is saved first. Continue?'
+        'Regenerate rebuilds the pipeline — from its original template if this project was created from one, otherwise from fresh detection — and replaces the current one. A backup (pipeline.bak.toml) is saved first. Continue?'
       )
     )
       return;

@@ -1,6 +1,7 @@
 use crate::engine::detector;
 use crate::engine::models::{
-    DeploymentConfig, DeploymentMethod, Pipeline, PipelineValidation, ProjectRecommendations, Stage,
+    DeploymentConfig, DeploymentMethod, Pipeline, PipelineValidation, ProjectMeta,
+    ProjectRecommendations, Stage,
 };
 use crate::engine::pipeline;
 use crate::engine::recommendations;
@@ -67,6 +68,10 @@ pub fn generate_pipeline(repo_path: String, repo_name: String) -> Result<Pipelin
         if let Some(deploy_pipeline) =
             detector::generate_deploy_pipeline(&repo_name, &scripts, path)
         {
+            // Back up any user-edited deploy.toml before overwriting it.
+            if let Err(e) = pipeline::backup_pipeline_named(path, "deploy") {
+                log::warn!("Failed to back up deploy pipeline: {}", e);
+            }
             // Save the deploy pipeline to deploy.toml
             if let Err(e) = pipeline::save_pipeline_by_name(path, "deploy", &deploy_pipeline) {
                 log::warn!("Failed to save deploy pipeline: {}", e);
@@ -77,19 +82,62 @@ pub fn generate_pipeline(repo_path: String, repo_name: String) -> Result<Pipelin
     Ok(draft)
 }
 
-/// Regenerate the pipeline from fresh detection, backing up the current
-/// `.chibby/pipeline.toml` to `pipeline.bak.toml` first so the change is
-/// recoverable. Returns the new pipeline (already saved to disk).
+/// Regenerate the pipeline, backing up the current `.chibby/pipeline.toml` to
+/// `pipeline.bak.toml` first so the change is recoverable (`deploy.toml` is
+/// backed up too, inside `generate_pipeline`).
+///
+/// If the project was created from a template (recorded in `.chibby/meta.toml`),
+/// that template is re-applied with its saved variables instead of re-running
+/// detection — so a template-based project is never clobbered by a detection
+/// miss. Detection is used only when there's no template (or it's gone).
+/// Returns the new pipeline (already saved to disk).
 #[tauri::command]
 pub fn regenerate_pipeline(repo_path: String, repo_name: String) -> Result<Pipeline, String> {
     let path = Path::new(&repo_path);
-    // Preserve the existing pipeline so a bad regen (e.g. detection miss) can be reverted.
+    // Preserve the existing pipeline so a bad regen can be reverted.
     if let Err(e) = pipeline::backup_pipeline(path) {
         log::warn!("Failed to back up pipeline before regenerate: {}", e);
     }
-    let draft = generate_pipeline(repo_path.clone(), repo_name)?;
+
+    let meta = pipeline::load_project_meta(path);
+    let draft = match meta.template.as_deref() {
+        Some(name) => match crate::engine::templates::get_template_by_name(name, Some(path)) {
+            Some(template) => {
+                crate::engine::templates::apply_template_variables(&template, &meta.template_vars)?
+            }
+            None => {
+                // Template no longer available — fall back to detection.
+                log::warn!("Template '{}' not found; regenerating from detection", name);
+                generate_pipeline(repo_path.clone(), repo_name)?
+            }
+        },
+        None => generate_pipeline(repo_path.clone(), repo_name)?,
+    };
+
     pipeline::save_pipeline(path, &draft).map_err(|e| e.to_string())?;
     Ok(draft)
+}
+
+/// Save project provenance (`.chibby/meta.toml`) — the template a project's
+/// pipeline was created from, with the variables used. Lets Regenerate re-apply
+/// the template rather than re-detecting.
+#[tauri::command]
+pub fn save_project_meta(
+    repo_path: String,
+    template: Option<String>,
+    template_vars: std::collections::HashMap<String, String>,
+) -> Result<(), String> {
+    let meta = ProjectMeta {
+        template,
+        template_vars,
+    };
+    pipeline::save_project_meta(Path::new(&repo_path), &meta).map_err(|e| e.to_string())
+}
+
+/// Load project provenance (`.chibby/meta.toml`); returns defaults when absent.
+#[tauri::command]
+pub fn get_project_meta(repo_path: String) -> Result<ProjectMeta, String> {
+    Ok(pipeline::load_project_meta(Path::new(&repo_path)))
 }
 
 /// Save a pipeline to .chibby/pipeline.toml.
@@ -253,6 +301,9 @@ pub fn generate_pipeline_with_deploy(
             if let Some(deploy_pipeline) =
                 detector::generate_deployment_pipeline(&repo_name, config, path)
             {
+                if let Err(e) = pipeline::backup_pipeline_named(path, "deploy") {
+                    log::warn!("Failed to back up deploy pipeline: {}", e);
+                }
                 if let Err(e) = pipeline::save_pipeline_by_name(path, "deploy", &deploy_pipeline) {
                     log::warn!("Failed to save deploy pipeline: {}", e);
                 }
@@ -273,6 +324,9 @@ pub fn generate_pipeline_with_deploy(
             if let Some(deploy_pipeline) =
                 detector::generate_deploy_pipeline(&repo_name, &scripts, path)
             {
+                if let Err(e) = pipeline::backup_pipeline_named(path, "deploy") {
+                    log::warn!("Failed to back up deploy pipeline: {}", e);
+                }
                 if let Err(e) = pipeline::save_pipeline_by_name(path, "deploy", &deploy_pipeline) {
                     log::warn!("Failed to save deploy pipeline: {}", e);
                 }
@@ -281,4 +335,58 @@ pub fn generate_pipeline_with_deploy(
     }
 
     Ok(ci_pipeline)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_regenerate_reapplies_template_not_detection() {
+        // A project with no detectable build system but a recorded template must
+        // regenerate FROM THE TEMPLATE, not fall back to the generic pipeline.
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().to_string_lossy().to_string();
+
+        let mut vars = HashMap::new();
+        vars.insert("project_name".to_string(), "myproj".to_string());
+        save_project_meta(repo.clone(), Some("Docker CI".to_string()), vars).unwrap();
+
+        let pipeline = regenerate_pipeline(repo, "myproj".to_string()).unwrap();
+
+        // Template applied: name substituted, docker stage present.
+        assert_eq!(pipeline.name, "myproj Docker CI");
+        assert!(pipeline.stages.iter().any(|s| s.name == "docker-build"));
+    }
+
+    #[test]
+    fn test_regenerate_without_template_uses_detection() {
+        // No meta + a Cargo.toml -> detection-based draft (cargo stages).
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("Cargo.toml"), "[package]\nname=\"x\"").unwrap();
+        let repo = tmp.path().to_string_lossy().to_string();
+
+        let pipeline = regenerate_pipeline(repo, "x".to_string()).unwrap();
+        let cmds: Vec<_> = pipeline.stages.iter().flat_map(|s| &s.commands).collect();
+        assert!(cmds.iter().any(|c| c.contains("cargo")));
+    }
+
+    #[test]
+    fn test_regenerate_missing_template_falls_back_to_detection() {
+        // Template recorded but no longer available -> graceful detection fallback, no error.
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("go.mod"), "module x").unwrap();
+        let repo = tmp.path().to_string_lossy().to_string();
+        save_project_meta(
+            repo.clone(),
+            Some("Nonexistent Template".to_string()),
+            HashMap::new(),
+        )
+        .unwrap();
+
+        let pipeline = regenerate_pipeline(repo, "x".to_string()).unwrap();
+        let cmds: Vec<_> = pipeline.stages.iter().flat_map(|s| &s.commands).collect();
+        assert!(cmds.iter().any(|c| c.contains("go ")));
+    }
 }

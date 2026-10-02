@@ -5,6 +5,20 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Project provenance stored in `.chibby/meta.toml`. Records the template a
+/// project's pipeline was created from so Regenerate can re-apply that template
+/// instead of blindly re-detecting (which would clobber a template-based
+/// pipeline when detection misses the project type).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProjectMeta {
+    /// Template name this pipeline was created from, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template: Option<String>,
+    /// Variable values used when the template was applied.
+    #[serde(default)]
+    pub template_vars: HashMap<String, String>,
+}
+
 /// The execution backend for a pipeline stage.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]

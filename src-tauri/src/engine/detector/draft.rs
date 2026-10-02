@@ -24,6 +24,26 @@ pub fn generate_draft_pipeline(
 
     let has = |st: ScriptType| scripts.iter().any(|s| s.script_type == st);
     let has_file = |name: &str| scripts.iter().any(|s| s.file_name == name);
+    // Relative directory of the first detected script of `st`, or "" when it sits
+    // at the repo root. Lets nested single-build-system projects (monorepo /
+    // mobile layouts) run their build commands in the right directory.
+    let dir_of = |st: ScriptType| -> String {
+        scripts
+            .iter()
+            .find(|s| s.script_type == st)
+            .and_then(|s| Path::new(&s.file_name).parent())
+            .map(|p| p.to_string_lossy().to_string())
+            .filter(|p| !p.is_empty())
+            .unwrap_or_default()
+    };
+    // Prefix `cmd` with `cd <dir> &&` when the build system is nested.
+    let in_dir = |dir: &str, cmd: &str| -> String {
+        if dir.is_empty() {
+            cmd.to_string()
+        } else {
+            format!("cd {dir} && {cmd}")
+        }
+    };
     // Use exact file name match so that backend/tauri.conf.json does NOT trigger the
     // standard src-tauri Tauri layout detection.
     let is_tauri = has_file("src-tauri/tauri.conf.json");
@@ -142,8 +162,9 @@ pub fn generate_draft_pipeline(
 
     // ── Go ────────────────────────────────────────────────────────
     if has(ScriptType::GoMod) {
-        stages.push(local_stage("go-build", vec!["go build ./..."]));
-        stages.push(local_stage("go-test", vec!["go test ./..."]));
+        let d = dir_of(ScriptType::GoMod);
+        stages.push(local_stage("go-build", vec![&in_dir(&d, "go build ./...")]));
+        stages.push(local_stage("go-test", vec![&in_dir(&d, "go test ./...")]));
     }
 
     // ── Python ────────────────────────────────────────────────────
@@ -322,18 +343,29 @@ pub fn generate_draft_pipeline(
 
     // ── Ruby ──────────────────────────────────────────────────────
     if has(ScriptType::Gemfile) {
-        stages.push(local_stage("bundle-install", vec!["bundle install"]));
+        let d = dir_of(ScriptType::Gemfile);
+        stages.push(local_stage(
+            "bundle-install",
+            vec![&in_dir(&d, "bundle install")],
+        ));
         if has(ScriptType::Rakefile) {
-            stages.push(local_stage("rake-test", vec!["bundle exec rake test"]));
+            stages.push(local_stage(
+                "rake-test",
+                vec![&in_dir(&d, "bundle exec rake test")],
+            ));
         } else {
-            stages.push(local_stage("rspec", vec!["bundle exec rspec"]));
+            stages.push(local_stage("rspec", vec![&in_dir(&d, "bundle exec rspec")]));
         }
     }
 
     // ── Java / Maven ──────────────────────────────────────────────
     if has(ScriptType::Maven) {
-        stages.push(local_stage("mvn-build", vec!["mvn package -DskipTests"]));
-        stages.push(local_stage("mvn-test", vec!["mvn test"]));
+        let d = dir_of(ScriptType::Maven);
+        stages.push(local_stage(
+            "mvn-build",
+            vec![&in_dir(&d, "mvn package -DskipTests")],
+        ));
+        stages.push(local_stage("mvn-test", vec![&in_dir(&d, "mvn test")]));
     }
 
     // ── Java / Kotlin / Gradle ────────────────────────────────────
@@ -362,48 +394,79 @@ pub fn generate_draft_pipeline(
 
     // ── Swift / iOS ───────────────────────────────────────────────
     if has(ScriptType::Swift) {
-        if has_file("Package.swift") {
+        let d = dir_of(ScriptType::Swift);
+        // SPM when the detected Swift manifest is a Package.swift (root or nested);
+        // otherwise it's an Xcode project/workspace.
+        let is_spm = scripts
+            .iter()
+            .any(|s| s.script_type == ScriptType::Swift && s.file_name.ends_with("Package.swift"));
+        if is_spm {
             // Swift Package Manager: builds headless without a scheme.
-            stages.push(local_stage("swift-build", vec!["swift build"]));
-            stages.push(local_stage("swift-test", vec!["swift test"]));
+            stages.push(local_stage("swift-build", vec![&in_dir(&d, "swift build")]));
+            stages.push(local_stage("swift-test", vec![&in_dir(&d, "swift test")]));
         } else {
             // Xcode app project: best-effort build. See the "Swift iOS App"
             // template for a full scheme-based lint/test/build pipeline.
             stages.push(local_stage(
                 "xcode-build",
-                vec!["xcodebuild build CODE_SIGNING_ALLOWED=NO"],
+                vec![&in_dir(&d, "xcodebuild build CODE_SIGNING_ALLOWED=NO")],
             ));
         }
     }
 
     // ── .NET ──────────────────────────────────────────────────────
     if has(ScriptType::DotNet) {
-        stages.push(local_stage("dotnet-build", vec!["dotnet build"]));
-        stages.push(local_stage("dotnet-test", vec!["dotnet test"]));
+        let d = dir_of(ScriptType::DotNet);
+        stages.push(local_stage(
+            "dotnet-build",
+            vec![&in_dir(&d, "dotnet build")],
+        ));
+        stages.push(local_stage("dotnet-test", vec![&in_dir(&d, "dotnet test")]));
     }
 
     // ── PHP / Composer ────────────────────────────────────────────
     if has(ScriptType::Composer) {
-        stages.push(local_stage("composer-install", vec!["composer install"]));
-        stages.push(local_stage("phpunit", vec!["./vendor/bin/phpunit"]));
+        let d = dir_of(ScriptType::Composer);
+        stages.push(local_stage(
+            "composer-install",
+            vec![&in_dir(&d, "composer install")],
+        ));
+        stages.push(local_stage(
+            "phpunit",
+            vec![&in_dir(&d, "./vendor/bin/phpunit")],
+        ));
     }
 
     // ── C / C++ / CMake ───────────────────────────────────────────
     if has(ScriptType::CMake) {
+        let d = dir_of(ScriptType::CMake);
         stages.push(local_stage(
             "cmake-build",
-            vec!["cmake -B build", "cmake --build build"],
+            vec![
+                &in_dir(&d, "cmake -B build"),
+                &in_dir(&d, "cmake --build build"),
+            ],
         ));
-        stages.push(local_stage("cmake-test", vec!["ctest --test-dir build"]));
+        stages.push(local_stage(
+            "cmake-test",
+            vec![&in_dir(&d, "ctest --test-dir build")],
+        ));
     }
 
     // ── Meson ─────────────────────────────────────────────────────
     if has(ScriptType::Meson) {
+        let d = dir_of(ScriptType::Meson);
         stages.push(local_stage(
             "meson-build",
-            vec!["meson setup build", "meson compile -C build"],
+            vec![
+                &in_dir(&d, "meson setup build"),
+                &in_dir(&d, "meson compile -C build"),
+            ],
         ));
-        stages.push(local_stage("meson-test", vec!["meson test -C build"]));
+        stages.push(local_stage(
+            "meson-test",
+            vec![&in_dir(&d, "meson test -C build")],
+        ));
     }
 
     // ── Makefile (generic — after language-specific) ──────────────
@@ -596,6 +659,34 @@ mod tests {
         // Android-aware stages, not the generic gradle build/test.
         assert!(cmds.iter().any(|c| c.contains("assembleRelease")));
         assert!(cmds.iter().any(|c| c.contains("testDebugUnitTest")));
+    }
+
+    #[test]
+    fn test_generate_draft_pipeline_nested_go_cds_into_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let scripts = vec![DetectedScript {
+            file_name: "services/api/go.mod".to_string(),
+            file_path: "/test/services/api/go.mod".to_string(),
+            script_type: ScriptType::GoMod,
+        }];
+        let pipeline = generate_draft_pipeline("svc", &scripts, tmp.path());
+        let cmds: Vec<_> = pipeline.stages.iter().flat_map(|s| &s.commands).collect();
+        assert!(cmds
+            .iter()
+            .any(|c| c.as_str() == "cd services/api && go build ./..."));
+    }
+
+    #[test]
+    fn test_generate_draft_pipeline_root_go_no_cd() {
+        let tmp = tempfile::tempdir().unwrap();
+        let scripts = vec![DetectedScript {
+            file_name: "go.mod".to_string(),
+            file_path: "/test/go.mod".to_string(),
+            script_type: ScriptType::GoMod,
+        }];
+        let pipeline = generate_draft_pipeline("svc", &scripts, tmp.path());
+        let cmds: Vec<_> = pipeline.stages.iter().flat_map(|s| &s.commands).collect();
+        assert!(cmds.iter().any(|c| c.as_str() == "go build ./..."));
     }
 
     #[test]

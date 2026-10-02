@@ -8,6 +8,7 @@ import {
   detectScripts,
   generatePipelineWithDeploy,
   savePipeline,
+  saveProjectMeta,
   getGithubWorkflows,
   workflowsToPipelineStages,
   detectDeploymentMethod,
@@ -72,6 +73,12 @@ function AddProject() {
   // Template state
   const [showTemplateBrowser, setShowTemplateBrowser] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<PipelineTemplate | null>(null);
+  // Template provenance: recorded in .chibby/meta.toml on create so Regenerate
+  // re-applies the template instead of re-detecting.
+  const [appliedTemplate, setAppliedTemplate] = useState<{
+    name: string;
+    vars: Record<string, string>;
+  } | null>(null);
   // Template pre-selected from the Templates page — waits for repo selection before applying
   const [pendingTemplate, setPendingTemplate] = useState<PipelineTemplate | null>(incomingTemplate);
 
@@ -253,6 +260,12 @@ function AddProject() {
       if (draft && anySelected) {
         const filtered: Pipeline = { name: draft.name, stages: selectedStages };
         await savePipeline(repoPath, filtered);
+      }
+
+      // Record template provenance so Regenerate re-applies the chosen template
+      // instead of re-detecting (which can clobber a template-based pipeline).
+      if (appliedTemplate) {
+        await saveProjectMeta(repoPath, appliedTemplate.name, appliedTemplate.vars);
       }
 
       // Generate deploy pipeline if deployment method is not skip
@@ -452,8 +465,9 @@ function AddProject() {
           template={selectedTemplate}
           repoPath={repoPath}
           projectName={repoName}
-          onApplied={(pipeline) => {
+          onApplied={(pipeline, templateName, values) => {
             setDraft(pipeline);
+            setAppliedTemplate({ name: templateName, vars: values });
             const sel: Record<number, boolean> = {};
             pipeline.stages.forEach((_, i) => {
               sel[i] = true;

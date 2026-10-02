@@ -1,46 +1,63 @@
 //! Project-type detection from manifest files, plus fullstack heuristics.
 
-use crate::engine::detector::{exists_within, is_android_project, is_xcode_bundle, NESTED_SCAN_DEPTH};
+use crate::engine::detector::{
+    exists_within, is_android_project, is_xcode_bundle, FULLSTACK_SUBDIRS, NESTED_SCAN_DEPTH,
+};
 use std::path::Path;
 
-/// Detect project types based on manifest files.
+/// Whether a file named `name` exists at or below the repo root within the
+/// shallow scan depth. Manifests nest in monorepo / mobile / `src/<App>/`
+/// layouts, so detection must look past the root to avoid "unknown".
+fn has_nested_file(repo_path: &Path, name: &str) -> bool {
+    exists_within(repo_path, NESTED_SCAN_DEPTH, &|n: &str| n == name)
+}
+
+/// Whether a file with extension `ext` exists at or below the repo root within
+/// the shallow scan depth (e.g. a nested `src/MyApp/MyApp.csproj`).
+fn has_nested_ext(repo_path: &Path, ext: &str) -> bool {
+    let suffix = format!(".{ext}");
+    exists_within(repo_path, NESTED_SCAN_DEPTH, &|n: &str| {
+        n.ends_with(&suffix)
+    })
+}
+
+/// Detect project types based on manifest files. Every build system is matched
+/// with a shallow nested walk (not root-only) so monorepo / mobile layouts are
+/// classified instead of falling back to "unknown".
 pub(super) fn detect_project_types(repo_path: &Path) -> Vec<String> {
     let mut types = Vec::new();
 
     // Node.js / JavaScript / TypeScript
-    if repo_path.join("package.json").exists() {
+    if has_nested_file(repo_path, "package.json") {
         types.push("node".to_string());
-        if repo_path.join("tsconfig.json").exists() {
+        if has_nested_file(repo_path, "tsconfig.json") {
             types.push("typescript".to_string());
         }
     }
 
-    // Rust
-    if repo_path.join("Cargo.toml").exists() {
+    // Rust (covers the standard Tauri layout at `src-tauri/Cargo.toml`)
+    if has_nested_file(repo_path, "Cargo.toml") {
         types.push("rust".to_string());
     }
 
     // Python
-    if repo_path.join("pyproject.toml").exists()
-        || repo_path.join("setup.py").exists()
-        || repo_path.join("requirements.txt").exists()
+    if has_nested_file(repo_path, "pyproject.toml")
+        || has_nested_file(repo_path, "setup.py")
+        || has_nested_file(repo_path, "requirements.txt")
     {
         types.push("python".to_string());
     }
 
     // Go
-    if repo_path.join("go.mod").exists() {
+    if has_nested_file(repo_path, "go.mod") {
         types.push("go".to_string());
     }
 
-    // Java / Kotlin. Gradle/Android modules often nest below the root
-    // (`mobile/app/build.gradle.kts`), so shallow-walk rather than scanning
-    // root only.
-    let has_gradle_kts = exists_within(repo_path, NESTED_SCAN_DEPTH, &|n: &str| {
-        n == "build.gradle.kts"
-    });
-    let has_build_system = repo_path.join("pom.xml").exists()
-        || exists_within(repo_path, NESTED_SCAN_DEPTH, &|n: &str| n == "build.gradle")
+    // Java / Kotlin / Android. Gradle modules often nest below the root
+    // (`mobile/app/build.gradle.kts`).
+    let has_gradle_kts = has_nested_file(repo_path, "build.gradle.kts");
+    let has_build_system = has_nested_file(repo_path, "pom.xml")
+        || has_nested_file(repo_path, "build.gradle")
         || has_gradle_kts;
     if has_build_system {
         types.push("java".to_string());
@@ -54,9 +71,9 @@ pub(super) fn detect_project_types(repo_path: &Path) -> Vec<String> {
     }
 
     // Swift / iOS. Xcode projects usually sit a level or two down
-    // (`App/App.xcodeproj`), so shallow-walk rather than scanning root only.
+    // (`App/App.xcodeproj`).
     let has_xcode_app = exists_within(repo_path, NESTED_SCAN_DEPTH, &is_xcode_bundle);
-    let has_spm = exists_within(repo_path, NESTED_SCAN_DEPTH, &|n: &str| n == "Package.swift");
+    let has_spm = has_nested_file(repo_path, "Package.swift");
     if has_spm || has_xcode_app {
         types.push("swift".to_string());
         // An Xcode project/workspace signals an iOS app; an SPM package alone does not.
@@ -66,27 +83,32 @@ pub(super) fn detect_project_types(repo_path: &Path) -> Vec<String> {
     }
 
     // .NET / C#
-    if repo_path.join("global.json").exists()
-        || has_extension_in_dir(repo_path, "csproj")
-        || has_extension_in_dir(repo_path, "sln")
+    if has_nested_file(repo_path, "global.json")
+        || has_nested_ext(repo_path, "csproj")
+        || has_nested_ext(repo_path, "sln")
     {
         types.push("dotnet".to_string());
     }
 
     // Ruby
-    if repo_path.join("Gemfile").exists() {
+    if has_nested_file(repo_path, "Gemfile") {
         types.push("ruby".to_string());
     }
 
     // PHP
-    if repo_path.join("composer.json").exists() {
+    if has_nested_file(repo_path, "composer.json") {
         types.push("php".to_string());
     }
 
+    // C / C++ (CMake or Meson)
+    if has_nested_file(repo_path, "CMakeLists.txt") || has_nested_file(repo_path, "meson.build") {
+        types.push("cpp".to_string());
+    }
+
     // Docker
-    if repo_path.join("Dockerfile").exists()
-        || repo_path.join("docker-compose.yml").exists()
-        || repo_path.join("compose.yml").exists()
+    if has_nested_file(repo_path, "Dockerfile")
+        || has_nested_file(repo_path, "docker-compose.yml")
+        || has_nested_file(repo_path, "compose.yml")
     {
         types.push("docker".to_string());
     }
@@ -113,21 +135,6 @@ pub(super) fn detect_project_types(repo_path: &Path) -> Vec<String> {
 
     types
 }
-
-/// Common subdirectory names for fullstack projects.
-const FULLSTACK_SUBDIRS: &[&str] = &[
-    "frontend",
-    "backend",
-    "api",
-    "web",
-    "app",
-    "client",
-    "server",
-    "src",
-    "admin",
-    "dashboard",
-    "portal",
-];
 
 /// Check if package.json contains React as a dependency.
 fn has_react_dependency(pkg_path: &Path) -> bool {
@@ -285,19 +292,6 @@ pub(super) fn has_python_test_files(repo_path: &Path) -> bool {
     false
 }
 
-/// Check if directory contains files with given extension.
-fn has_extension_in_dir(dir: &Path, ext: &str) -> bool {
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.ends_with(&format!(".{}", ext)) {
-                return true;
-            }
-        }
-    }
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,6 +343,54 @@ mod tests {
         let types = detect_project_types(tmp.path());
         assert!(types.contains(&"kotlin".to_string()));
         assert!(types.contains(&"android".to_string()));
+    }
+
+    #[test]
+    fn test_detect_rust_tauri_layout() {
+        // Standard Tauri repo: Cargo.toml lives at src-tauri/, not root.
+        let tmp = tempfile::tempdir().unwrap();
+        touch(tmp.path(), "src-tauri/Cargo.toml");
+        let types = detect_project_types(tmp.path());
+        assert!(types.contains(&"rust".to_string()));
+        assert!(!types.contains(&"unknown".to_string()));
+    }
+
+    #[test]
+    fn test_detect_nested_single_build_systems() {
+        // go.mod / pom.xml / Gemfile / composer.json nested in a subdir.
+        for (rel, expected) in [
+            ("services/api/go.mod", "go"),
+            ("backend/pom.xml", "java"),
+            ("api/Gemfile", "ruby"),
+            ("web/composer.json", "php"),
+            ("native/App.xcodeproj/project.pbxproj", "ios"),
+        ] {
+            let tmp = tempfile::tempdir().unwrap();
+            touch(tmp.path(), rel);
+            let types = detect_project_types(tmp.path());
+            assert!(
+                types.contains(&expected.to_string()),
+                "{rel} should detect {expected}, got {types:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_detect_cpp_cmake_and_meson() {
+        let tmp = tempfile::tempdir().unwrap();
+        touch(tmp.path(), "src/CMakeLists.txt");
+        assert!(detect_project_types(tmp.path()).contains(&"cpp".to_string()));
+
+        let tmp2 = tempfile::tempdir().unwrap();
+        touch(tmp2.path(), "meson.build");
+        assert!(detect_project_types(tmp2.path()).contains(&"cpp".to_string()));
+    }
+
+    #[test]
+    fn test_detect_dotnet_nested_csproj() {
+        let tmp = tempfile::tempdir().unwrap();
+        touch(tmp.path(), "src/MyApp/MyApp.csproj");
+        assert!(detect_project_types(tmp.path()).contains(&"dotnet".to_string()));
     }
 
     #[test]
