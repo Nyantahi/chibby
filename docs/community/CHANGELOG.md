@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Tauri version mismatch blocking `tauri build`** — dependabot bumped the npm `@tauri-apps/*` packages (api 2.12, plugin-dialog 2.8) ahead of the Rust crates, which Tauri rejects ("version mismatched Tauri packages"). Bumped the Rust `tauri`/`tauri-plugin-*`/`tauri-build` crates to the matching minors so the desktop build runs again.
+- **Tauri version mismatch blocking `tauri build`** — the npm `@tauri-apps/*` packages and the Rust `tauri*` crates had drifted apart (api, plugin-dialog, plugin-shell), which Tauri rejects ("version mismatched Tauri packages"). Aligned all three npm/Rust pairs: api 2.12, plugin-dialog 2.8, plugin-shell 2.4 (and `tauri`/`tauri-build` crates) so the desktop build runs again.
 - **Rust config recommendations no longer false-positive on Tauri layouts** — `Cargo.lock`, `rustfmt.toml`, `clippy.toml`, and `rust-toolchain.toml` were only checked at the repo root, so a project whose crate lives in `src-tauri/` (or a workspace member) was told to add files it already had. Detection now shallow-walks for them.
 
 ## [0.5.1] - 2026-10-03
