@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-10-03
+
 ### Added
 
 - **Monorepo detection under a wrapper directory** — a project that nests its apps under a container dir (e.g. `main/frontend`, `main/backend`, `main/admin`) is now detected. Component scanning looks at the repo root *and* one wrapper level, generating per-app stages with the correct relative `cd` paths (and slash-free stage names like `main-backend-install`). Applies to the pipeline generator, the fullstack/“Detected Files” detection, and the project-type label.
