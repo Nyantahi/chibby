@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`STATIC_VCRUNTIME` deprecation warning** during `tauri build` — set the static MSVC runtime explicitly via `tauri_build::WindowsAttributes::static_vc_runtime` in `build.rs` instead of the deprecated env mechanism. Windows builds still link the runtime statically (self-contained `.exe`); no-op on other platforms.
+
 ## [0.5.2] - 2026-10-03
 
 ### Added
