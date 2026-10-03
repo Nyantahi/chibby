@@ -31,6 +31,24 @@ pub use license::*;
 pub use sast::*;
 pub use secret::*;
 
+/// Sensible default gates for a freshly added project: every gate in `Warn`
+/// mode so findings surface (Quality tab + pipeline) without blocking, plus a
+/// secret-scan baseline. Shared by the gates seeder and the draft generator so
+/// the seeded `gates.toml` and the generated `security-*` stages stay in sync.
+pub fn seeded_default_gates() -> GatesConfig {
+    GatesConfig {
+        secret_scanning: GateMode::Warn,
+        dependency_scanning: GateMode::Warn,
+        commit_lint: GateMode::Warn,
+        sast: GateMode::Warn,
+        container_scan: GateMode::Warn,
+        iac_scan: GateMode::Warn,
+        license_check: GateMode::Warn,
+        secret_scan_baseline: true,
+        ..GatesConfig::default()
+    }
+}
+
 /// Save gates config to .chibby/gates.toml.
 pub fn save_gates_config(repo_path: &Path, config: &GatesConfig) -> Result<()> {
     let chibby_dir = repo_path.join(".chibby");

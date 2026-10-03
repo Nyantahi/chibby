@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { X, AlertCircle } from 'lucide-react';
-import { getTemplateVariables, applyTemplate } from '../services/api';
+import { X, AlertCircle, HelpCircle } from 'lucide-react';
+import { getTemplateVariables, applyTemplate, detectXcodeSchemes } from '../services/api';
 import type { Pipeline, PipelineTemplate, TemplateVariable } from '../types';
 
 interface Props {
@@ -30,11 +30,25 @@ function TemplateVariableDialog({ template, repoPath, projectName, onApplied, on
       const vars = await getTemplateVariables(template.meta.name, repoPath);
       setVariables(vars);
 
+      // Auto-detect the Xcode scheme so the dev doesn't have to know it. Best
+      // effort — if detection finds nothing, the field stays empty.
+      let detectedScheme = '';
+      if (repoPath && vars.some((v) => v.name === 'scheme')) {
+        try {
+          const schemes = await detectXcodeSchemes(repoPath);
+          detectedScheme = schemes[0] ?? '';
+        } catch {
+          /* best effort */
+        }
+      }
+
       // Pre-fill defaults
       const defaults: Record<string, string> = {};
       for (const v of vars) {
         if (v.name === 'project_name' && projectName) {
           defaults[v.name] = projectName;
+        } else if (v.name === 'scheme' && detectedScheme) {
+          defaults[v.name] = detectedScheme;
         } else if (v.default_value) {
           defaults[v.name] = v.default_value;
         } else {
@@ -125,6 +139,21 @@ function TemplateVariableDialog({ template, repoPath, projectName, onApplied, on
                     >
                       {v.name}
                       {v.required && <span style={{ color: 'var(--danger)' }}> *</span>}
+                      {v.description && (
+                        <span
+                          title={v.description}
+                          aria-label={v.description}
+                          style={{
+                            marginLeft: 6,
+                            verticalAlign: 'text-bottom',
+                            color: 'var(--color-text-muted)',
+                            cursor: 'help',
+                            display: 'inline-flex',
+                          }}
+                        >
+                          <HelpCircle size={13} />
+                        </span>
+                      )}
                     </label>
                     {v.description && (
                       <div className="text-muted" style={{ fontSize: '0.7rem', marginBottom: 4 }}>

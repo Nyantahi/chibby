@@ -202,6 +202,7 @@ pub fn run() {
             template_commands::get_templates,
             template_commands::get_template,
             template_commands::recommend_templates,
+            template_commands::detect_xcode_schemes,
             template_commands::get_template_variables,
             template_commands::apply_template,
             template_commands::save_custom_template,

@@ -409,12 +409,17 @@ fn well_known_variable(name: &str) -> Option<(String, String, bool)> {
             true,
         )),
         "scheme" => Some((
-            "Xcode scheme to build and test".into(),
+            "The Xcode scheme to build/test — a named build config in your project. \
+             Chibby auto-fills your project's shared scheme; it's usually your app's \
+             name. In Xcode it's the dropdown next to the run button (Product > Scheme)."
+                .into(),
             String::new(),
             true,
         )),
         "simulator" => Some((
-            "iOS Simulator device name for test/build destination".into(),
+            "iOS Simulator device to run on, e.g. 'iPhone 15'. Must be a simulator \
+             installed on the build machine (Xcode > Window > Devices and Simulators)."
+                .into(),
             "iPhone 15".into(),
             true,
         )),

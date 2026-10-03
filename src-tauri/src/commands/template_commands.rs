@@ -30,6 +30,15 @@ pub fn recommend_templates(repo_path: String) -> Result<Vec<PipelineTemplate>, S
     Ok(templates::recommend_templates(Path::new(&repo_path)))
 }
 
+/// Shared Xcode scheme names detected in the repo, for pre-filling a template's
+/// `scheme` variable so the dev doesn't have to know it.
+#[tauri::command]
+pub fn detect_xcode_schemes(repo_path: String) -> Result<Vec<String>, String> {
+    Ok(crate::engine::detector::detect_xcode_schemes(Path::new(
+        &repo_path,
+    )))
+}
+
 /// Extract the `{{variable}}` placeholders from a template.
 #[tauri::command]
 pub fn get_template_variables(

@@ -355,26 +355,16 @@ pub async fn run_preflight(
 /// without blocking the user).
 fn ensure_default_gates_toml(repo_path: &Path) -> Result<(), anyhow::Error> {
     use crate::engine::gates;
-    use crate::engine::models::{GateMode, GatesConfig};
 
     let target = repo_path.join(".chibby").join("gates.toml");
     if target.exists() {
         return Ok(());
     }
-    let mut cfg = GatesConfig::default();
-    // Sensible defaults: warn everywhere so a fresh project sees findings
-    // surfaced in the Quality tab without breaking pipelines. Users can bump
-    // anything to "block" after triaging the initial baseline.
-    cfg.secret_scanning = GateMode::Warn;
-    cfg.dependency_scanning = GateMode::Warn;
-    cfg.commit_lint = GateMode::Warn;
-    cfg.sast = GateMode::Warn;
-    cfg.container_scan = GateMode::Warn;
-    cfg.iac_scan = GateMode::Warn;
-    cfg.license_check = GateMode::Warn;
-    cfg.secret_scan_baseline = true;
-    // secret_scan_allowlist / license_denylist / commit rules come from
-    // GatesConfig::default() so the seeded file and CLI fallback stay in sync.
+    // Sensible defaults (warn everywhere + secret baseline) so a fresh project
+    // sees findings in the Quality tab without breaking pipelines. Shared with
+    // the draft generator via seeded_default_gates() so the file and the
+    // generated security-* stages stay in sync.
+    let cfg = gates::seeded_default_gates();
     gates::save_gates_config(repo_path, &cfg)?;
     audit::log_event(
         "auto_seed_gates",

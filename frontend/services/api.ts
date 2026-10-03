@@ -877,6 +877,11 @@ export async function recommendTemplates(repoPath: string): Promise<PipelineTemp
   return invoke<PipelineTemplate[]>('recommend_templates', { repoPath });
 }
 
+/** Shared Xcode scheme names detected in the repo (for pre-filling template vars). */
+export async function detectXcodeSchemes(repoPath: string): Promise<string[]> {
+  return invoke<string[]>('detect_xcode_schemes', { repoPath });
+}
+
 /** Extract the {{variable}} placeholders from a template. */
 export async function getTemplateVariables(
   name: string,

@@ -29,6 +29,36 @@ fn detect_xcode_scheme(bundle_abs: &Path) -> Option<String> {
     names.into_iter().next()
 }
 
+/// All shared scheme names for the repo's detected Xcode project/workspace, so
+/// the UI can pre-fill a template's `scheme` variable instead of asking the dev
+/// to know it. Empty when there's no Xcode bundle or no shared schemes.
+pub fn detect_xcode_schemes(repo_path: &Path) -> Vec<String> {
+    let scripts = detect_scripts(repo_path);
+    let Some(bundle) = scripts
+        .iter()
+        .find(|s| s.script_type == ScriptType::Swift && is_xcode_bundle(&s.file_name))
+    else {
+        return Vec::new();
+    };
+    let dir = Path::new(&bundle.file_path)
+        .join("xcshareddata")
+        .join("xcschemes");
+    let mut names: Vec<String> = match std::fs::read_dir(dir) {
+        Ok(rd) => rd
+            .flatten()
+            .filter_map(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .strip_suffix(".xcscheme")
+                    .map(str::to_string)
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    names.sort();
+    names
+}
+
 /// Generate a draft pipeline from detected scripts.
 ///
 /// Reads package.json scripts when available to produce more accurate
@@ -425,54 +455,61 @@ pub fn generate_draft_pipeline(
             stages.push(local_stage("swift-build", vec![&in_dir(&d, "swift build")]));
             stages.push(local_stage("swift-test", vec![&in_dir(&d, "swift test")]));
         } else {
-            // Xcode app project: build-only core. We intentionally do NOT emit a
-            // simulator `xcodebuild test` stage — it's macOS-only, slow, and breaks
-            // when the hardcoded simulator name is absent on a runner. `xcodebuild
-            // build` compiles against the SDK and auto-resolves SPM packages, which
-            // is the robust "does it compile" gate. Apply the "Swift iOS App"
-            // template for a full scheme-based lint/test/build pipeline.
-            let has_swiftlint = repo_path.join(".swiftlint.yml").exists()
-                || repo_path.join(".swiftlint.yaml").exists()
-                || (!d.is_empty() && repo_path.join(&d).join(".swiftlint.yml").exists());
-            if has_swiftlint {
-                stages.push(local_stage(
-                    "lint",
-                    vec![&in_dir(&d, "swiftlint lint --strict")],
-                ));
-            }
+            // Xcode app project. Emit resolve-packages (when SPM deps can be
+            // resolved via a scheme) + lint + build. No simulator `xcodebuild test`
+            // stage — it's macOS-only, slow, and breaks when the hardcoded
+            // simulator name is absent on a runner; `xcodebuild build` already
+            // proves the app compiles. The "Swift iOS App" template adds the full
+            // scheme-based test flow.
+            //
             // Point xcodebuild at the project/workspace BY PATH (quoted for spaces),
             // not a bare `xcodebuild` — which fails "directory does not contain an
             // Xcode project" when nested. A `.xcworkspace` (CocoaPods/SPM) also
-            // REQUIRES `-scheme`, so resolve a scheme from the project's shared
-            // schemes, falling back to the bundle's base name (the common default).
+            // REQUIRES `-scheme`, so resolve one from the project's shared schemes,
+            // falling back to the bundle's base name (the common default).
             let xcode_target = scripts
                 .iter()
                 .find(|s| s.script_type == ScriptType::Swift && is_xcode_bundle(&s.file_name));
-            let build_cmd = match xcode_target {
-                Some(s) => {
-                    let is_ws = s.file_name.ends_with(".xcworkspace");
-                    let flag = if is_ws { "-workspace" } else { "-project" };
-                    let base = Path::new(&s.file_name)
-                        .file_stem()
-                        .map(|x| x.to_string_lossy().to_string());
-                    // Real shared scheme if we can find one; else the base name for a
-                    // workspace (scheme is mandatory there), else none for a project.
-                    let fallback = if is_ws { base } else { None };
-                    let scheme = detect_xcode_scheme(Path::new(&s.file_path)).or(fallback);
-                    match scheme {
-                        Some(sc) => format!(
-                            "xcodebuild {flag} \"{}\" -scheme \"{sc}\" build CODE_SIGNING_ALLOWED=NO",
+            if let Some(s) = xcode_target {
+                let is_ws = s.file_name.ends_with(".xcworkspace");
+                let flag = if is_ws { "-workspace" } else { "-project" };
+                let base = Path::new(&s.file_name)
+                    .file_stem()
+                    .map(|x| x.to_string_lossy().to_string());
+                let fallback = if is_ws { base } else { None };
+                let scheme = detect_xcode_scheme(Path::new(&s.file_path)).or(fallback);
+                let scheme_flag = scheme
+                    .as_deref()
+                    .map(|sc| format!(" -scheme \"{sc}\""))
+                    .unwrap_or_default();
+
+                // Resolve SPM package dependencies (needs a scheme).
+                if scheme.is_some() {
+                    stages.push(local_stage(
+                        "resolve-packages",
+                        vec![&format!(
+                            "xcodebuild {flag} \"{}\"{scheme_flag} -resolvePackageDependencies",
                             s.file_name
-                        ),
-                        None => format!(
-                            "xcodebuild {flag} \"{}\" build CODE_SIGNING_ALLOWED=NO",
-                            s.file_name
-                        ),
-                    }
+                        )],
+                    ));
                 }
-                None => "xcodebuild build CODE_SIGNING_ALLOWED=NO".to_string(),
-            };
-            stages.push(local_stage("xcode-build", vec![&build_cmd]));
+                // Lint (SwiftLint runs with sensible defaults even without a config).
+                stages.push(local_stage("lint", vec![&in_dir(&d, "swiftlint lint")]));
+                // Build.
+                stages.push(local_stage(
+                    "xcode-build",
+                    vec![&format!(
+                        "xcodebuild {flag} \"{}\"{scheme_flag} build CODE_SIGNING_ALLOWED=NO",
+                        s.file_name
+                    )],
+                ));
+            } else {
+                stages.push(local_stage("lint", vec![&in_dir(&d, "swiftlint lint")]));
+                stages.push(local_stage(
+                    "xcode-build",
+                    vec!["xcodebuild build CODE_SIGNING_ALLOWED=NO"],
+                ));
+            }
         }
     }
 
@@ -583,13 +620,18 @@ fn append_security_gate_stages(repo_path: &Path, stages: &mut Vec<Stage>) {
     use crate::engine::gates;
     use crate::engine::models::GateMode;
 
+    // Use the project's gates.toml when present; otherwise fall back to the same
+    // seeded defaults a freshly added project gets (warn-everywhere), so the
+    // auto-detected pipeline already includes sensible security stages instead of
+    // requiring the user to configure gates first.
     let gates_path = repo_path.join(".chibby").join("gates.toml");
-    if !gates_path.exists() {
-        return;
-    }
-    let config = match gates::load_gates_config(repo_path) {
-        Ok(c) => c,
-        Err(_) => return,
+    let config = if gates_path.exists() {
+        match gates::load_gates_config(repo_path) {
+            Ok(c) => c,
+            Err(_) => return,
+        }
+    } else {
+        gates::seeded_default_gates()
     };
 
     let push = |stages: &mut Vec<Stage>, name: &str, sub: &str| {
@@ -897,6 +939,55 @@ mod tests {
         let pipeline = generate_draft_pipeline("svc", &scripts, tmp.path());
         let cmds: Vec<_> = pipeline.stages.iter().flat_map(|s| &s.commands).collect();
         assert!(cmds.iter().any(|c| c.as_str() == "go build ./..."));
+    }
+
+    #[test]
+    fn test_detect_xcode_schemes_reads_shared_schemes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let proj = tmp.path().join("EmojiEvolution.xcodeproj");
+        std::fs::create_dir_all(proj.join("xcshareddata/xcschemes")).unwrap();
+        std::fs::write(
+            proj.join("xcshareddata/xcschemes/EmojiEvolution.xcscheme"),
+            "<Scheme/>",
+        )
+        .unwrap();
+        assert_eq!(
+            detect_xcode_schemes(tmp.path()),
+            vec!["EmojiEvolution".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_ios_autodetect_rich_zero_config_pipeline() {
+        // Fresh iOS project (no gates.toml): should auto-produce resolve-packages
+        // + lint + build + seeded security stages, scheme-aware, and no test stage.
+        let tmp = tempfile::tempdir().unwrap();
+        let proj = tmp.path().join("App.xcodeproj");
+        std::fs::create_dir_all(proj.join("xcshareddata/xcschemes")).unwrap();
+        std::fs::write(
+            proj.join("xcshareddata/xcschemes/App.xcscheme"),
+            "<Scheme/>",
+        )
+        .unwrap();
+        let scripts = vec![DetectedScript {
+            file_name: "App.xcodeproj".to_string(),
+            file_path: proj.to_string_lossy().to_string(),
+            script_type: ScriptType::Swift,
+        }];
+        let p = generate_draft_pipeline("App", &scripts, tmp.path());
+        let names: Vec<_> = p.stages.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"resolve-packages"), "stages: {names:?}");
+        assert!(names.contains(&"lint"));
+        assert!(names.contains(&"xcode-build"));
+        // No gates.toml -> seeded warn-everywhere security gates are included.
+        assert!(names.contains(&"security-secrets"));
+        assert!(names.contains(&"security-deps"));
+        // Build is scheme-aware; no simulator test stage.
+        let cmds: Vec<_> = p.stages.iter().flat_map(|s| &s.commands).collect();
+        assert!(cmds
+            .iter()
+            .any(|c| c.contains("-scheme \"App\"") && c.contains("build")));
+        assert!(!cmds.iter().any(|c| c.contains("xcodebuild test")));
     }
 
     #[test]

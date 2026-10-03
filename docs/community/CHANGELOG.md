@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Zero-config security gates on new projects** — a freshly added project now auto-includes sensible security stages (secrets, deps, SAST, license, commit-lint in warn mode) in its detected pipeline, instead of requiring a `.chibby/gates.toml` first. The draft generator uses the same seeded defaults the project is provisioned with, so the pipeline shown at review matches what's saved.
+- **Auto-filled Xcode scheme in templates** — the template dialog detects and pre-fills the project's shared Xcode scheme (and defaults the simulator), so a dev no longer has to know/type it. Each template variable also shows a `?` help tooltip, and the scheme/simulator descriptions are now beginner-friendly.
+
+### Changed
+
+- **Richer iOS auto-detect** — an Xcode app project now auto-generates resolve-packages (SPM) + lint (SwiftLint) + build, scheme-aware, rather than just a build stage. Still no simulator test stage (macOS-only/fragile); the Swift iOS App template covers the full test flow.
+
 ## [0.5.1] - 2026-10-03
 
 ### Added
