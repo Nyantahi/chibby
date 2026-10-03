@@ -271,7 +271,11 @@ pub fn generate_draft_pipeline(
 
     // Process each detected project folder
     for folder in &project_folders {
-        let subdir = &folder.name;
+        // `dir` is the component's path relative to the repo root (e.g. "backend"
+        // or "main/backend") — used for `cd` and file lookups. `label` is a
+        // slash-free version for stage names.
+        let dir = folder.path.as_str();
+        let label = folder.path.replace('/', "-");
 
         // Generate Node.js stages for this folder
         if folder.has_node {
@@ -280,40 +284,40 @@ pub fn generate_draft_pipeline(
             if is_fullstack || !has_root_pkg {
                 // Use npm install (not npm ci) since package-lock.json may not exist
                 stages.push(local_stage(
-                    &format!("{}-install", subdir),
-                    vec![&format!("cd {} && npm install", subdir)],
+                    &format!("{}-install", label),
+                    vec![&format!("cd {} && npm install", dir)],
                 ));
 
                 if folder.npm_scripts.contains("lint") {
                     stages.push(local_stage(
-                        &format!("{}-lint", subdir),
-                        vec![&format!("cd {} && npm run lint", subdir)],
+                        &format!("{}-lint", label),
+                        vec![&format!("cd {} && npm run lint", dir)],
                     ));
                 }
 
                 // Check for tests
                 let has_test_script = folder.npm_scripts.contains("test");
-                let has_vitest = has_subdir_file(subdir, "vitest.config.ts")
-                    || has_subdir_file(subdir, "vitest.config.js");
-                let has_jest = has_subdir_file(subdir, "jest.config.js")
-                    || has_subdir_file(subdir, "jest.config.ts");
+                let has_vitest = has_subdir_file(dir, "vitest.config.ts")
+                    || has_subdir_file(dir, "vitest.config.js");
+                let has_jest = has_subdir_file(dir, "jest.config.js")
+                    || has_subdir_file(dir, "jest.config.ts");
 
                 if has_test_script || has_vitest || has_jest || folder.has_tests {
                     // Use appropriate test command
                     let test_cmd = if has_vitest {
-                        format!("cd {} && npx vitest run", subdir)
+                        format!("cd {} && npx vitest run", dir)
                     } else if has_jest {
-                        format!("cd {} && npx jest --ci", subdir)
+                        format!("cd {} && npx jest --ci", dir)
                     } else {
-                        format!("cd {} && npm test", subdir)
+                        format!("cd {} && npm test", dir)
                     };
-                    stages.push(local_stage(&format!("{}-test", subdir), vec![&test_cmd]));
+                    stages.push(local_stage(&format!("{}-test", label), vec![&test_cmd]));
                 }
 
                 if folder.npm_scripts.contains("build") {
                     stages.push(local_stage(
-                        &format!("{}-build", subdir),
-                        vec![&format!("cd {} && npm run build", subdir)],
+                        &format!("{}-build", label),
+                        vec![&format!("cd {} && npm run build", dir)],
                     ));
                 }
             }
@@ -324,23 +328,23 @@ pub fn generate_draft_pipeline(
             // For fullstack projects, always generate per-folder stages
             // For single-folder projects, only if no root Python setup
             if is_fullstack || !has_root_python {
-                let install_cmd = if has_subdir_file(subdir, "requirements.txt") {
-                    format!("cd {} && pip install -r requirements.txt", subdir)
+                let install_cmd = if has_subdir_file(dir, "requirements.txt") {
+                    format!("cd {} && pip install -r requirements.txt", dir)
                 } else {
-                    format!("cd {} && pip install -e .", subdir)
+                    format!("cd {} && pip install -e .", dir)
                 };
                 stages.push(local_stage(
-                    &format!("{}-install", subdir),
+                    &format!("{}-install", label),
                     vec![&install_cmd],
                 ));
 
                 // Check for tests in subdirectory
                 let has_pytest_config =
-                    has_subdir_file(subdir, "pytest.ini") || has_subdir_file(subdir, "conftest.py");
+                    has_subdir_file(dir, "pytest.ini") || has_subdir_file(dir, "conftest.py");
                 if folder.has_tests || has_pytest_config {
                     stages.push(local_stage(
-                        &format!("{}-test", subdir),
-                        vec![&format!("cd {} && pytest", subdir)],
+                        &format!("{}-test", label),
+                        vec![&format!("cd {} && pytest", dir)],
                     ));
                 }
             }
@@ -350,11 +354,11 @@ pub fn generate_draft_pipeline(
         // Always generate these regardless of is_fullstack since a subdir Cargo.toml
         // is always distinct from a root-level one and requires --manifest-path.
         if folder.has_rust {
-            let manifest = format!("{}/Cargo.toml", subdir);
+            let manifest = format!("{}/Cargo.toml", dir);
             if folder.has_tauri {
                 // Tauri project with non-standard layout (e.g. backend/tauri.conf.json).
                 // Emit cargo-build, cargo-test, and tauri-build with the correct config path.
-                let tauri_conf = format!("{}/tauri.conf.json", subdir);
+                let tauri_conf = format!("{}/tauri.conf.json", dir);
                 stages.push(local_stage(
                     "cargo-build",
                     vec![&format!(
@@ -377,14 +381,14 @@ pub fn generate_draft_pipeline(
             } else {
                 // Plain Rust in a subdirectory — prefix stage names with folder name.
                 stages.push(local_stage(
-                    &format!("{}-cargo-build", subdir),
+                    &format!("{}-cargo-build", label),
                     vec![&format!(
                         "cargo build --release --manifest-path {}",
                         manifest
                     )],
                 ));
                 stages.push(local_stage(
-                    &format!("{}-cargo-test", subdir),
+                    &format!("{}-cargo-test", label),
                     vec![&format!("cargo test --manifest-path {}", manifest)],
                 ));
             }
@@ -988,6 +992,40 @@ mod tests {
             .iter()
             .any(|c| c.contains("-scheme \"App\"") && c.contains("build")));
         assert!(!cmds.iter().any(|c| c.contains("xcodebuild test")));
+    }
+
+    #[test]
+    fn test_generate_pipeline_monorepo_under_wrapper() {
+        // repo/main/{frontend(node), backend(python)} — stages must cd into the
+        // full relative path and use slash-free stage labels.
+        let temp = TempDir::new().unwrap();
+        let main = temp.path().join("main");
+        let fe = main.join("frontend");
+        std::fs::create_dir_all(&fe).unwrap();
+        std::fs::write(
+            fe.join("package.json"),
+            r#"{"scripts":{"build":"vite build"}}"#,
+        )
+        .unwrap();
+        let be = main.join("backend");
+        std::fs::create_dir_all(&be).unwrap();
+        std::fs::write(be.join("requirements.txt"), "flask").unwrap();
+
+        let scripts = detect_scripts(temp.path());
+        let p = generate_draft_pipeline("app", &scripts, temp.path());
+        let names: Vec<_> = p.stages.iter().map(|s| s.name.as_str()).collect();
+        let cmds: Vec<_> = p.stages.iter().flat_map(|s| &s.commands).collect();
+        assert!(
+            names.contains(&"main-frontend-install"),
+            "stages: {names:?}"
+        );
+        assert!(names.contains(&"main-backend-install"));
+        assert!(cmds
+            .iter()
+            .any(|c| c.as_str() == "cd main/frontend && npm install"));
+        assert!(cmds
+            .iter()
+            .any(|c| c.as_str() == "cd main/backend && pip install -r requirements.txt"));
     }
 
     #[test]

@@ -301,17 +301,23 @@ pub fn detect_scripts(repo_path: &Path) -> Vec<DetectedScript> {
         }
     }
 
-    // Check fullstack subdirectories (frontend/, backend/, api/, etc.)
-    for subdir in FULLSTACK_SUBDIRS {
-        let subdir_path = repo_path.join(subdir);
-        if subdir_path.is_dir() {
+    // Check fullstack subdirectories (frontend/, backend/, api/, etc.) at the repo
+    // root AND one wrapper level down (e.g. `main/backend`), so monorepos that nest
+    // their apps under a container dir are detected. Display names are relative to
+    // the repo root so `cd` targets and the Detected Files list are correct.
+    for base in candidate_bases(repo_path) {
+        for subdir in FULLSTACK_SUBDIRS {
+            let subdir_path = base.join(subdir);
+            if !subdir_path.is_dir() {
+                continue;
+            }
+            let rel = rel_display_name(repo_path, &subdir_path);
             let subdir_entries = list_dir_filenames(&subdir_path);
             for pattern in SUBDIR_PATTERNS {
                 if subdir_entries.contains(*pattern) {
                     let full = subdir_path.join(pattern);
-                    let display_name = format!("{}/{}", subdir, pattern);
+                    let display_name = format!("{}/{}", rel, pattern);
                     let script_type = classify_file(pattern);
-                    // Avoid duplicates
                     if !found.iter().any(|s| s.file_name == display_name) {
                         found.push(DetectedScript {
                             file_name: display_name,
@@ -322,10 +328,10 @@ pub fn detect_scripts(repo_path: &Path) -> Vec<DetectedScript> {
                 }
             }
 
-            // Check for tests/ directory inside subdirectory
+            // Check for tests/ directory inside the component.
             let tests_path = subdir_path.join("tests");
             if tests_path.is_dir() {
-                let display_name = format!("{}/tests/", subdir);
+                let display_name = format!("{}/tests/", rel);
                 if !found.iter().any(|s| s.file_name == display_name) {
                     found.push(DetectedScript {
                         file_name: display_name,

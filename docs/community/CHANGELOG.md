@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Monorepo detection under a wrapper directory** — a project that nests its apps under a container dir (e.g. `main/frontend`, `main/backend`, `main/admin`) is now detected. Component scanning looks at the repo root *and* one wrapper level, generating per-app stages with the correct relative `cd` paths (and slash-free stage names like `main-backend-install`). Applies to the pipeline generator, the fullstack/“Detected Files” detection, and the project-type label.
+
 ### Fixed
 
 - **`STATIC_VCRUNTIME` deprecation warning** during `tauri build` — set the static MSVC runtime explicitly via `tauri_build::WindowsAttributes::static_vc_runtime` in `build.rs` instead of the deprecated env mechanism. Windows builds still link the runtime statically (self-contained `.exe`); no-op on other platforms.
