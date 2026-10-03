@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-03
+
 ### Added
 
 - **Template recommendations in Add Project** — after auto-detect, the CI Stages step surfaces curated pipeline templates whose project type matches the repo (e.g. "Swift iOS App"), so you can jump from a minimal detected pipeline to a fuller one in one click.
@@ -23,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`.xcworkspace` preferred over `.xcodeproj`** — when both exist, detection picks the workspace, since CocoaPods/SPM projects must build the workspace (the bare project fails without the generated Pods).
 - **Deeper Xcode detection** — workspaces/projects several folders down (mobile-monorepo layouts like `apps/ios/App/App.xcworkspace`) are now detected.
 - **Release workflow** — the Windows CLI-packaging step is pinned to `bash` (it was failing under PowerShell with a bash `if [[ … ]]`), and the per-platform asset uploads keep the release a draft so it only publishes after every platform build succeeds (previously an upload could publish an incomplete release early).
+- **Dependency tree made installable again** — half-applied dependency upgrades left `npm ci` failing (`typescript@7` is unsupported by `typescript-eslint`, and `vitest@5` was paired with `@vitest/coverage-v8@4`). Pinned TypeScript to `~6.0.3` and aligned the vitest tooling to 5.x so `npm ci` (and therefore CI and release builds) succeed.
 
 ## [0.5.0] - 2026-10-02
 
