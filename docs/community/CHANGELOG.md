@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`STATIC_VCRUNTIME` deprecation warning actually cleared** — the warning persisted in 0.5.3 because `@tauri-apps/cli` 2.11 still set the deprecated `STATIC_VCRUNTIME` env var during `tauri build`. Upgraded the CLI to 2.12, which drives static VC-runtime linking through `build.windows.staticVCRuntime` config (default `true`) instead of the env var — so tauri-build no longer warns. (Build still links the runtime statically on Windows.)
+
 ## [0.5.3] - 2026-10-03
 
 ### Added
