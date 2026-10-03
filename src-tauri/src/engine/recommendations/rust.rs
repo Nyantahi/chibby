@@ -1,16 +1,8 @@
 //! Rust recommendations.
 
-use crate::engine::detector::{exists_within, NESTED_SCAN_DEPTH};
+use super::exists_nested;
 use crate::engine::models::{FileRecommendation, RecommendationCategory, RecommendationPriority};
 use std::path::Path;
-
-/// Whether any of `names` exists at or below the repo root (within the shallow
-/// scan depth). Covers the standard Tauri layout where the Rust crate and its
-/// config live in `src-tauri/`, and workspace members — not just the repo root —
-/// so these files aren't recommended when they already exist nested.
-fn exists_nested(repo_path: &Path, names: &[&str]) -> bool {
-    exists_within(repo_path, NESTED_SCAN_DEPTH, &|n: &str| names.contains(&n))
-}
 
 /// Add Rust specific recommendations.
 pub(super) fn add_rust_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommendation>) {

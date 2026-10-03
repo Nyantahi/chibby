@@ -1,13 +1,14 @@
 //! Python recommendations.
 
 use super::detect::has_python_test_files;
+use super::exists_nested;
 use crate::engine::models::{FileRecommendation, RecommendationCategory, RecommendationPriority};
 use std::path::Path;
 
 /// Add Python specific recommendations.
 pub(super) fn add_python_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommendation>) {
     // pyproject.toml (modern standard)
-    let has_pyproject = repo_path.join("pyproject.toml").exists();
+    let has_pyproject = exists_nested(repo_path, &["pyproject.toml"]);
     recs.push(FileRecommendation {
         file_name: "pyproject.toml".to_string(),
         title: "Python Project Config".to_string(),
@@ -22,10 +23,15 @@ pub(super) fn add_python_recommendations(repo_path: &Path, recs: &mut Vec<FileRe
     });
 
     // requirements.txt or lock file
-    let has_deps = repo_path.join("requirements.txt").exists()
-        || repo_path.join("requirements-dev.txt").exists()
-        || repo_path.join("poetry.lock").exists()
-        || repo_path.join("Pipfile.lock").exists();
+    let has_deps = exists_nested(
+        repo_path,
+        &[
+            "requirements.txt",
+            "requirements-dev.txt",
+            "poetry.lock",
+            "Pipfile.lock",
+        ],
+    );
 
     recs.push(FileRecommendation {
         file_name: "requirements.txt".to_string(),
@@ -41,9 +47,7 @@ pub(super) fn add_python_recommendations(repo_path: &Path, recs: &mut Vec<FileRe
     });
 
     // Ruff or flake8/black
-    let has_linter = repo_path.join("ruff.toml").exists()
-        || repo_path.join(".flake8").exists()
-        || repo_path.join("pyproject.toml").exists(); // ruff/black can be configured here
+    let has_linter = exists_nested(repo_path, &["ruff.toml", ".flake8", "pyproject.toml"]); // ruff/black can also be configured in pyproject.toml
 
     recs.push(FileRecommendation {
         file_name: "ruff.toml".to_string(),
@@ -57,9 +61,7 @@ pub(super) fn add_python_recommendations(repo_path: &Path, recs: &mut Vec<FileRe
     });
 
     // pytest config
-    let has_pytest = repo_path.join("pytest.ini").exists()
-        || repo_path.join("pyproject.toml").exists()
-        || repo_path.join("conftest.py").exists();
+    let has_pytest = exists_nested(repo_path, &["pytest.ini", "pyproject.toml", "conftest.py"]);
 
     recs.push(FileRecommendation {
         file_name: "pytest.ini".to_string(),
@@ -73,7 +75,7 @@ pub(super) fn add_python_recommendations(repo_path: &Path, recs: &mut Vec<FileRe
     });
 
     // Python test directory
-    let has_test_dir = repo_path.join("tests").is_dir() || repo_path.join("test").is_dir();
+    let has_test_dir = exists_nested(repo_path, &["tests", "test"]);
     let has_test_files = has_python_test_files(repo_path);
 
     recs.push(FileRecommendation {
@@ -97,7 +99,7 @@ pub(super) fn add_python_recommendations(repo_path: &Path, recs: &mut Vec<FileRe
         priority: RecommendationPriority::Medium,
         category: RecommendationCategory::Dependencies,
         docs_url: Some("https://github.com/pyenv/pyenv#choosing-the-python-version".to_string()),
-        exists: repo_path.join(".python-version").exists(),
+        exists: exists_nested(repo_path, &[".python-version"]),
         template_hint: Some("Just the version, e.g., '3.12'".to_string()),
     });
 }

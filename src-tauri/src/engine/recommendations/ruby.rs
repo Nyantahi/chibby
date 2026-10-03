@@ -1,5 +1,6 @@
 //! Ruby recommendations.
 
+use super::exists_nested;
 use crate::engine::models::{FileRecommendation, RecommendationCategory, RecommendationPriority};
 use std::path::Path;
 
@@ -13,7 +14,7 @@ pub(super) fn add_ruby_recommendations(repo_path: &Path, recs: &mut Vec<FileReco
         priority: RecommendationPriority::Critical,
         category: RecommendationCategory::Dependencies,
         docs_url: Some("https://bundler.io/guides/faq.html".to_string()),
-        exists: repo_path.join("Gemfile.lock").exists(),
+        exists: exists_nested(repo_path, &["Gemfile.lock"]),
         template_hint: Some("Run 'bundle install' to generate".to_string()),
     });
 
@@ -25,7 +26,7 @@ pub(super) fn add_ruby_recommendations(repo_path: &Path, recs: &mut Vec<FileReco
         priority: RecommendationPriority::High,
         category: RecommendationCategory::CodeQuality,
         docs_url: Some("https://docs.rubocop.org/rubocop/".to_string()),
-        exists: repo_path.join(".rubocop.yml").exists(),
+        exists: exists_nested(repo_path, &[".rubocop.yml"]),
         template_hint: Some("Enforce Ruby style guide".to_string()),
     });
 
@@ -37,7 +38,7 @@ pub(super) fn add_ruby_recommendations(repo_path: &Path, recs: &mut Vec<FileReco
         priority: RecommendationPriority::Medium,
         category: RecommendationCategory::Dependencies,
         docs_url: Some("https://github.com/rbenv/rbenv#choosing-the-ruby-version".to_string()),
-        exists: repo_path.join(".ruby-version").exists(),
+        exists: exists_nested(repo_path, &[".ruby-version"]),
         template_hint: Some("Just the version, e.g., '3.3.0'".to_string()),
     });
 }

@@ -1,12 +1,13 @@
 //! Java / Kotlin recommendations.
 
+use super::exists_nested;
 use crate::engine::models::{FileRecommendation, RecommendationCategory, RecommendationPriority};
 use std::path::Path;
 
 /// Add Java/Kotlin specific recommendations.
 pub(super) fn add_java_recommendations(repo_path: &Path, recs: &mut Vec<FileRecommendation>) {
     // Gradle wrapper
-    let has_wrapper = repo_path.join("gradlew").exists() || repo_path.join("mvnw").exists();
+    let has_wrapper = exists_nested(repo_path, &["gradlew", "mvnw"]);
 
     recs.push(FileRecommendation {
         file_name: "gradlew".to_string(),
@@ -20,8 +21,7 @@ pub(super) fn add_java_recommendations(repo_path: &Path, recs: &mut Vec<FileReco
     });
 
     // Checkstyle or similar
-    let has_linter =
-        repo_path.join("checkstyle.xml").exists() || repo_path.join(".editorconfig").exists();
+    let has_linter = exists_nested(repo_path, &["checkstyle.xml", ".editorconfig"]);
 
     recs.push(FileRecommendation {
         file_name: "checkstyle.xml".to_string(),

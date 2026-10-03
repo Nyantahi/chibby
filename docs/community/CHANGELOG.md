@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Config recommendations no longer false-positive on monorepos** — once a repo is classified by a language whose manifest is nested (e.g. a monorepo with `frontend/`, `backend/` and no root manifest), the language recommendations still checked only the repo root and reported existing config (`vitest.config.ts`, `eslint`, `package-lock.json`, `pyproject.toml`, `requirements.txt`, etc.) as "missing". All language recommendation checks (node, python, go, java, php, ruby, dotnet, rust) now shallow-walk, so config living in a component dir is recognized.
+
 ## [0.5.4] - 2026-10-03
 
 ### Fixed
