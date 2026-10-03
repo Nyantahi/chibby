@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-10-03
+
 ### Added
 
 - **Zero-config security gates on new projects** — a freshly added project now auto-includes sensible security stages (secrets, deps, SAST, license, commit-lint in warn mode) in its detected pipeline, instead of requiring a `.chibby/gates.toml` first. The draft generator uses the same seeded defaults the project is provisioned with, so the pipeline shown at review matches what's saved.
@@ -16,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Richer iOS auto-detect** — an Xcode app project now auto-generates resolve-packages (SPM) + lint (SwiftLint) + build, scheme-aware, rather than just a build stage. Still no simulator test stage (macOS-only/fragile); the Swift iOS App template covers the full test flow.
 - **Added `rustfmt.toml`, `clippy.toml`, and `rust-toolchain.toml`** to the chibby crate (pinned edition, MSRV, and stable toolchain + rustfmt/clippy components).
+- **Grouped dependabot updates** — coupled packages (the `@tauri-apps/*` and cargo `tauri*` sets, `vitest` + `@vitest/*`, `typescript` + `typescript-eslint`) now update together in one PR, and TypeScript majors are held until typescript-eslint supports them. Prevents the half-applied upgrades that broke `npm ci` / `tauri build`.
 
 ### Fixed
 

@@ -7,6 +7,26 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - "dependencies"
+    # Hold TypeScript majors until typescript-eslint supports them. A TS major
+    # merged ahead of the linter breaks `npm ci` (peer: typescript <N).
+    ignore:
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+    # Keep tightly-coupled packages in one PR so one half can't land without the
+    # other (which breaks peer deps or the Tauri npm/Rust version check).
+    groups:
+      tauri:
+        patterns:
+          - "@tauri-apps/*"
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+      typescript:
+        patterns:
+          - "typescript"
+          - "typescript-eslint"
+          - "@typescript-eslint/*"
 
   - package-ecosystem: "cargo"
     directory: "/src-tauri"
@@ -16,6 +36,13 @@ updates:
     labels:
       - "dependencies"
       - "rust"
+    # Bump all Tauri crates together so they stay on one minor (and in step with
+    # the npm @tauri-apps/* group above).
+    groups:
+      tauri:
+        patterns:
+          - "tauri"
+          - "tauri-*"
 
   - package-ecosystem: "github-actions"
     directory: "/"
