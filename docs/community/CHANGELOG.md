@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Template recommendations in Add Project** — after auto-detect, the CI Stages step surfaces curated pipeline templates whose project type matches the repo (e.g. "Swift iOS App"), so you can jump from a minimal detected pipeline to a fuller one in one click.
+
+### Changed
+
+- **iOS auto-detect is now a build-only core** — for Xcode app projects it emits lint (when a `.swiftlint.yml` is present) + build, and no simulator `xcodebuild test` stage. Simulator tests are macOS-only and break on simulator-name drift; `xcodebuild build` already proves the app compiles. Use the Swift iOS App template for a full scheme-based lint/test/build flow.
+- **Security gates scoped to relevant files** — `security-container` and `security-iac` stages are only added when the repo actually has a Dockerfile/compose or Terraform/Helm file, so a pure iOS app's pipeline isn't padded with gates that scan nothing.
+
+### Fixed
+
+- **Nested Xcode projects build correctly** — auto-detect now points `xcodebuild` at the detected project/workspace by path (`-project`/`-workspace "<path>"`, quoted for spaces) instead of a bare `xcodebuild build`, fixing the recurring `error: The directory … does not contain an Xcode project` when the `.xcodeproj`/`.xcworkspace` is nested.
+- **Workspace builds include a scheme** — a `.xcworkspace` requires `-scheme`, so the build command now resolves a scheme from the project's shared schemes (`xcshareddata/xcschemes`), falling back to the bundle's base name. Fixes `xcodebuild: error: A scheme is required` on CocoaPods/SPM workspaces.
+- **`.xcworkspace` preferred over `.xcodeproj`** — when both exist, detection picks the workspace, since CocoaPods/SPM projects must build the workspace (the bare project fails without the generated Pods).
+- **Deeper Xcode detection** — workspaces/projects several folders down (mobile-monorepo layouts like `apps/ios/App/App.xcworkspace`) are now detected.
+- **Release workflow** — the Windows CLI-packaging step is pinned to `bash` (it was failing under PowerShell with a bash `if [[ … ]]`), and the per-platform asset uploads keep the release a draft so it only publishes after every platform build succeeds (previously an upload could publish an incomplete release early).
+
 ## [0.5.0] - 2026-10-02
 
 ### Added
