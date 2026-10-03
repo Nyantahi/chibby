@@ -388,14 +388,14 @@ pub fn detect_scripts(repo_path: &Path) -> Vec<DetectedScript> {
         &mut found,
         repo_path,
         ScriptType::Swift,
-        NESTED_SCAN_DEPTH,
+        DEEP_NESTED_SCAN_DEPTH,
         is_xcode_bundle,
     );
     push_nested_fallback(
         &mut found,
         repo_path,
         ScriptType::Swift,
-        NESTED_SCAN_DEPTH,
+        DEEP_NESTED_SCAN_DEPTH,
         |n| n == "Package.swift",
     );
     push_nested_fallback(
@@ -973,6 +973,20 @@ mod tests {
 
         let scripts = detect_scripts(temp.path());
         assert!(!scripts.iter().any(|s| s.script_type == ScriptType::Swift));
+    }
+
+    #[test]
+    fn test_detect_scripts_deeply_nested_xcworkspace() {
+        // Workspace 3 folders down (mobile monorepo layout).
+        let temp = TempDir::new().unwrap();
+        std::fs::create_dir_all(temp.path().join("apps/ios/App/App.xcworkspace")).unwrap();
+
+        let scripts = detect_scripts(temp.path());
+        let swift = scripts
+            .iter()
+            .find(|s| s.script_type == ScriptType::Swift)
+            .expect("deeply nested workspace should be detected");
+        assert_eq!(swift.file_name, "apps/ios/App/App.xcworkspace");
     }
 
     #[test]

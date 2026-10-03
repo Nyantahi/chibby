@@ -1,7 +1,8 @@
 //! Project-type detection from manifest files, plus fullstack heuristics.
 
 use crate::engine::detector::{
-    exists_within, is_android_project, is_xcode_bundle, FULLSTACK_SUBDIRS, NESTED_SCAN_DEPTH,
+    exists_within, is_android_project, is_xcode_bundle, DEEP_NESTED_SCAN_DEPTH, FULLSTACK_SUBDIRS,
+    NESTED_SCAN_DEPTH,
 };
 use std::path::Path;
 
@@ -70,10 +71,12 @@ pub fn detect_project_types(repo_path: &Path) -> Vec<String> {
         }
     }
 
-    // Swift / iOS. Xcode projects usually sit a level or two down
-    // (`App/App.xcodeproj`).
-    let has_xcode_app = exists_within(repo_path, NESTED_SCAN_DEPTH, &is_xcode_bundle);
-    let has_spm = has_nested_file(repo_path, "Package.swift");
+    // Swift / iOS. Xcode bundles can sit several levels down in mobile monorepos
+    // (`apps/ios/App/App.xcworkspace`), so search deeper than the default.
+    let has_xcode_app = exists_within(repo_path, DEEP_NESTED_SCAN_DEPTH, &is_xcode_bundle);
+    let has_spm = exists_within(repo_path, DEEP_NESTED_SCAN_DEPTH, &|n: &str| {
+        n == "Package.swift"
+    });
     if has_spm || has_xcode_app {
         types.push("swift".to_string());
         // An Xcode project/workspace signals an iOS app; an SPM package alone does not.
