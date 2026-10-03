@@ -1,5 +1,6 @@
 //! .NET / C# recommendations.
 
+use super::exists_nested;
 use crate::engine::models::{FileRecommendation, RecommendationCategory, RecommendationPriority};
 use std::path::Path;
 
@@ -13,7 +14,7 @@ pub(super) fn add_dotnet_recommendations(repo_path: &Path, recs: &mut Vec<FileRe
         priority: RecommendationPriority::High,
         category: RecommendationCategory::CodeQuality,
         docs_url: Some("https://learn.microsoft.com/en-us/dotnet/fundamentals/code-analysis/code-style-rule-options".to_string()),
-        exists: repo_path.join(".editorconfig").exists(),
+        exists: exists_nested(repo_path, &[".editorconfig"]),
         template_hint: Some("Include C# naming and formatting rules".to_string()),
     });
 
@@ -28,7 +29,7 @@ pub(super) fn add_dotnet_recommendations(repo_path: &Path, recs: &mut Vec<FileRe
             "https://learn.microsoft.com/en-us/visualstudio/msbuild/customize-your-build"
                 .to_string(),
         ),
-        exists: repo_path.join("Directory.Build.props").exists(),
+        exists: exists_nested(repo_path, &["Directory.Build.props"]),
         template_hint: Some("Set TreatWarningsAsErrors, nullable, etc.".to_string()),
     });
 
@@ -42,7 +43,7 @@ pub(super) fn add_dotnet_recommendations(repo_path: &Path, recs: &mut Vec<FileRe
         docs_url: Some(
             "https://learn.microsoft.com/en-us/nuget/reference/nuget-config-file".to_string(),
         ),
-        exists: repo_path.join("nuget.config").exists() || repo_path.join("NuGet.Config").exists(),
+        exists: exists_nested(repo_path, &["nuget.config", "NuGet.Config"]),
         template_hint: Some("Useful for private feeds".to_string()),
     });
 }

@@ -1,5 +1,6 @@
 //! PHP recommendations.
 
+use super::exists_nested;
 use crate::engine::models::{FileRecommendation, RecommendationCategory, RecommendationPriority};
 use std::path::Path;
 
@@ -15,7 +16,7 @@ pub(super) fn add_php_recommendations(repo_path: &Path, recs: &mut Vec<FileRecom
         docs_url: Some(
             "https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies".to_string(),
         ),
-        exists: repo_path.join("composer.lock").exists(),
+        exists: exists_nested(repo_path, &["composer.lock"]),
         template_hint: Some("Run 'composer install' to generate".to_string()),
     });
 
@@ -27,8 +28,7 @@ pub(super) fn add_php_recommendations(repo_path: &Path, recs: &mut Vec<FileRecom
         priority: RecommendationPriority::High,
         category: RecommendationCategory::CodeQuality,
         docs_url: Some("https://cs.symfony.com/doc/config.html".to_string()),
-        exists: repo_path.join(".php-cs-fixer.php").exists()
-            || repo_path.join(".php-cs-fixer.dist.php").exists(),
+        exists: exists_nested(repo_path, &[".php-cs-fixer.php", ".php-cs-fixer.dist.php"]),
         template_hint: Some("Use PSR-12 or Symfony style".to_string()),
     });
 
@@ -40,8 +40,7 @@ pub(super) fn add_php_recommendations(repo_path: &Path, recs: &mut Vec<FileRecom
         priority: RecommendationPriority::High,
         category: RecommendationCategory::CodeQuality,
         docs_url: Some("https://phpstan.org/config-reference".to_string()),
-        exists: repo_path.join("phpstan.neon").exists()
-            || repo_path.join("phpstan.neon.dist").exists(),
+        exists: exists_nested(repo_path, &["phpstan.neon", "phpstan.neon.dist"]),
         template_hint: Some("Start with level 5, work up to 9".to_string()),
     });
 }

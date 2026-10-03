@@ -1,8 +1,8 @@
 //! Project-type detection from manifest files, plus fullstack heuristics.
 
 use crate::engine::detector::{
-    exists_within, is_android_project, is_xcode_bundle, DEEP_NESTED_SCAN_DEPTH, FULLSTACK_SUBDIRS,
-    NESTED_SCAN_DEPTH,
+    candidate_bases, exists_within, is_android_project, is_xcode_bundle, DEEP_NESTED_SCAN_DEPTH,
+    FULLSTACK_SUBDIRS, NESTED_SCAN_DEPTH,
 };
 use std::path::Path;
 
@@ -182,18 +182,21 @@ fn has_react_project(repo_path: &Path) -> bool {
         return true;
     }
 
-    // Check common subdirectories
-    for subdir in FULLSTACK_SUBDIRS {
-        let subdir_path = repo_path.join(subdir);
-        let pkg_path = subdir_path.join("package.json");
-        if pkg_path.exists()
-            && (has_react_dependency(&pkg_path)
-                || subdir_path.join("vite.config.ts").exists()
-                || subdir_path.join("vite.config.js").exists()
-                || subdir_path.join("next.config.js").exists()
-                || subdir_path.join("next.config.mjs").exists())
-        {
-            return true;
+    // Check common subdirectories, including one wrapper level down (monorepos
+    // that nest apps under a container dir, e.g. `main/frontend`).
+    for base in candidate_bases(repo_path) {
+        for subdir in FULLSTACK_SUBDIRS {
+            let subdir_path = base.join(subdir);
+            let pkg_path = subdir_path.join("package.json");
+            if pkg_path.exists()
+                && (has_react_dependency(&pkg_path)
+                    || subdir_path.join("vite.config.ts").exists()
+                    || subdir_path.join("vite.config.js").exists()
+                    || subdir_path.join("next.config.js").exists()
+                    || subdir_path.join("next.config.mjs").exists())
+            {
+                return true;
+            }
         }
     }
 
@@ -210,16 +213,18 @@ fn has_python_project(repo_path: &Path) -> bool {
         return true;
     }
 
-    // Check common subdirectories
-    for subdir in FULLSTACK_SUBDIRS {
-        let subdir_path = repo_path.join(subdir);
-        if subdir_path.join("pyproject.toml").exists()
-            || subdir_path.join("requirements.txt").exists()
-            || subdir_path.join("setup.py").exists()
-            || subdir_path.join("main.py").exists()
-            || subdir_path.join("app.py").exists()
-        {
-            return true;
+    // Check common subdirectories, including one wrapper level down.
+    for base in candidate_bases(repo_path) {
+        for subdir in FULLSTACK_SUBDIRS {
+            let subdir_path = base.join(subdir);
+            if subdir_path.join("pyproject.toml").exists()
+                || subdir_path.join("requirements.txt").exists()
+                || subdir_path.join("setup.py").exists()
+                || subdir_path.join("main.py").exists()
+                || subdir_path.join("app.py").exists()
+            {
+                return true;
+            }
         }
     }
 

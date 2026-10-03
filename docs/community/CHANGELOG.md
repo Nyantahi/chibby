@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Config recommendations no longer false-positive on monorepos** — once a repo is classified by a language whose manifest is nested (e.g. a monorepo with `frontend/`, `backend/` and no root manifest), the language recommendations still checked only the repo root and reported existing config (`vitest.config.ts`, `eslint`, `package-lock.json`, `pyproject.toml`, `requirements.txt`, etc.) as "missing". All language recommendation checks (node, python, go, java, php, ruby, dotnet, rust) now shallow-walk, so config living in a component dir is recognized.
+
+## [0.5.4] - 2026-10-03
+
+### Fixed
+
+- **`STATIC_VCRUNTIME` deprecation warning actually cleared** — the warning persisted in 0.5.3 because `@tauri-apps/cli` 2.11 still set the deprecated `STATIC_VCRUNTIME` env var during `tauri build`. Upgraded the CLI to 2.12, which drives static VC-runtime linking through `build.windows.staticVCRuntime` config (default `true`) instead of the env var — so tauri-build no longer warns. (Build still links the runtime statically on Windows.)
+
+## [0.5.3] - 2026-10-03
+
+### Added
+
+- **Monorepo detection under a wrapper directory** — a project that nests its apps under a container dir (e.g. `main/frontend`, `main/backend`, `main/admin`) is now detected. Component scanning looks at the repo root *and* one wrapper level, generating per-app stages with the correct relative `cd` paths (and slash-free stage names like `main-backend-install`). Applies to the pipeline generator, the fullstack/“Detected Files” detection, and the project-type label.
+
+### Fixed
+
+- **`STATIC_VCRUNTIME` deprecation warning** during `tauri build` — set the static MSVC runtime explicitly via `tauri_build::WindowsAttributes::static_vc_runtime` in `build.rs` instead of the deprecated env mechanism. Windows builds still link the runtime statically (self-contained `.exe`); no-op on other platforms.
+
 ## [0.5.2] - 2026-10-03
 
 ### Added
@@ -22,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Tauri version mismatch blocking `tauri build`** — dependabot bumped the npm `@tauri-apps/*` packages (api 2.12, plugin-dialog 2.8) ahead of the Rust crates, which Tauri rejects ("version mismatched Tauri packages"). Bumped the Rust `tauri`/`tauri-plugin-*`/`tauri-build` crates to the matching minors so the desktop build runs again.
+- **Tauri version mismatch blocking `tauri build`** — the npm `@tauri-apps/*` packages and the Rust `tauri*` crates had drifted apart (api, plugin-dialog, plugin-shell), which Tauri rejects ("version mismatched Tauri packages"). Aligned all three npm/Rust pairs: api 2.12, plugin-dialog 2.8, plugin-shell 2.4 (and `tauri`/`tauri-build` crates) so the desktop build runs again.
 - **Rust config recommendations no longer false-positive on Tauri layouts** — `Cargo.lock`, `rustfmt.toml`, `clippy.toml`, and `rust-toolchain.toml` were only checked at the repo root, so a project whose crate lives in `src-tauri/` (or a workspace member) was told to add files it already had. Detection now shallow-walks for them.
 
 ## [0.5.1] - 2026-10-03

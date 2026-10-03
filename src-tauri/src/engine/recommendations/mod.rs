@@ -18,11 +18,20 @@ mod ruby;
 mod rust;
 mod universal;
 
+use crate::engine::detector::{exists_within, NESTED_SCAN_DEPTH};
 use crate::engine::models::{
     FileRecommendation, ProjectRecommendations, RecommendationPriority, RecommendationSummary,
 };
 pub use detect::detect_project_types;
 use std::path::Path;
+
+/// Whether any of `names` exists at or below the repo root within the shallow
+/// scan depth. A project is often a monorepo of several apps under one container,
+/// so config files live in a component dir (e.g. `frontend/`, `backend/`) rather
+/// than the repo root — checking only the root would report them as "missing".
+pub(super) fn exists_nested(repo_path: &Path, names: &[&str]) -> bool {
+    exists_within(repo_path, NESTED_SCAN_DEPTH, &|n: &str| names.contains(&n))
+}
 
 /// Analyze a repository and generate CI/CD recommendations.
 pub fn analyze_repository(repo_path: &Path) -> ProjectRecommendations {

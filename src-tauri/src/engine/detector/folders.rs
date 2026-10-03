@@ -41,8 +41,12 @@ const BACKEND_SUBDIRS: &[&str] = &["backend", "api", "server"];
 /// Information about a detected project folder with its capabilities.
 #[derive(Debug, Clone)]
 pub struct ProjectFolder {
-    /// Subdirectory name (e.g., "frontend", "backend", "admin").
+    /// Component name (e.g., "frontend", "backend", "admin").
     pub name: String,
+    /// Path to the component relative to the repo root (POSIX separators). Equals
+    /// `name` for a root-level component, or e.g. `main/backend` when the
+    /// components live under a wrapper directory.
+    pub path: String,
     /// Has package.json (Node.js project).
     pub has_node: bool,
     /// Has requirements.txt or pyproject.toml (Python project).
@@ -68,59 +72,113 @@ pub struct ProjectFolder {
 pub fn detect_project_folders(repo_path: &Path) -> Vec<ProjectFolder> {
     let mut folders = Vec::new();
 
-    for subdir in FULLSTACK_SUBDIRS {
-        let subdir_path = repo_path.join(subdir);
-        if !subdir_path.is_dir() {
-            continue;
+    // A project is often a monorepo of several apps under one container, and those
+    // apps may sit directly at the repo root OR under a wrapper dir (e.g.
+    // `main/frontend`, `main/backend`). Scan the root and each immediate subdir as
+    // candidate bases so wrapper layouts are detected too.
+    for base in candidate_bases(repo_path) {
+        for subdir in FULLSTACK_SUBDIRS {
+            let subdir_path = base.join(subdir);
+            if !subdir_path.is_dir() {
+                continue;
+            }
+            if let Some(folder) = inspect_component(repo_path, &subdir_path, subdir) {
+                // Dedupe by relative path (a dir could match via two bases).
+                if !folders
+                    .iter()
+                    .any(|f: &ProjectFolder| f.path == folder.path)
+                {
+                    folders.push(folder);
+                }
+            }
         }
-
-        let has_package_json = subdir_path.join("package.json").exists();
-        let has_requirements = subdir_path.join("requirements.txt").exists();
-        let has_pyproject = subdir_path.join("pyproject.toml").exists();
-        let has_python = has_requirements || has_pyproject;
-        let has_rust = subdir_path.join("Cargo.toml").exists();
-        let has_tauri = subdir_path.join("tauri.conf.json").exists();
-
-        // Skip if not a recognizable project
-        if !has_package_json && !has_python && !has_rust {
-            continue;
-        }
-
-        // Check for tests
-        let has_tests = subdir_path.join("tests").is_dir()
-            || subdir_path.join("test").is_dir()
-            || subdir_path.join("__tests__").is_dir()
-            || subdir_path.join("vitest.config.ts").exists()
-            || subdir_path.join("jest.config.js").exists()
-            || subdir_path.join("pytest.ini").exists()
-            || subdir_path.join("conftest.py").exists();
-
-        // Read npm scripts if applicable
-        let npm_scripts = if has_package_json {
-            read_package_scripts(&subdir_path).keys().cloned().collect()
-        } else {
-            std::collections::HashSet::new()
-        };
-
-        // Determine if frontend or backend based on folder name
-        let is_frontend = FRONTEND_SUBDIRS.contains(&subdir.to_lowercase().as_str())
-            || has_package_json && !has_python;
-        let is_backend = BACKEND_SUBDIRS.contains(&subdir.to_lowercase().as_str()) || has_python;
-
-        folders.push(ProjectFolder {
-            name: subdir.to_string(),
-            has_node: has_package_json,
-            has_python,
-            has_rust,
-            has_tauri,
-            has_tests,
-            npm_scripts,
-            is_frontend,
-            is_backend,
-        });
     }
 
     folders
+}
+
+/// Base directories to scan for component folders: the repo root plus each of its
+/// immediate subdirectories (potential wrapper dirs), skipping hidden and
+/// vendor/build dirs.
+pub(crate) fn candidate_bases(repo_path: &Path) -> Vec<std::path::PathBuf> {
+    let mut bases = vec![repo_path.to_path_buf()];
+    if let Ok(entries) = std::fs::read_dir(repo_path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') || is_wrapper_skip_dir(&name) {
+                continue;
+            }
+            bases.push(path);
+        }
+    }
+    bases
+}
+
+/// Dirs that are never a monorepo wrapper worth descending into.
+fn is_wrapper_skip_dir(name: &str) -> bool {
+    matches!(
+        name,
+        "node_modules" | "target" | "dist" | "build" | "out" | "vendor" | ".git" | "venv" | ".venv"
+    )
+}
+
+/// Inspect a candidate component directory; returns a `ProjectFolder` when it
+/// holds a recognizable project (Node/Python/Rust).
+fn inspect_component(repo_path: &Path, subdir_path: &Path, name: &str) -> Option<ProjectFolder> {
+    let has_package_json = subdir_path.join("package.json").exists();
+    let has_requirements = subdir_path.join("requirements.txt").exists();
+    let has_pyproject = subdir_path.join("pyproject.toml").exists();
+    let has_python = has_requirements || has_pyproject;
+    let has_rust = subdir_path.join("Cargo.toml").exists();
+    let has_tauri = subdir_path.join("tauri.conf.json").exists();
+
+    if !has_package_json && !has_python && !has_rust {
+        return None;
+    }
+
+    let has_tests = subdir_path.join("tests").is_dir()
+        || subdir_path.join("test").is_dir()
+        || subdir_path.join("__tests__").is_dir()
+        || subdir_path.join("vitest.config.ts").exists()
+        || subdir_path.join("jest.config.js").exists()
+        || subdir_path.join("pytest.ini").exists()
+        || subdir_path.join("conftest.py").exists();
+
+    let npm_scripts = if has_package_json {
+        read_package_scripts(subdir_path).keys().cloned().collect()
+    } else {
+        std::collections::HashSet::new()
+    };
+
+    let is_frontend =
+        FRONTEND_SUBDIRS.contains(&name.to_lowercase().as_str()) || has_package_json && !has_python;
+    let is_backend = BACKEND_SUBDIRS.contains(&name.to_lowercase().as_str()) || has_python;
+
+    // Relative path from the repo root (POSIX separators) for correct `cd`.
+    let path = subdir_path
+        .strip_prefix(repo_path)
+        .unwrap_or(subdir_path)
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/");
+
+    Some(ProjectFolder {
+        name: name.to_string(),
+        path,
+        has_node: has_package_json,
+        has_python,
+        has_rust,
+        has_tauri,
+        has_tests,
+        npm_scripts,
+        is_frontend,
+        is_backend,
+    })
 }
 
 /// Check if project is a fullstack Docker project (multiple folders + docker-compose).
@@ -258,6 +316,34 @@ mod tests {
         assert!(folders.iter().any(|f| f.name == "frontend"));
         assert!(folders.iter().any(|f| f.name == "backend"));
         assert!(folders.iter().any(|f| f.name == "admin"));
+    }
+
+    #[test]
+    fn test_detect_project_folders_under_wrapper_dir() {
+        // Monorepo nested under a container dir: repo/main/{frontend,backend,admin}.
+        let temp = TempDir::new().unwrap();
+        let main = temp.path().join("main");
+        for name in &["frontend", "admin"] {
+            let d = main.join(name);
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(
+                d.join("package.json"),
+                r#"{"scripts":{"build":"vite build"}}"#,
+            )
+            .unwrap();
+        }
+        let backend = main.join("backend");
+        std::fs::create_dir_all(&backend).unwrap();
+        std::fs::write(backend.join("requirements.txt"), "flask").unwrap();
+
+        let folders = detect_project_folders(temp.path());
+        assert_eq!(folders.len(), 3, "got {folders:?}");
+        let be = folders.iter().find(|f| f.name == "backend").unwrap();
+        assert_eq!(be.path, "main/backend");
+        assert!(be.has_python);
+        let fe = folders.iter().find(|f| f.name == "frontend").unwrap();
+        assert_eq!(fe.path, "main/frontend");
+        assert!(fe.has_node);
     }
 
     #[test]
