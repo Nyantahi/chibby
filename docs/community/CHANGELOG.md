@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Richer iOS auto-detect** — an Xcode app project now auto-generates resolve-packages (SPM) + lint (SwiftLint) + build, scheme-aware, rather than just a build stage. Still no simulator test stage (macOS-only/fragile); the Swift iOS App template covers the full test flow.
+- **Added `rustfmt.toml`, `clippy.toml`, and `rust-toolchain.toml`** to the chibby crate (pinned edition, MSRV, and stable toolchain + rustfmt/clippy components).
+
+### Fixed
+
+- **Rust config recommendations no longer false-positive on Tauri layouts** — `Cargo.lock`, `rustfmt.toml`, `clippy.toml`, and `rust-toolchain.toml` were only checked at the repo root, so a project whose crate lives in `src-tauri/` (or a workspace member) was told to add files it already had. Detection now shallow-walks for them.
 
 ## [0.5.1] - 2026-10-03
 

@@ -1,0 +1,3 @@
+# Pin the edition so standalone `rustfmt` matches `cargo fmt`. Other options are
+# left at rustfmt defaults, which the codebase is already formatted against.
+edition = "2021"

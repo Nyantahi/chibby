@@ -1,0 +1,5 @@
+[toolchain]
+# Matches the CI toolchain (dtolnay/rust-toolchain@stable). rustfmt + clippy are
+# required by `npm run format` / lint and the security:audit flow.
+channel = "stable"
+components = ["rustfmt", "clippy"]
