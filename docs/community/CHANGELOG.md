@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Completion toasts for pipeline and release runs** — when a run finishes, a dismissible toast slides in reporting success / failure / cancelled (failures name the stage that failed and persist longer). Reuses the existing toast system (auto-dismiss + an X to close); covers both CI pipelines and releases.
+
 ### Fixed
 
 - **Config recommendations no longer false-positive on monorepos** — once a repo is classified by a language whose manifest is nested (e.g. a monorepo with `frontend/`, `backend/` and no root manifest), the language recommendations still checked only the repo root and reported existing config (`vitest.config.ts`, `eslint`, `package-lock.json`, `pyproject.toml`, `requirements.txt`, etc.) as "missing". All language recommendation checks (node, python, go, java, php, ruby, dotnet, rust) now shallow-walk, so config living in a component dir is recognized.

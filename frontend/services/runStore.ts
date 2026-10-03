@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import type { Pipeline, PipelineRun } from '../types';
 import { runPipeline } from './api';
-import { notifyError } from './notify';
+import { notifyError, notifyInfo, notifySuccess } from './notify';
 
 /**
  * Global store of in-flight (and just-finished) pipeline runs, keyed by repo
@@ -221,6 +221,15 @@ export function startRun(opts: StartRunOptions): Promise<PipelineRun> {
 
 /** Reconcile final stage/command statuses once the run resolves. */
 function finalizeRun(repoPath: string, run: PipelineRun): void {
+  // Capture labels before the state update so we can toast the outcome.
+  const active = getActiveRun(repoPath);
+  const name = active?.projectName || repoPath.split('/').filter(Boolean).pop() || 'Project';
+  // A release runs the `release` pipeline; label it as such, otherwise "Pipeline".
+  const kind =
+    active?.pipelineFile && active.pipelineFile !== 'pipeline'
+      ? active.pipelineFile.charAt(0).toUpperCase() + active.pipelineFile.slice(1)
+      : 'Pipeline';
+
   update(repoPath, (cur) => {
     const stageStatuses = { ...cur.stageStatuses };
     const cmdStatuses = { ...cur.cmdStatuses };
@@ -246,6 +255,16 @@ function finalizeRun(repoPath: string, run: PipelineRun): void {
       finishedRun: run,
     };
   });
+
+  // Toast the outcome so the user is notified without watching the run.
+  if (run.status === 'success') {
+    notifySuccess(`${name}: ${kind} succeeded`);
+  } else if (run.status === 'cancelled') {
+    notifyInfo(`${name}: ${kind} cancelled`);
+  } else {
+    const failed = run.stage_results?.find((r) => r.status === 'failed')?.stage_name;
+    notifyError(`${name}: ${kind} failed`, failed ? `Failed at "${failed}"` : undefined);
+  }
 }
 
 function failRun(repoPath: string, err: unknown): void {
