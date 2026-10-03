@@ -9,6 +9,26 @@ use crate::engine::models::{
 };
 use std::path::Path;
 
+/// First shared scheme of an Xcode project/workspace bundle, read from
+/// `<bundle>/xcshareddata/xcschemes/<Name>.xcscheme`. Returns `None` when there
+/// are no *shared* schemes (user-local schemes aren't committed, so CI can't
+/// rely on them). Sorted for a deterministic pick.
+fn detect_xcode_scheme(bundle_abs: &Path) -> Option<String> {
+    let dir = bundle_abs.join("xcshareddata").join("xcschemes");
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter_map(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .strip_suffix(".xcscheme")
+                .map(str::to_string)
+        })
+        .collect();
+    names.sort();
+    names.into_iter().next()
+}
+
 /// Generate a draft pipeline from detected scripts.
 ///
 /// Reads package.json scripts when available to produce more accurate
@@ -420,22 +440,36 @@ pub fn generate_draft_pipeline(
                     vec![&in_dir(&d, "swiftlint lint --strict")],
                 ));
             }
-            // Point xcodebuild at the project/workspace BY PATH rather than cd-ing
-            // and relying on a bare `xcodebuild` (which fails with "directory does
-            // not contain an Xcode project" when nested, and is ambiguous when a
-            // dir holds more than one). Path is quoted to tolerate spaces.
+            // Point xcodebuild at the project/workspace BY PATH (quoted for spaces),
+            // not a bare `xcodebuild` — which fails "directory does not contain an
+            // Xcode project" when nested. A `.xcworkspace` (CocoaPods/SPM) also
+            // REQUIRES `-scheme`, so resolve a scheme from the project's shared
+            // schemes, falling back to the bundle's base name (the common default).
             let xcode_target = scripts
                 .iter()
                 .find(|s| s.script_type == ScriptType::Swift && is_xcode_bundle(&s.file_name));
             let build_cmd = match xcode_target {
-                Some(s) if s.file_name.ends_with(".xcworkspace") => format!(
-                    "xcodebuild -workspace \"{}\" build CODE_SIGNING_ALLOWED=NO",
-                    s.file_name
-                ),
-                Some(s) => format!(
-                    "xcodebuild -project \"{}\" build CODE_SIGNING_ALLOWED=NO",
-                    s.file_name
-                ),
+                Some(s) => {
+                    let is_ws = s.file_name.ends_with(".xcworkspace");
+                    let flag = if is_ws { "-workspace" } else { "-project" };
+                    let base = Path::new(&s.file_name)
+                        .file_stem()
+                        .map(|x| x.to_string_lossy().to_string());
+                    // Real shared scheme if we can find one; else the base name for a
+                    // workspace (scheme is mandatory there), else none for a project.
+                    let fallback = if is_ws { base } else { None };
+                    let scheme = detect_xcode_scheme(Path::new(&s.file_path)).or(fallback);
+                    match scheme {
+                        Some(sc) => format!(
+                            "xcodebuild {flag} \"{}\" -scheme \"{sc}\" build CODE_SIGNING_ALLOWED=NO",
+                            s.file_name
+                        ),
+                        None => format!(
+                            "xcodebuild {flag} \"{}\" build CODE_SIGNING_ALLOWED=NO",
+                            s.file_name
+                        ),
+                    }
+                }
                 None => "xcodebuild build CODE_SIGNING_ALLOWED=NO".to_string(),
             };
             stages.push(local_stage("xcode-build", vec![&build_cmd]));
@@ -764,6 +798,59 @@ mod tests {
             .find(|s| s.name == "xcode-build")
             .unwrap();
         assert!(build.commands[0].contains("-workspace \"App/App.xcworkspace\""));
+    }
+
+    #[test]
+    fn test_xcode_build_uses_detected_shared_scheme() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = tmp.path().join("App.xcworkspace");
+        std::fs::create_dir_all(ws.join("xcshareddata/xcschemes")).unwrap();
+        std::fs::write(
+            ws.join("xcshareddata/xcschemes/MyApp.xcscheme"),
+            "<Scheme/>",
+        )
+        .unwrap();
+        let scripts = vec![DetectedScript {
+            file_name: "App.xcworkspace".to_string(),
+            file_path: ws.to_string_lossy().to_string(),
+            script_type: ScriptType::Swift,
+        }];
+        let pipeline = generate_draft_pipeline("App", &scripts, tmp.path());
+        let build = pipeline
+            .stages
+            .iter()
+            .find(|s| s.name == "xcode-build")
+            .unwrap();
+        assert_eq!(
+            build.commands[0],
+            "xcodebuild -workspace \"App.xcworkspace\" -scheme \"MyApp\" build CODE_SIGNING_ALLOWED=NO"
+        );
+    }
+
+    #[test]
+    fn test_xcode_workspace_falls_back_to_basename_scheme() {
+        // Workspace with no shared schemes -> scheme defaults to the workspace name
+        // (the common convention). Mirrors the KibokoKids.xcworkspace case.
+        let tmp = tempfile::tempdir().unwrap();
+        let scripts = vec![DetectedScript {
+            file_name: "KibokoKids.xcworkspace".to_string(),
+            file_path: tmp
+                .path()
+                .join("KibokoKids.xcworkspace")
+                .to_string_lossy()
+                .to_string(),
+            script_type: ScriptType::Swift,
+        }];
+        let pipeline = generate_draft_pipeline("KibokoKids", &scripts, tmp.path());
+        let build = pipeline
+            .stages
+            .iter()
+            .find(|s| s.name == "xcode-build")
+            .unwrap();
+        assert_eq!(
+            build.commands[0],
+            "xcodebuild -workspace \"KibokoKids.xcworkspace\" -scheme \"KibokoKids\" build CODE_SIGNING_ALLOWED=NO"
+        );
     }
 
     #[test]

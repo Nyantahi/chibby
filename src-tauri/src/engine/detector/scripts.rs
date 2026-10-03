@@ -455,6 +455,11 @@ pub fn detect_scripts(repo_path: &Path) -> Vec<DetectedScript> {
         |n| n.ends_with(".csproj") || n.ends_with(".sln"),
     );
 
+    // Prefer a sibling `.xcworkspace` over a detected `.xcodeproj`: CocoaPods / SPM
+    // projects MUST build the workspace (the bare project fails without the Pods),
+    // and xcodebuild won't auto-pick the workspace.
+    prefer_sibling_xcworkspace(repo_path, &mut found);
+
     // Scan scripts/ directory for shell scripts
     let scripts_dir = repo_path.join("scripts");
     if scripts_dir.is_dir() {
@@ -770,6 +775,32 @@ pub(crate) fn is_xcode_bundle(name: &str) -> bool {
     name.ends_with(".xcodeproj") || name.ends_with(".xcworkspace")
 }
 
+/// If the detected Swift target is a `.xcodeproj` but a `.xcworkspace` sits next
+/// to it, swap to the workspace — CocoaPods / SPM projects must build the
+/// workspace (the bare project fails without the generated Pods), and xcodebuild
+/// won't auto-pick it.
+fn prefer_sibling_xcworkspace(repo_path: &Path, found: &mut [DetectedScript]) {
+    let Some(entry) = found
+        .iter_mut()
+        .find(|s| s.script_type == ScriptType::Swift && s.file_name.ends_with(".xcodeproj"))
+    else {
+        return;
+    };
+    let Some(parent) = Path::new(&entry.file_path).parent().map(Path::to_path_buf) else {
+        return;
+    };
+    if let Ok(dir) = std::fs::read_dir(&parent) {
+        if let Some(ws) = dir
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.extension().is_some_and(|x| x == "xcworkspace"))
+        {
+            entry.file_name = rel_display_name(repo_path, &ws);
+            entry.file_path = ws.to_string_lossy().to_string();
+        }
+    }
+}
+
 /// Display name for a detected file: its path relative to the repo root (POSIX
 /// separators) so nested matches read as `KibokoKids/KibokoKids.xcodeproj`.
 /// Falls back to the full path, then the bare file name.
@@ -942,6 +973,25 @@ mod tests {
 
         let scripts = detect_scripts(temp.path());
         assert!(!scripts.iter().any(|s| s.script_type == ScriptType::Swift));
+    }
+
+    #[test]
+    fn test_detect_scripts_prefers_xcworkspace_over_xcodeproj() {
+        // CocoaPods-style layout: both bundles at root; the workspace must win.
+        let temp = TempDir::new().unwrap();
+        std::fs::create_dir_all(temp.path().join("KibokoKids.xcodeproj")).unwrap();
+        std::fs::create_dir_all(temp.path().join("KibokoKids.xcworkspace")).unwrap();
+
+        let scripts = detect_scripts(temp.path());
+        let swift = scripts
+            .iter()
+            .find(|s| s.script_type == ScriptType::Swift)
+            .expect("should detect Swift");
+        assert!(
+            swift.file_name.ends_with(".xcworkspace"),
+            "expected workspace, got {}",
+            swift.file_name
+        );
     }
 
     #[test]
