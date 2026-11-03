@@ -172,7 +172,7 @@ pub async fn post_run_housekeeping(repo_path: &str, run: &PipelineRun) {
     // outcome, so the rollback run itself only feeds webhooks.
     if run.auto_rollback_of.is_none() {
         let plan = notify::plan_for_repo(path, &payload);
-        inbox::record_best_effort(&inbox::finished_run_entry(run, plan.alert));
+        inbox::record_best_effort(&inbox::finished_run_entry(run, &plan));
         notify::deliver(&plan, &payload).await;
     } else {
         match notify::resolve_notify_config(path) {
@@ -242,7 +242,7 @@ pub async fn announce_pre_run_failure(
         trigger_id,
         pipeline_file,
         error,
-        plan.alert,
+        &plan,
     ));
     notify::deliver_alert(&plan, &payload).await;
 }
@@ -692,6 +692,26 @@ mod tests {
 
         assert_eq!(inbox::list().unwrap().len(), 1);
         assert_eq!(notify::TEST_ALERTS.with(|count| count.get()), 0);
+    }
+
+    /// Exactly one process raises each alert, and the entry records which.
+    #[test]
+    fn test_live_app_takes_over_alerts_from_this_process() {
+        let (_data, _guard) = persistence::scoped_test_data_dir();
+        let repo = TempDir::new().unwrap();
+        let repo_str = repo.path().to_string_lossy().to_string();
+        let run = PipelineRun::new("deploy", &repo_str, None);
+        let runtime = current_thread_runtime();
+        notify::TEST_ALERTS.with(|count| count.set(0));
+
+        runtime.block_on(post_run_housekeeping(&repo_str, &run));
+        assert_eq!(notify::TEST_ALERTS.with(|count| count.get()), 1);
+        assert!(inbox::list().unwrap()[0].alert_delivered);
+
+        notify::touch_gui_heartbeat().unwrap();
+        runtime.block_on(post_run_housekeeping(&repo_str, &run));
+        assert_eq!(notify::TEST_ALERTS.with(|count| count.get()), 1);
+        assert!(!inbox::list().unwrap()[0].alert_delivered);
     }
 
     #[test]

@@ -14,6 +14,9 @@ pub struct AppSettings {
     /// Notify on failed pipeline runs by default.
     #[serde(default = "default_true")]
     pub default_notify_on_failure: bool,
+    /// Raise OS alerts even while the Chibby window is in front.
+    #[serde(default)]
+    pub alert_when_focused: bool,
     /// Default artifact retention count for new projects.
     #[serde(default = "default_artifact_retention")]
     pub default_artifact_retention: u32,
@@ -109,6 +112,7 @@ impl Default for AppSettings {
         Self {
             default_notify_on_success: true,
             default_notify_on_failure: true,
+            alert_when_focused: false,
             default_artifact_retention: 5,
             default_run_retention: 200,
             bootstrap_mode: BootstrapMode::Confirm,

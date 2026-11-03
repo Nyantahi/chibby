@@ -31,6 +31,7 @@ tauri = { version = "2.11", features = [], optional = true }
 tauri-plugin-log = { version = "2", optional = true }
 tauri-plugin-dialog = { version = "2", optional = true }
 tauri-plugin-shell = { version = "2", optional = true }
+tauri-plugin-notification = { version = "2", optional = true }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
 thiserror = "2.0"
@@ -59,5 +60,5 @@ rpassword = { version = "7", optional = true }
 
 [features]
 default = ["gui"]
-gui = ["tauri", "tauri-plugin-log", "tauri-plugin-dialog", "tauri-plugin-shell"]
+gui = ["tauri", "tauri-plugin-log", "tauri-plugin-dialog", "tauri-plugin-shell", "tauri-plugin-notification"]
 cli = ["clap", "owo-colors", "console", "indicatif", "rpassword"]

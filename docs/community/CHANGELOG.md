@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Desktop alerts only when you're away** — runs raise an OS alert when the Chibby window is unfocused, hidden or minimized; in front you get a toast instead. A new setting always sends the alert. Unattended failures always alert. Bursts collapse into one summary, and a CLI run with the app open alerts once.
 - **Notification inbox with unread count** — a bell in the sidebar shows how many notifications are unread and turns red when one is a failure. The inbox lists every finished run, including retries, rollbacks, schedules, watches and the CLI, plus runs that failed to start or were interrupted by a crash. Opening a run marks it read. Toasts now also cover retries, rollbacks and triggers.
 - **Completion toasts for pipeline and release runs** — when a run finishes, a dismissible toast slides in reporting success / failure / cancelled (failures name the stage that failed and persist longer). Reuses the existing toast system (auto-dismiss + an X to close); covers both CI pipelines and releases.
 

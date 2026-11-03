@@ -1,8 +1,10 @@
+use crate::desktop::center;
 use crate::engine::models::{
-    NotifyConfig, NotifyOn, NotifyPayload, ResolvedNotifyConfig, RunStatus,
+    AlertPolicy, NotifyConfig, NotifyOn, NotifyPayload, ResolvedNotifyConfig, RunStatus,
 };
 use crate::engine::notify;
 use std::path::Path;
+use tauri::AppHandle;
 
 /// Load the notification config a repo's runs actually use.
 #[tauri::command]
@@ -22,7 +24,7 @@ pub fn save_notify_config(repo_path: String, config: NotifyConfig) -> Result<(),
 
 /// Send a test notification using the current config.
 #[tauri::command]
-pub async fn send_test_notification(repo_path: String) -> Result<String, String> {
+pub async fn send_test_notification(app: AppHandle, repo_path: String) -> Result<String, String> {
     let mut config =
         notify::resolve_notify_config(Path::new(&repo_path)).map_err(|e| e.to_string())?;
 
@@ -47,7 +49,13 @@ pub async fn send_test_notification(repo_path: String) -> Result<String, String>
         trigger_id: None,
     };
 
-    notify::send_notifications(&config, &payload).await;
+    // Sent directly: a test is not something the inbox should remember.
+    let plan = notify::plan_delivery(&config, &payload);
+    if plan.alert != AlertPolicy::None {
+        let (title, body) = notify::desktop_text(&payload);
+        center::show_alert(&app, &title, &body);
+    }
+    notify::send_webhooks(&plan.webhooks, &payload).await;
 
     Ok("Test notification sent".to_string())
 }

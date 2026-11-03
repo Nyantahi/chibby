@@ -82,6 +82,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(state::create_pipeline_state())
         .manage(agent_commands::create_agent_state())
         .manage(agent_commands::create_approval_registry())
@@ -246,6 +247,7 @@ pub fn run() {
         ])
         .setup(|app| {
             use tauri::Manager;
+            engine::notify::set_gui_hosted();
             // Recover any runs that were in-progress when the app last crashed.
             // These are marked as Failed so they appear in history and can be
             // retried, and the inbox tells the user about them.

@@ -1,11 +1,13 @@
-use crate::engine::app_settings;
 use crate::engine::models::{
     AlertPolicy, NotifyChannel, NotifyConfig, NotifyOn, NotifyPayload, NotifyTarget,
     RollbackOutcome, RunStatus,
 };
+use crate::engine::{app_settings, persistence};
 use anyhow::{bail, Context, Result};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 // ---------------------------------------------------------------------------
 // Notification config persistence (.chibby/notify.toml)
@@ -132,6 +134,8 @@ fn unattended_label(payload: &NotifyPayload) -> Option<String> {
 pub struct DeliveryPlan {
     pub alert: AlertPolicy,
     pub webhooks: Vec<String>,
+    /// The app's inbox watcher raises the alert, so this process must not.
+    pub gui_alerts: bool,
 }
 
 /// Decide delivery for a payload. Pure, so the policy is testable without
@@ -143,6 +147,7 @@ pub fn plan_delivery(config: &NotifyConfig, payload: &NotifyPayload) -> Delivery
         return DeliveryPlan {
             alert: AlertPolicy::None,
             webhooks: Vec::new(),
+            gui_alerts: false,
         };
     }
 
@@ -182,16 +187,14 @@ pub fn plan_delivery(config: &NotifyConfig, payload: &NotifyPayload) -> Delivery
         })
         .collect();
 
-    DeliveryPlan { alert, webhooks }
+    DeliveryPlan {
+        alert,
+        webhooks,
+        gui_alerts: false,
+    }
 }
 
-/// Send notifications based on config and run status.
-/// Failures are logged but never returned as errors — notifications must not block pipelines.
-pub async fn send_notifications(config: &NotifyConfig, payload: &NotifyPayload) {
-    deliver(&plan_delivery(config, payload), payload).await;
-}
-
-/// As [`send_notifications`], webhooks only: for a payload whose desktop alert
+/// Send only a payload's webhooks: for a payload whose desktop alert
 /// is carried by another one, such as a rollback reported by its parent run.
 pub async fn send_webhook_notifications(config: &NotifyConfig, payload: &NotifyPayload) {
     send_webhooks(&plan_delivery(config, payload).webhooks, payload).await;
@@ -200,7 +203,7 @@ pub async fn send_webhook_notifications(config: &NotifyConfig, payload: &NotifyP
 /// Plan delivery using the repo's config. A config that will not parse still
 /// alerts: a typo in notify.toml must not silence a failure.
 pub fn plan_for_repo(repo_path: &Path, payload: &NotifyPayload) -> DeliveryPlan {
-    match resolve_notify_config(repo_path) {
+    let plan = match resolve_notify_config(repo_path) {
         Ok(config) => plan_delivery(&config, payload),
         Err(e) => {
             log::warn!(
@@ -210,9 +213,52 @@ pub fn plan_for_repo(repo_path: &Path, payload: &NotifyPayload) -> DeliveryPlan 
             DeliveryPlan {
                 alert: AlertPolicy::WhenAway,
                 webhooks: Vec::new(),
+                gui_alerts: false,
             }
         }
+    };
+    DeliveryPlan {
+        gui_alerts: gui_delivers_alerts(),
+        ..plan
     }
+}
+
+// ---------------------------------------------------------------------------
+// Which process raises the OS alert
+// ---------------------------------------------------------------------------
+
+/// Set once by the app at startup.
+static GUI_HOSTED: AtomicBool = AtomicBool::new(false);
+
+/// A heartbeat older than this means the app is gone.
+const HEARTBEAT_FRESH: Duration = Duration::from_secs(120);
+
+/// Declare this process the app, whose inbox watcher raises OS alerts.
+pub fn set_gui_hosted() {
+    GUI_HOSTED.store(true, Ordering::Relaxed);
+}
+
+fn heartbeat_path() -> Result<PathBuf> {
+    Ok(persistence::data_dir()?.join("gui.heartbeat"))
+}
+
+/// Tell other processes the app is alive. A file's mtime works where a pid
+/// check cannot: `locks::is_pid_alive` always answers true on Windows.
+pub fn touch_gui_heartbeat() -> Result<()> {
+    std::fs::write(heartbeat_path()?, "").context("Failed to write the app heartbeat")
+}
+
+/// A CLI run alerts for itself unless a live app will see its inbox entry.
+fn gui_delivers(hosted: bool, heartbeat_age: Option<Duration>) -> bool {
+    hosted || heartbeat_age.is_some_and(|age| age < HEARTBEAT_FRESH)
+}
+
+fn gui_delivers_alerts() -> bool {
+    let heartbeat_age = heartbeat_path()
+        .and_then(|path| Ok(std::fs::metadata(path)?.modified()?))
+        .ok()
+        .and_then(|modified| modified.elapsed().ok());
+    gui_delivers(GUI_HOSTED.load(Ordering::Relaxed), heartbeat_age)
 }
 
 /// Carry out a plan.
@@ -223,7 +269,7 @@ pub async fn deliver(plan: &DeliveryPlan, payload: &NotifyPayload) {
 
 /// Carry out only the OS alert of a plan.
 pub async fn deliver_alert(plan: &DeliveryPlan, payload: &NotifyPayload) {
-    if plan.alert == AlertPolicy::None {
+    if plan.alert == AlertPolicy::None || plan.gui_alerts {
         return;
     }
     if let Err(e) = send_desktop_notification(payload).await {
@@ -231,7 +277,7 @@ pub async fn deliver_alert(plan: &DeliveryPlan, payload: &NotifyPayload) {
     }
 }
 
-async fn send_webhooks(urls: &[String], payload: &NotifyPayload) {
+pub async fn send_webhooks(urls: &[String], payload: &NotifyPayload) {
     for url in urls {
         if let Err(e) = send_webhook(url, payload).await {
             log::warn!("Webhook notification to {url} failed: {e}");
@@ -252,7 +298,7 @@ pub(crate) fn rollback_suffix(outcome: Option<RollbackOutcome>) -> String {
 }
 
 /// Title and body of the desktop notification for a payload.
-fn desktop_text(payload: &NotifyPayload) -> (String, String) {
+pub(crate) fn desktop_text(payload: &NotifyPayload) -> (String, String) {
     let status_text = match payload.status {
         RunStatus::Success => "succeeded",
         RunStatus::Failed => "failed",
@@ -660,6 +706,36 @@ mod tests {
         let plan = plan_for_repo(repo.path(), &payload(RunStatus::Failed, None));
 
         assert_eq!(plan.alert, AlertPolicy::WhenAway);
+    }
+
+    #[test]
+    fn test_app_delivers_when_hosted_or_recently_alive() {
+        let fresh = Some(Duration::from_secs(30));
+        let stale = Some(Duration::from_secs(121));
+
+        assert!(gui_delivers(true, None));
+        assert!(gui_delivers(true, stale));
+        assert!(gui_delivers(false, fresh));
+        assert!(!gui_delivers(false, stale));
+        assert!(!gui_delivers(false, None));
+    }
+
+    #[test]
+    fn test_heartbeat_file_decides_who_delivers() {
+        let (_data, _guard) = persistence::scoped_test_data_dir();
+        assert!(!gui_delivers_alerts());
+
+        touch_gui_heartbeat().unwrap();
+        assert!(gui_delivers_alerts());
+
+        let stale = std::time::SystemTime::now() - Duration::from_secs(600);
+        std::fs::File::options()
+            .write(true)
+            .open(heartbeat_path().unwrap())
+            .unwrap()
+            .set_modified(stale)
+            .unwrap();
+        assert!(!gui_delivers_alerts());
     }
 
     #[test]

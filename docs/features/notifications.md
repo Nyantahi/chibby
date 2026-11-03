@@ -29,7 +29,15 @@ The inbox always records. `.chibby/notify.toml` and the **Default Notifications*
 | `notify.toml` does not parse                              | Desktop alert is still sent; no webhooks                   |
 | Schedule or watch fails, `always_on_failure` on (default) | Alert and all webhooks, even if notifications are disabled |
 
-Toasts appear only while the Chibby window is in front.
+## Who gets alerted, and when
+
+While the Chibby window is in front you get a toast and an inbox entry. When it is unfocused, hidden or minimized you get an OS alert instead. **Send desktop alerts even while Chibby is in front** in Settings adds the OS alert in both cases. Unattended failures always alert.
+
+More than three new notifications at once become a single summary alert. Clicking an alert does not open the specific run, because the OS notification plugin reports no clicks on desktop. Use the inbox for that.
+
+On macOS, the first alert shows a permission prompt instead of the alert itself. **Send test** on a project's Notify card is a good way to trigger it while you are at your computer. If you decline, the inbox and count keep working, but Chibby cannot tell that alerts are blocked; turn them back on in System Settings > Notifications.
+
+A CLI or git hook run leaves the alert to the app if the app is running, so you get one alert. Otherwise the CLI raises its own.
 
 ## Storage
 
