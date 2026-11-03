@@ -13,6 +13,7 @@ pub mod executor;
 pub mod gates;
 pub mod git;
 pub mod importers;
+pub mod inbox;
 pub mod insights;
 pub mod leak_scanner;
 pub mod locks;

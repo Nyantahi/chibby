@@ -1,6 +1,6 @@
 use crate::engine::executor;
 use crate::engine::models::{DeploymentRecord, PipelineRun, RunKind};
-use crate::engine::run_support::{execute_run, ExecuteRunRequest};
+use crate::engine::run_support::{build_stage_callback, execute_run, ExecuteRunRequest};
 use crate::engine::{locks, persistence, pipeline, preflight, run_support};
 use crate::state::SharedPipelineState;
 use std::path::{Path, PathBuf};
@@ -19,16 +19,6 @@ fn build_log_callback(app: AppHandle, run_id: String, repo_path: String) -> exec
                 "message": msg,
             }),
         );
-    })
-}
-
-/// Build a callback that persists the run to disk after each stage completes.
-/// This ensures partial results survive an app crash mid-pipeline.
-fn build_stage_callback() -> executor::StageCallback {
-    Box::new(move |run: &PipelineRun| {
-        if let Err(e) = persistence::save_run(run) {
-            log::warn!("Failed to persist intermediate run state: {e}");
-        }
     })
 }
 
@@ -84,7 +74,19 @@ pub async fn run_pipeline(
     skip_preflight: bool,
 ) -> Result<PipelineRun, String> {
     if !skip_preflight {
-        validate_before_run(&repo_path, environment.as_deref(), pipeline_file.as_deref()).await?;
+        if let Err(error) =
+            validate_before_run(&repo_path, environment.as_deref(), pipeline_file.as_deref()).await
+        {
+            run_support::announce_pre_run_failure(
+                Path::new(&repo_path),
+                RunKind::Normal,
+                None,
+                pipeline_file,
+                &error,
+            )
+            .await;
+            return Err(error);
+        }
     }
 
     let run_id = Uuid::new_v4().to_string();
