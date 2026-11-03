@@ -293,6 +293,9 @@ async fn execute_rollback(
 
 /// The one case a human must see: the deploy is unhealthy *and* the automatic
 /// rollback did not restore it. Never retried, never chained — escalated.
+///
+/// Webhooks only: the parent run's housekeeping raises the single desktop alert,
+/// carrying the same outcome through its `rollback` field.
 async fn notify_rollback_failure(
     failed: &PipelineRun,
     rollback: &PipelineRun,
@@ -328,7 +331,7 @@ async fn notify_rollback_failure(
         run_kind: Some(failed.run_kind),
         trigger_id: failed.trigger_id.clone(),
     };
-    notify::send_notifications(&config, &payload).await;
+    notify::send_webhook_notifications(&config, &payload).await;
 }
 
 /// The stage a rollback targets when no failed stage names it: the last stage
@@ -411,6 +414,27 @@ mod tests {
             skip_reason: None,
         }];
         run
+    }
+
+    /// The parent run raises the alert; this escalation only feeds webhooks.
+    #[test]
+    fn test_rollback_failure_leaves_the_desktop_alert_to_its_parent() {
+        let (_data, _guard) = crate::engine::persistence::scoped_test_data_dir();
+        let failed = health_failed_run("rollback-alert");
+        let rollback = PipelineRun::new("api", REPO, Some("prod".to_string()));
+        notify::TEST_ALERTS.with(|count| count.set(0));
+
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(notify_rollback_failure(
+                &failed,
+                &rollback,
+                &RollbackPolicy::default(),
+            ));
+
+        assert_eq!(notify::TEST_ALERTS.with(|count| count.get()), 0);
     }
 
     /// Guard 1 — the guard that actually matters: a rollback run that itself

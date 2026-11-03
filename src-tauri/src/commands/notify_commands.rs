@@ -1,11 +1,17 @@
-use crate::engine::models::{NotifyConfig, NotifyPayload, RunStatus};
+use crate::engine::models::{
+    NotifyConfig, NotifyOn, NotifyPayload, ResolvedNotifyConfig, RunStatus,
+};
 use crate::engine::notify;
 use std::path::Path;
 
-/// Load notification config from .chibby/notify.toml.
+/// Load the notification config a repo's runs actually use.
 #[tauri::command]
-pub fn load_notify_config(repo_path: String) -> Result<NotifyConfig, String> {
-    notify::load_notify_config(Path::new(&repo_path)).map_err(|e| e.to_string())
+pub fn resolve_notify_config(repo_path: String) -> Result<ResolvedNotifyConfig, String> {
+    let path = Path::new(&repo_path);
+    Ok(ResolvedNotifyConfig {
+        config: notify::resolve_notify_config(path).map_err(|e| e.to_string())?,
+        using_app_defaults: !notify::has_repo_notify_config(path),
+    })
 }
 
 /// Save notification config to .chibby/notify.toml.
@@ -17,10 +23,16 @@ pub fn save_notify_config(repo_path: String, config: NotifyConfig) -> Result<(),
 /// Send a test notification using the current config.
 #[tauri::command]
 pub async fn send_test_notification(repo_path: String) -> Result<String, String> {
-    let config = notify::load_notify_config(Path::new(&repo_path)).map_err(|e| e.to_string())?;
+    let mut config =
+        notify::resolve_notify_config(Path::new(&repo_path)).map_err(|e| e.to_string())?;
 
     if !config.enabled {
         return Err("Notifications are not enabled".to_string());
+    }
+
+    // A test exercises every target, including failure-only ones.
+    for target in &mut config.targets {
+        target.on = NotifyOn::Always;
     }
 
     let payload = NotifyPayload {

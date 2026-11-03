@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Desktop notifications can no longer run injected commands** — title and body now reach `osascript`, `notify-send` and PowerShell as data. Previously a pipeline name from a repo's `pipeline.toml` could break out of the script on Windows and macOS.
+- **A failed auto-rollback alerts once** — it could raise up to three desktop alerts; the failed run's alert now carries the rollback outcome. Webhook messages are unchanged.
+- **Unattended failures always reach the desktop** — an escalated failure now alerts even when a project only has webhook targets, and an unparseable `notify.toml` no longer silences alerts.
+- **Notify card shows what actually applies** — projects on app defaults no longer appear disabled, **Send test** works for them and exercises every target, and OS notification command failures are now logged.
 - **Config recommendations no longer false-positive on monorepos** — once a repo is classified by a language whose manifest is nested (e.g. a monorepo with `frontend/`, `backend/` and no root manifest), the language recommendations still checked only the repo root and reported existing config (`vitest.config.ts`, `eslint`, `package-lock.json`, `pyproject.toml`, `requirements.txt`, etc.) as "missing". All language recommendation checks (node, python, go, java, php, ruby, dotnet, rust) now shallow-walk, so config living in a component dir is recognized.
 
 ## [0.5.4] - 2026-10-03

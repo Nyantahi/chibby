@@ -89,6 +89,23 @@ impl Default for NotifyConfig {
     }
 }
 
+/// The config a repo's runs use, and where it came from.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolvedNotifyConfig {
+    pub config: NotifyConfig,
+    /// True when the repo has no notify.toml, so app settings apply.
+    pub using_app_defaults: bool,
+}
+
+/// How insistently a notification should reach the user through the OS.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum AlertPolicy {
+    None,
+    WhenAway,
+    Always,
+}
+
 /// Payload sent with a notification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotifyPayload {

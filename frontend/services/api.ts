@@ -24,6 +24,7 @@ import type {
   SigningConfig,
   SigningResult,
   NotifyConfig,
+  ResolvedNotifyConfig,
   CleanupConfig,
   CleanupResult,
   ProjectRecommendations,
@@ -581,9 +582,9 @@ export async function checkSigningTools(): Promise<string[]> {
 // Notification commands (Phase 5)
 // ---------------------------------------------------------------------------
 
-/** Load notification config from .chibby/notify.toml. */
-export async function loadNotifyConfig(repoPath: string): Promise<NotifyConfig> {
-  return invoke<NotifyConfig>('load_notify_config', { repoPath });
+/** Load the notification config a repo's runs actually use. */
+export async function resolveNotifyConfig(repoPath: string): Promise<ResolvedNotifyConfig> {
+  return invoke<ResolvedNotifyConfig>('resolve_notify_config', { repoPath });
 }
 
 /** Save notification config to .chibby/notify.toml. */

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Bell, Loader2, Plus, Trash2 } from 'lucide-react';
 import HelpTip from './HelpTip';
 import { HELP } from './project-detail/helpText';
-import { loadNotifyConfig, saveNotifyConfig, sendTestNotification } from '../services/api';
+import { resolveNotifyConfig, saveNotifyConfig, sendTestNotification } from '../services/api';
 import { notifyError, notifySuccess } from '../services/notify';
 import type { NotifyChannel, NotifyConfig, NotifyOn, NotifyTarget } from '../types';
 
@@ -15,13 +15,17 @@ const ON: NotifyOn[] = ['always', 'success', 'failure'];
 
 function NotifyCard({ repoPath }: Props) {
   const [cfg, setCfg] = useState<NotifyConfig | null>(null);
+  const [usingAppDefaults, setUsingAppDefaults] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
 
   useEffect(() => {
-    loadNotifyConfig(repoPath)
-      .then(setCfg)
+    resolveNotifyConfig(repoPath)
+      .then((resolved) => {
+        setCfg(resolved.config);
+        setUsingAppDefaults(resolved.using_app_defaults);
+      })
       .catch((err) => notifyError('Load notify config failed', err))
       .finally(() => setLoading(false));
   }, [repoPath]);
@@ -50,6 +54,7 @@ function NotifyCard({ repoPath }: Props) {
     setSaving(true);
     try {
       await saveNotifyConfig(repoPath, cfg);
+      setUsingAppDefaults(false);
       notifySuccess('Notify config saved');
     } catch (err) {
       notifyError('Save failed', err);
@@ -97,6 +102,11 @@ function NotifyCard({ repoPath }: Props) {
           </div>
         ) : cfg ? (
           <>
+            {usingAppDefaults && (
+              <p className="section-hint">
+                Using app defaults from Settings. Saving here gives this project its own config.
+              </p>
+            )}
             <label
               style={{
                 display: 'flex',

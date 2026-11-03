@@ -169,7 +169,7 @@ pub fn run() {
             artifact_commands::save_cleanup_config,
             artifact_commands::run_cleanup,
             // Notification commands
-            notify_commands::load_notify_config,
+            notify_commands::resolve_notify_config,
             notify_commands::save_notify_config,
             notify_commands::send_test_notification,
             // Updater commands (Phase 5.5)

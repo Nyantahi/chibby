@@ -351,7 +351,9 @@ function Settings() {
         <h3 className="settings-section-title">
           <Bell size={16} /> Default Notifications
         </h3>
-        <p className="settings-section-desc">Default notification preferences for new projects.</p>
+        <p className="settings-section-desc">
+          Applies to every project without its own notification config.
+        </p>
 
         <label className="settings-toggle">
           <input
