@@ -15,6 +15,7 @@ const Insights = lazy(() => import('./components/Insights'));
 const Templates = lazy(() => import('./components/Templates'));
 const Settings = lazy(() => import('./components/Settings'));
 const CrashLog = lazy(() => import('./components/CrashLog'));
+const Notifications = lazy(() => import('./components/Notifications'));
 
 function App() {
   return (
@@ -68,6 +69,14 @@ function App() {
             element={
               <Suspense fallback={<RouteFallback />}>
                 <Settings />
+              </Suspense>
+            }
+          />
+          <Route
+            path="notifications"
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <Notifications />
               </Suspense>
             }
           />

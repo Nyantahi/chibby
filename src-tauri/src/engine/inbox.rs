@@ -24,7 +24,7 @@ const READ_RETENTION_DAYS: i64 = 30;
 /// Serializes read-modify-write within this process.
 static WRITE_LOCK: Mutex<()> = Mutex::new(());
 
-fn inbox_dir() -> Result<PathBuf> {
+pub fn inbox_dir() -> Result<PathBuf> {
     let dir = persistence::data_dir()?.join("notifications");
     std::fs::create_dir_all(&dir).with_context(|| format!("Failed to create {}", dir.display()))?;
     Ok(dir)

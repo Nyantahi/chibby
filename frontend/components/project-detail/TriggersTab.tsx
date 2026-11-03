@@ -100,8 +100,7 @@ function TriggersTab({ repoPath, environments }: TriggersTabProps) {
   async function handleRunNow(triggerId: string) {
     setFiringId(triggerId);
     try {
-      const run = await fireTriggerNow(repoPath, triggerId);
-      notifySuccess(`Trigger "${triggerId}" fired`, `Run ${run.id} — ${run.status}`);
+      await fireTriggerNow(repoPath, triggerId);
       refreshState();
     } catch (err) {
       notifyError(`Trigger "${triggerId}" failed`, err);

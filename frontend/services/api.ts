@@ -23,6 +23,7 @@ import type {
   ArtifactManifest,
   SigningConfig,
   SigningResult,
+  NotificationEntry,
   NotifyConfig,
   ResolvedNotifyConfig,
   CleanupConfig,
@@ -595,6 +596,31 @@ export async function saveNotifyConfig(repoPath: string, config: NotifyConfig): 
 /** Send a test notification using the current config. */
 export async function sendTestNotification(repoPath: string): Promise<string> {
   return invoke<string>('send_test_notification', { repoPath });
+}
+
+/** List inbox entries, newest first. */
+export async function listNotifications(): Promise<NotificationEntry[]> {
+  return invoke<NotificationEntry[]>('list_notifications');
+}
+
+/** Mark one inbox entry as read. */
+export async function markNotificationRead(id: string): Promise<void> {
+  return invoke<void>('mark_notification_read', { id });
+}
+
+/** Mark every inbox entry as read. */
+export async function markAllNotificationsRead(): Promise<void> {
+  return invoke<void>('mark_all_notifications_read');
+}
+
+/** Mark the inbox entries about one run as read. */
+export async function markRunRead(runId: string): Promise<void> {
+  return invoke<void>('mark_run_read', { runId });
+}
+
+/** Remove one inbox entry. */
+export async function deleteNotification(id: string): Promise<void> {
+  return invoke<void>('delete_notification', { id });
 }
 
 // ---------------------------------------------------------------------------
