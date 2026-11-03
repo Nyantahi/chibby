@@ -3,8 +3,8 @@ use crate::engine::models::{
 };
 use crate::engine::redact::Redactor;
 use crate::engine::{
-    app_settings, artifacts, cleanup, executor, locks, notify, persistence, pipeline, rollback,
-    secrets,
+    app_settings, artifacts, cleanup, executor, inbox, locks, notify, persistence, pipeline,
+    rollback, secrets,
 };
 use crate::state::SharedPipelineState;
 use anyhow::{anyhow, Context, Result};
@@ -168,9 +168,12 @@ pub async fn post_run_housekeeping(repo_path: &str, run: &PipelineRun) {
         trigger_id: run.trigger_id.clone(),
     };
 
-    // The parent run's alert already tells an automatic rollback's outcome.
+    // The parent run's entry and alert already tell an automatic rollback's
+    // outcome, so the rollback run itself only feeds webhooks.
     if run.auto_rollback_of.is_none() {
-        notify::announce(path, &payload).await;
+        let plan = notify::plan_for_repo(path, &payload);
+        inbox::record_best_effort(&inbox::finished_run_entry(run, plan.alert));
+        notify::deliver(&plan, &payload).await;
     } else {
         match notify::resolve_notify_config(path) {
             Ok(config) => notify::send_webhook_notifications(&config, &payload).await,
@@ -197,13 +200,55 @@ pub async fn post_run_housekeeping(repo_path: &str, run: &PipelineRun) {
     }
 }
 
-/// Announce a triggered run that failed *before* it produced a run record —
-/// a lock held by another process, an unparseable pipeline, a secret that
-/// would not resolve.
+/// Build a callback that persists the run to disk after each stage completes.
+/// This ensures partial results survive an app crash mid-pipeline.
+pub fn build_stage_callback() -> executor::StageCallback {
+    Box::new(move |run: &PipelineRun| {
+        if let Err(e) = persistence::save_run(run) {
+            log::warn!("Failed to persist intermediate run state: {e}");
+        }
+    })
+}
+
+/// Tell the user about a run that failed *before* it produced a run record: a
+/// lock held by another process, an unparseable pipeline, a secret that would
+/// not resolve, failed preflight.
 ///
-/// [`post_run_housekeeping`] only runs once a run exists, so without this a
-/// nightly that never started is silent, which is precisely what the
-/// unattended notification policy exists to prevent.
+/// [`post_run_housekeeping`] only runs once a run exists, so without this such
+/// a failure is silent. Webhooks stay with [`notify_trigger_failure`], as manual
+/// runs have never sent them for this.
+pub async fn announce_pre_run_failure(
+    repo_path: &Path,
+    run_kind: RunKind,
+    trigger_id: Option<String>,
+    pipeline_file: Option<String>,
+    error: &str,
+) {
+    let payload = NotifyPayload {
+        project: repo_label(repo_path),
+        version: None,
+        environment: None,
+        status: RunStatus::Failed,
+        duration_ms: None,
+        message: format!("Run could not start: {error}"),
+        rollback: None,
+        run_kind: Some(run_kind),
+        trigger_id: trigger_id.clone(),
+    };
+    let plan = notify::plan_for_repo(repo_path, &payload);
+    inbox::record_best_effort(&inbox::pre_run_failure_entry(
+        repo_path,
+        run_kind,
+        trigger_id,
+        pipeline_file,
+        error,
+        plan.alert,
+    ));
+    notify::deliver_alert(&plan, &payload).await;
+}
+
+/// Send the webhooks for a triggered run that could not start. The inbox entry
+/// and desktop alert come from [`announce_pre_run_failure`].
 pub async fn notify_trigger_failure(
     repo_path: &str,
     trigger_id: &str,
@@ -211,13 +256,16 @@ pub async fn notify_trigger_failure(
     error: &str,
 ) {
     let path = Path::new(repo_path);
-    let project = path
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| repo_path.to_string());
+    let config = match notify::resolve_notify_config(path) {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("Failed to load notify config for {repo_path}: {e}");
+            return;
+        }
+    };
 
     let payload = NotifyPayload {
-        project,
+        project: repo_label(path),
         version: None,
         environment: None,
         status: RunStatus::Failed,
@@ -227,7 +275,15 @@ pub async fn notify_trigger_failure(
         run_kind: Some(run_kind),
         trigger_id: Some(trigger_id.to_string()),
     };
-    notify::announce(path, &payload).await;
+    notify::send_webhook_notifications(&config, &payload).await;
+}
+
+/// A repo's directory name, for messages sent before any run exists.
+fn repo_label(repo_path: &Path) -> String {
+    repo_path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| repo_path.to_string_lossy().to_string())
 }
 
 /// Track a pipeline as running for `repo_path` for the duration of `operation`.
@@ -286,7 +342,36 @@ pub struct ExecuteRunRequest {
 ///
 /// Takes the cross-process run lock first, so a headless trigger and the open
 /// desktop app can never run the same repo at the same time.
+///
+/// An error here means no run record was produced, so it is announced: every
+/// caller, GUI or CLI, gets that from this one place.
 pub async fn execute_run(
+    req: ExecuteRunRequest,
+    on_log: Option<executor::LogCallback>,
+    cancel_state: Option<SharedPipelineState>,
+    on_stage_complete: Option<executor::StageCallback>,
+) -> Result<PipelineRun> {
+    let repo_path = req.repo_path.clone();
+    let run_kind = req.run_kind;
+    let trigger_id = req.trigger_id.clone();
+    let pipeline_file = req.pipeline_file.clone();
+
+    let result = lock_and_execute_run(req, on_log, cancel_state, on_stage_complete).await;
+
+    if let Err(e) = &result {
+        announce_pre_run_failure(
+            &repo_path,
+            run_kind,
+            trigger_id,
+            pipeline_file,
+            &e.to_string(),
+        )
+        .await;
+    }
+    result
+}
+
+async fn lock_and_execute_run(
     req: ExecuteRunRequest,
     on_log: Option<executor::LogCallback>,
     cancel_state: Option<SharedPipelineState>,
@@ -456,8 +541,8 @@ async fn apply_auto_rollback(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::models::{AlertPolicy, NotificationKind, Pipeline, PipelineRun, Stage};
     use crate::engine::models::{Environment, EnvironmentsConfig, SecretRef, SecretsConfig};
-    use crate::engine::models::{Pipeline, PipelineRun, Stage};
     use crate::state::create_pipeline_state;
     use tempfile::TempDir;
 
@@ -542,6 +627,13 @@ mod tests {
         assert!(!guard.is_running(repo_path));
     }
 
+    fn current_thread_runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+    }
+
     /// One failed deploy, one alert: the rollback run stays quiet and its parent
     /// reports the outcome. Both use app defaults, which alert on everything.
     #[test]
@@ -556,14 +648,126 @@ mod tests {
         rollback.auto_rollback_of = Some(parent.id.clone());
         notify::TEST_ALERTS.with(|count| count.set(0));
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
+        let runtime = current_thread_runtime();
         runtime.block_on(post_run_housekeeping(&repo_str, &rollback));
         assert_eq!(notify::TEST_ALERTS.with(|count| count.get()), 0);
 
         runtime.block_on(post_run_housekeeping(&repo_str, &parent));
         assert_eq!(notify::TEST_ALERTS.with(|count| count.get()), 1);
+    }
+
+    #[test]
+    fn test_rollback_chain_records_one_entry_telling_the_outcome() {
+        let (_data, _guard) = persistence::scoped_test_data_dir();
+        let repo = TempDir::new().unwrap();
+        let repo_str = repo.path().to_string_lossy().to_string();
+        let mut parent = PipelineRun::new("deploy", &repo_str, None);
+        parent.status = RunStatus::Failed;
+        parent.rollback_outcome = Some(RollbackOutcome::Failed);
+        let mut rollback = PipelineRun::new("deploy", &repo_str, None);
+        rollback.status = RunStatus::Failed;
+        rollback.auto_rollback_of = Some(parent.id.clone());
+
+        let runtime = current_thread_runtime();
+        runtime.block_on(post_run_housekeeping(&repo_str, &rollback));
+        runtime.block_on(post_run_housekeeping(&repo_str, &parent));
+
+        let entries = inbox::list().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].run_id.as_deref(), Some(parent.id.as_str()));
+        assert!(entries[0].body.contains("AUTO-ROLLBACK FAILED"));
+    }
+
+    /// The inbox is history: turning alerts off must not lose the record.
+    #[test]
+    fn test_disabled_config_still_records_without_alerting() {
+        let (_data, _guard) = persistence::scoped_test_data_dir();
+        let repo = TempDir::new().unwrap();
+        notify::save_notify_config(repo.path(), &Default::default()).unwrap();
+        let repo_str = repo.path().to_string_lossy().to_string();
+        let run = PipelineRun::new("deploy", &repo_str, None);
+        notify::TEST_ALERTS.with(|count| count.set(0));
+
+        current_thread_runtime().block_on(post_run_housekeeping(&repo_str, &run));
+
+        assert_eq!(inbox::list().unwrap().len(), 1);
+        assert_eq!(notify::TEST_ALERTS.with(|count| count.get()), 0);
+    }
+
+    #[test]
+    fn test_unloadable_pipeline_is_announced_once() {
+        let (_data, _guard) = persistence::scoped_test_data_dir();
+        let repo = TempDir::new().unwrap();
+        notify::TEST_ALERTS.with(|count| count.set(0));
+
+        let result = current_thread_runtime().block_on(execute_run(
+            ExecuteRunRequest {
+                repo_path: repo.path().to_path_buf(),
+                ..Default::default()
+            },
+            None,
+            None,
+            None,
+        ));
+
+        assert!(result.is_err());
+        let entries = inbox::list().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].kind, NotificationKind::PreRunFailure);
+        assert_eq!(notify::TEST_ALERTS.with(|count| count.get()), 1);
+    }
+
+    #[test]
+    fn test_busy_repo_is_announced_once() {
+        let (_data, _guard) = persistence::scoped_test_data_dir();
+        let repo = TempDir::new().unwrap();
+        let repo_str = repo.path().to_string_lossy().to_string();
+        let _held = locks::acquire_run_lock_with_id(&repo_str, None)
+            .unwrap()
+            .unwrap();
+
+        let result = current_thread_runtime().block_on(execute_run(
+            ExecuteRunRequest {
+                repo_path: repo.path().to_path_buf(),
+                run_kind: RunKind::Scheduled,
+                trigger_id: Some("scheduled:nightly".to_string()),
+                ..Default::default()
+            },
+            None,
+            None,
+            None,
+        ));
+
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("already in progress"));
+        let entries = inbox::list().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].trigger_id.as_deref(), Some("scheduled:nightly"));
+        assert_eq!(entries[0].alert, AlertPolicy::Always);
+    }
+
+    /// Rollback re-enters below the announcing wrapper, so its failure to start
+    /// is reported by its parent instead of a second entry.
+    #[test]
+    fn test_nested_rollback_failure_to_start_is_not_announced() {
+        let (_data, _guard) = persistence::scoped_test_data_dir();
+        let repo = TempDir::new().unwrap();
+
+        let result = current_thread_runtime().block_on(execute_run_holding_lock(
+            ExecuteRunRequest {
+                repo_path: repo.path().to_path_buf(),
+                auto_rollback_of: Some("parent".to_string()),
+                ..Default::default()
+            },
+            None,
+            None,
+            None,
+        ));
+
+        assert!(result.is_err());
+        assert!(inbox::list().unwrap().is_empty());
     }
 
     #[test]

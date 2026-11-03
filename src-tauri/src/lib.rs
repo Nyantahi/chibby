@@ -16,6 +16,8 @@ use commands::gate_commands;
 #[cfg(feature = "gui")]
 use commands::insights_commands;
 #[cfg(feature = "gui")]
+use commands::notification_commands;
+#[cfg(feature = "gui")]
 use commands::notify_commands;
 #[cfg(feature = "gui")]
 use commands::pipeline_commands;
@@ -69,12 +71,6 @@ pub fn run() {
         // Also run the default hook (prints to stderr).
         default_hook(info);
     }));
-
-    // Recover any runs that were in-progress when the app last crashed.
-    // These are marked as Failed so they appear in history and can be retried.
-    if let Err(e) = engine::persistence::recover_interrupted_runs() {
-        eprintln!("Warning: failed to recover interrupted runs: {e}");
-    }
 
     tauri::Builder::default()
         .plugin(
@@ -169,6 +165,11 @@ pub fn run() {
             artifact_commands::save_cleanup_config,
             artifact_commands::run_cleanup,
             // Notification commands
+            notification_commands::list_notifications,
+            notification_commands::mark_notification_read,
+            notification_commands::mark_all_notifications_read,
+            notification_commands::mark_run_read,
+            notification_commands::delete_notification,
             notify_commands::resolve_notify_config,
             notify_commands::save_notify_config,
             notify_commands::send_test_notification,
@@ -243,6 +244,19 @@ pub fn run() {
         ])
         .setup(|app| {
             use tauri::Manager;
+            // Recover any runs that were in-progress when the app last crashed.
+            // These are marked as Failed so they appear in history and can be
+            // retried, and the inbox tells the user about them.
+            match engine::persistence::recover_interrupted_runs() {
+                Ok(runs) => runs.iter().for_each(|run| {
+                    engine::inbox::record_best_effort(&engine::inbox::interrupted_run_entry(run));
+                }),
+                Err(e) => eprintln!("Warning: failed to recover interrupted runs: {e}"),
+            }
+            if let Err(e) = engine::inbox::prune_expired(chrono::Utc::now()) {
+                log::warn!("Failed to prune notifications: {e}");
+            }
+
             // Local triggers run while the app is open. Nothing listens on a
             // socket: schedules follow this machine's clock, watches its
             // filesystem. `chibby schedule --once` covers the app being closed.

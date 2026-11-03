@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Runs that fail to start now tell you** — a busy repo, an unloadable pipeline, a secret that won't resolve or failed preflight now raises a desktop alert for manual, retry and "Run now" runs, not only schedules. Each is also recorded in the notification store, along with every finished run and any run interrupted by a crash.
+- **Opening the app no longer fails a live headless run** — crash recovery now skips a run whose repo lock is held by another process. Scheduled and watch runs also persist after each stage, so a crash during one is recoverable.
 - **Desktop notifications can no longer run injected commands** — title and body now reach `osascript`, `notify-send` and PowerShell as data. Previously a pipeline name from a repo's `pipeline.toml` could break out of the script on Windows and macOS.
 - **A failed auto-rollback alerts once** — it could raise up to three desktop alerts; the failed run's alert now carries the rollback outcome. Webhook messages are unchanged.
 - **Unattended failures always reach the desktop** — an escalated failure now alerts even when a project only has webhook targets, and an unparseable `notify.toml` no longer silences alerts.

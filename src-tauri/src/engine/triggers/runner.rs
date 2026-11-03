@@ -287,7 +287,14 @@ async fn fire(
 ) -> TriggerAction {
     let run_kind = request.run_kind;
 
-    match execute_run(request, None, pipeline_state, None).await {
+    match execute_run(
+        request,
+        None,
+        pipeline_state,
+        Some(run_support::build_stage_callback()),
+    )
+    .await
+    {
         Ok(run) => {
             let _ = trigger_state::record_run_id(repo_path, trigger_id, &run.id);
             TriggerAction::Fired {
@@ -298,8 +305,7 @@ async fn fire(
         Err(e) => {
             let error = e.to_string();
             // Failing here means no run record exists, so post-run housekeeping
-            // never ran and nothing has told the user their nightly did not
-            // happen — the exact silent failure the unattended policy covers.
+            // never ran. `execute_run` raised the alert; webhooks are still owed.
             run_support::notify_trigger_failure(repo_path, trigger_id, run_kind, &error).await;
             TriggerAction::Failed { error }
         }
@@ -343,7 +349,13 @@ pub async fn fire_trigger_now(
     };
 
     trigger_state::record_fired(&repo_path, trigger_id, Utc::now())?;
-    let run = execute_run(request, None, pipeline_state, None).await?;
+    let run = execute_run(
+        request,
+        None,
+        pipeline_state,
+        Some(run_support::build_stage_callback()),
+    )
+    .await?;
     let _ = trigger_state::record_run_id(&repo_path, trigger_id, &run.id);
     Ok(run)
 }

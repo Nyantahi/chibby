@@ -188,14 +188,7 @@ pub fn plan_delivery(config: &NotifyConfig, payload: &NotifyPayload) -> Delivery
 /// Send notifications based on config and run status.
 /// Failures are logged but never returned as errors — notifications must not block pipelines.
 pub async fn send_notifications(config: &NotifyConfig, payload: &NotifyPayload) {
-    let plan = plan_delivery(config, payload);
-
-    if plan.alert != AlertPolicy::None {
-        if let Err(e) = send_desktop_notification(payload).await {
-            log::warn!("Desktop notification failed: {e}");
-        }
-    }
-    send_webhooks(&plan.webhooks, payload).await;
+    deliver(&plan_delivery(config, payload), payload).await;
 }
 
 /// As [`send_notifications`], webhooks only: for a payload whose desktop alert
@@ -204,20 +197,37 @@ pub async fn send_webhook_notifications(config: &NotifyConfig, payload: &NotifyP
     send_webhooks(&plan_delivery(config, payload).webhooks, payload).await;
 }
 
-/// Resolve the repo's config and send. A config that will not parse still
+/// Plan delivery using the repo's config. A config that will not parse still
 /// alerts: a typo in notify.toml must not silence a failure.
-pub async fn announce(repo_path: &Path, payload: &NotifyPayload) {
+pub fn plan_for_repo(repo_path: &Path, payload: &NotifyPayload) -> DeliveryPlan {
     match resolve_notify_config(repo_path) {
-        Ok(config) => send_notifications(&config, payload).await,
+        Ok(config) => plan_delivery(&config, payload),
         Err(e) => {
             log::warn!(
                 "Failed to load notify config for {}: {e}",
                 repo_path.display()
             );
-            if let Err(e) = send_desktop_notification(payload).await {
-                log::warn!("Desktop notification failed: {e}");
+            DeliveryPlan {
+                alert: AlertPolicy::WhenAway,
+                webhooks: Vec::new(),
             }
         }
+    }
+}
+
+/// Carry out a plan.
+pub async fn deliver(plan: &DeliveryPlan, payload: &NotifyPayload) {
+    deliver_alert(plan, payload).await;
+    send_webhooks(&plan.webhooks, payload).await;
+}
+
+/// Carry out only the OS alert of a plan.
+pub async fn deliver_alert(plan: &DeliveryPlan, payload: &NotifyPayload) {
+    if plan.alert == AlertPolicy::None {
+        return;
+    }
+    if let Err(e) = send_desktop_notification(payload).await {
+        log::warn!("Desktop notification failed: {e}");
     }
 }
 
@@ -230,8 +240,8 @@ async fn send_webhooks(urls: &[String], payload: &NotifyPayload) {
 }
 
 /// Human-readable suffix describing an automatic rollback, if one ran.
-fn rollback_suffix(payload: &NotifyPayload) -> String {
-    match payload.rollback {
+pub(crate) fn rollback_suffix(outcome: Option<RollbackOutcome>) -> String {
+    match outcome {
         Some(RollbackOutcome::Succeeded) => " — auto-rolled back, healthy again".to_string(),
         Some(RollbackOutcome::Failed) => {
             " — AUTO-ROLLBACK FAILED, manual intervention required".to_string()
@@ -255,7 +265,7 @@ fn desktop_text(payload: &NotifyPayload) -> (String, String) {
         None => format!("Chibby: {} {}", payload.project, status_text),
     };
 
-    let mut body = format!("{}{}", payload.message, rollback_suffix(payload));
+    let mut body = format!("{}{}", payload.message, rollback_suffix(payload.rollback));
     if let Some(ref version) = payload.version {
         body = format!("v{version} — {body}");
     }
@@ -362,7 +372,7 @@ async fn send_webhook(url: &str, payload: &NotifyPayload) -> Result<()> {
     if let Some(ref env) = payload.environment {
         text.push_str(&format!(" (env: {env})"));
     }
-    text.push_str(&rollback_suffix(payload));
+    text.push_str(&rollback_suffix(payload.rollback));
     if let Some(ms) = payload.duration_ms {
         let secs = ms / 1000;
         text.push_str(&format!(" [{secs}s]"));
@@ -646,14 +656,10 @@ mod tests {
         let repo = tempfile::TempDir::new().unwrap();
         std::fs::create_dir(repo.path().join(".chibby")).unwrap();
         std::fs::write(repo.path().join(".chibby/notify.toml"), "not [valid").unwrap();
-        TEST_ALERTS.with(|count| count.set(0));
 
-        tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap()
-            .block_on(announce(repo.path(), &payload(RunStatus::Failed, None)));
+        let plan = plan_for_repo(repo.path(), &payload(RunStatus::Failed, None));
 
-        assert_eq!(TEST_ALERTS.with(|count| count.get()), 1);
+        assert_eq!(plan.alert, AlertPolicy::WhenAway);
     }
 
     #[test]

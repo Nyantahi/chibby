@@ -1,5 +1,5 @@
 use crate::engine::models::{DeploymentRecord, PipelineRun, Project, RunStatus, StageStatus};
-use crate::engine::run_index;
+use crate::engine::{locks, run_index};
 use anyhow::{Context, Result};
 
 // The cross-process run lock and per-trigger state live in the data directory
@@ -353,14 +353,17 @@ pub fn deployment_history(repo_path: &str, environment: &str) -> Result<Vec<Depl
 ///
 /// Any run still marked as `Running` on startup was interrupted by a crash.
 /// This marks them as `Failed` so they appear correctly in history and can
-/// be retried.
-pub fn recover_interrupted_runs() -> Result<u32> {
+/// be retried. A run whose repo lock has a live holder is genuinely still going
+/// in another process, such as `chibby schedule --once`, and is left alone.
+///
+/// Returns the runs it recovered.
+pub fn recover_interrupted_runs() -> Result<Vec<PipelineRun>> {
     let dir = runs_dir()?;
     if !dir.exists() {
-        return Ok(0);
+        return Ok(Vec::new());
     }
 
-    let mut count = 0u32;
+    let mut recovered = Vec::new();
     for entry in std::fs::read_dir(&dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -369,7 +372,8 @@ pub fn recover_interrupted_runs() -> Result<u32> {
         }
         let content = std::fs::read_to_string(&path)?;
         if let Ok(mut run) = serde_json::from_str::<PipelineRun>(&content) {
-            if run.status == RunStatus::Running {
+            let held_elsewhere = matches!(locks::current_holder(&run.repo_path), Ok(Some(_)));
+            if run.status == RunStatus::Running && !held_elsewhere {
                 run.status = RunStatus::Failed;
                 if run.finished_at.is_none() {
                     run.finished_at = Some(chrono::Utc::now());
@@ -396,12 +400,12 @@ pub fn recover_interrupted_runs() -> Result<u32> {
                 let updated = serde_json::to_string_pretty(&run)?;
                 std::fs::write(&path, updated)?;
                 index_best_effort("upsert", &run.id, run_index::upsert(&run));
-                count += 1;
                 log::info!("Recovered interrupted run: {}", run.id);
+                recovered.push(run);
             }
         }
     }
-    Ok(count)
+    Ok(recovered)
 }
 
 /// Count how many retries exist for a given parent run.
@@ -418,6 +422,41 @@ pub fn retry_count_for_run(parent_run_id: &str) -> Result<u32> {
 mod tests {
     use super::*;
     use crate::engine::models::{Pipeline, Stage, StageResult};
+
+    fn running_run(repo: &str) -> PipelineRun {
+        let mut run = PipelineRun::new("deploy", repo, None);
+        run.status = RunStatus::Running;
+        save_run(&run).unwrap();
+        run
+    }
+
+    #[test]
+    fn test_recovery_returns_interrupted_runs_marked_failed() {
+        let (_data, _guard) = scoped_test_data_dir();
+        let run = running_run("/repos/crashed");
+
+        let recovered = recover_interrupted_runs().unwrap();
+
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(recovered[0].id, run.id);
+        assert_eq!(recovered[0].status, RunStatus::Failed);
+        assert!(recover_interrupted_runs().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_recovery_leaves_runs_with_a_live_lock_holder() {
+        let (_data, _guard) = scoped_test_data_dir();
+        let run = running_run("/repos/live");
+        let _held = locks::acquire_run_lock_with_id("/repos/live", None)
+            .unwrap()
+            .unwrap();
+
+        assert!(recover_interrupted_runs().unwrap().is_empty());
+        assert_eq!(
+            load_run(&run.id).unwrap().unwrap().status,
+            RunStatus::Running
+        );
+    }
     use chrono::{Duration, Utc};
 
     const REPO: &str = "/tmp/chibby-last-good";
