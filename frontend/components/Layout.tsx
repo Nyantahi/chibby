@@ -5,9 +5,11 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { getAppVersion } from '../services/api';
 import { initRunStore } from '../services/runStore';
 import { initAgentStore } from '../services/agentStore';
+import { initNotificationStore } from '../services/notificationStore';
 import { getPref, setPref, PREF_THEME, type Theme } from '../services/prefs';
 import Toaster from './Toaster';
 import RunningRunsBadge from './RunningRunsBadge';
+import NotificationBell from './NotificationBell';
 
 function ChibbyLogo({ size = 22 }: { size?: number }) {
   return (
@@ -45,6 +47,8 @@ function Layout() {
     initRunStore();
     // Register the single global agent:session listener for tool sessions.
     initAgentStore();
+    // Load the inbox and register its listeners.
+    initNotificationStore();
     getAppVersion()
       .then(setVersion)
       .catch(() => setVersion('unknown'));
@@ -80,6 +84,7 @@ function Layout() {
         <RunningRunsBadge />
 
         <div className="sidebar-footer">
+          <NotificationBell />
           <NavLink to="/settings" className="nav-link">
             <Settings size={16} />
             <span>Settings</span>

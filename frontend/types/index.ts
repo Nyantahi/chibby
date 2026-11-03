@@ -519,6 +519,42 @@ export interface ResolvedNotifyConfig {
   using_app_defaults: boolean;
 }
 
+/** What an inbox entry is about. */
+export type NotificationKind =
+  | 'run_finished'
+  | 'pre_run_failure'
+  | 'run_interrupted'
+  | 'agent_approval'
+  | 'agent_finished'
+  | 'release_action';
+
+/** How an inbox entry should be presented. */
+export type NotificationSeverity = 'success' | 'failure' | 'info' | 'attention';
+
+/** How insistently a notification should reach the user through the OS. */
+export type AlertPolicy = 'none' | 'when_away' | 'always';
+
+/** One inbox entry. */
+export interface NotificationEntry {
+  id: string;
+  created_at: string;
+  read_at?: string | null;
+  kind: NotificationKind;
+  severity: NotificationSeverity;
+  title: string;
+  body: string;
+  repo_path?: string | null;
+  project_name?: string | null;
+  run_id?: string | null;
+  run_kind?: RunKind | null;
+  trigger_id?: string | null;
+  pipeline_file?: string | null;
+  agent_session_id?: string | null;
+  agent_action_id?: string | null;
+  alert: AlertPolicy;
+  alert_delivered: boolean;
+}
+
 /** Cleanup configuration. */
 export interface CleanupConfig {
   artifact_retention: number;

@@ -22,6 +22,7 @@ import {
   Archive,
 } from 'lucide-react';
 import { getAppDataDir, getRun, retryRun, rollbackToRun, cancelPipeline } from '../services/api';
+import { setViewedRun } from '../services/notificationStore';
 import { openPath } from '../services/openExternal';
 import {
   formatDate,
@@ -85,6 +86,13 @@ function RunDetail() {
     return () => {
       ignore = true;
     };
+  }, [runId]);
+
+  // Viewing a run answers its notification.
+  useEffect(() => {
+    if (!runId) return;
+    setViewedRun(runId);
+    return () => setViewedRun(null);
   }, [runId]);
 
   // Auto-scroll live log to bottom

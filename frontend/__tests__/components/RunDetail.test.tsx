@@ -46,6 +46,13 @@ describe('RunDetail stage metadata', () => {
     vi.clearAllMocks();
   });
 
+  it('marks the run read when viewed', async () => {
+    renderRun(createRun([stage({ attempts: 3 })]));
+
+    await screen.findByText('3 attempts');
+    expect(api.markRunRead).toHaveBeenCalledWith('run-1');
+  });
+
   it('shows the attempt count when a stage was retried', async () => {
     renderRun(createRun([stage({ attempts: 3 })]));
 

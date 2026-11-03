@@ -25,6 +25,7 @@ Reference docs for individual subsystems.
 | [features/agent.md](features/agent.md)                   | The in-app CI/CD agent — the Advise/Act toggle, the tool-use loop, approval and diff preview, git-branch isolation, and provider selection  |
 | [features/cli-commands.md](features/cli-commands.md)     | The standalone `chibby` CLI: building it, and the full command reference. Shares the engine with the desktop app                            |
 | [features/env-secrets.md](features/env-secrets.md)       | `environments.toml`, `secrets.toml`, per-developer `.local` overrides, OS keychain storage, bootstrap, importers, and the leak scanner      |
+| [features/notifications.md](features/notifications.md)   | The notification inbox and unread count, what records an entry, and how `notify.toml` and app settings govern alerts and webhooks           |
 | [features/security-gates.md](features/security-gates.md) | The seven project-scoped gates, `gates.toml`, warn-vs-block modes, and the three surfaces they run from (CLI, Quality tab, pipeline stages) |
 | [features/templates.md](features/templates.md)           | Full-pipeline and stage-snippet templates, 3-layer resolution (project / user / built-in), variable substitution, and import/export         |
 

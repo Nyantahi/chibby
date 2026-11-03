@@ -533,6 +533,8 @@ Navigate to the **Settings** page from the sidebar to configure app-wide default
 
 These defaults apply to all projects unless a project has its own `.chibby/notify.toml` configuration.
 
+These settings control desktop alerts only. The sidebar bell's inbox always records every run. See [Notifications](../features/notifications.md).
+
 ### Retention
 
 - **Artifact retention** — Number of artifact versions to keep per project (default: 5)

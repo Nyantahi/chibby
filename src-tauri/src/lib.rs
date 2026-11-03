@@ -2,6 +2,8 @@ pub mod agent;
 pub mod ai;
 #[cfg(feature = "gui")]
 pub mod commands;
+#[cfg(feature = "gui")]
+pub mod desktop;
 pub mod engine;
 pub mod state;
 
@@ -256,6 +258,7 @@ pub fn run() {
             if let Err(e) = engine::inbox::prune_expired(chrono::Utc::now()) {
                 log::warn!("Failed to prune notifications: {e}");
             }
+            desktop::center::start(app.handle().clone());
 
             // Local triggers run while the app is open. Nothing listens on a
             // socket: schedules follow this machine's clock, watches its
