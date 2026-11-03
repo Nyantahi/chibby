@@ -5,10 +5,11 @@
 //! writers never touch the same data.
 
 use crate::engine::models::{
-    AlertPolicy, NotificationEntry, NotificationKind, NotificationSeverity, NotificationSummary,
-    PipelineRun, RunStatus, StageStatus,
+    NotificationEntry, NotificationKind, NotificationSeverity, NotificationSummary, PipelineRun,
+    RunStatus, StageStatus,
 };
-use crate::engine::{notify, persistence};
+use crate::engine::notify::{self, DeliveryPlan};
+use crate::engine::persistence;
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use std::path::{Path, PathBuf};
@@ -195,7 +196,7 @@ fn project_name(repo_path: &str) -> String {
 }
 
 /// The entry for a run that reached a terminal state.
-pub fn finished_run_entry(run: &PipelineRun, alert: AlertPolicy) -> NotificationEntry {
+pub fn finished_run_entry(run: &PipelineRun, plan: &DeliveryPlan) -> NotificationEntry {
     let (severity, outcome) = match run.status {
         RunStatus::Success => (NotificationSeverity::Success, "succeeded"),
         RunStatus::Failed => (NotificationSeverity::Failure, "failed"),
@@ -223,9 +224,8 @@ pub fn finished_run_entry(run: &PipelineRun, alert: AlertPolicy) -> Notification
         run_kind: Some(run.run_kind),
         trigger_id: run.trigger_id.clone(),
         pipeline_file: run.pipeline_file.clone(),
-        alert,
-        // This process raises the alert itself, right after recording.
-        alert_delivered: true,
+        alert: plan.alert,
+        alert_delivered: !plan.gui_alerts,
         ..NotificationEntry::new(
             NotificationKind::RunFinished,
             severity,
@@ -243,7 +243,7 @@ pub fn pre_run_failure_entry(
     trigger_id: Option<String>,
     pipeline_file: Option<String>,
     error: &str,
-    alert: AlertPolicy,
+    plan: &DeliveryPlan,
 ) -> NotificationEntry {
     let repo_path = repo_path.to_string_lossy().to_string();
     let project = project_name(&repo_path);
@@ -253,8 +253,8 @@ pub fn pre_run_failure_entry(
         run_kind: Some(run_kind),
         trigger_id,
         pipeline_file,
-        alert,
-        alert_delivered: true,
+        alert: plan.alert,
+        alert_delivered: !plan.gui_alerts,
         ..NotificationEntry::new(
             NotificationKind::PreRunFailure,
             NotificationSeverity::Failure,
@@ -296,7 +296,7 @@ impl NotificationEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::models::{RollbackOutcome, RunKind};
+    use crate::engine::models::{AlertPolicy, RollbackOutcome, RunKind};
     use crate::engine::persistence::scoped_test_data_dir;
 
     fn entry(severity: NotificationSeverity) -> NotificationEntry {
@@ -499,7 +499,14 @@ mod tests {
         run.rollback_outcome = Some(RollbackOutcome::Succeeded);
         run.duration_ms = Some(2500);
 
-        let built = finished_run_entry(&run, AlertPolicy::WhenAway);
+        let built = finished_run_entry(
+            &run,
+            &DeliveryPlan {
+                alert: AlertPolicy::WhenAway,
+                webhooks: Vec::new(),
+                gui_alerts: true,
+            },
+        );
 
         assert_eq!(built.title, "shop: deploy failed");
         assert_eq!(
@@ -509,6 +516,7 @@ mod tests {
         assert_eq!(built.severity, NotificationSeverity::Failure);
         assert_eq!(built.run_id.as_deref(), Some(run.id.as_str()));
         assert_eq!(built.project_name.as_deref(), Some("shop"));
+        assert!(!built.alert_delivered);
     }
 
     #[test]

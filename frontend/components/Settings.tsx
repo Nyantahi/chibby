@@ -372,6 +372,15 @@ function Settings() {
           />
           <span>Notify on failed runs</span>
         </label>
+
+        <label className="settings-toggle">
+          <input
+            type="checkbox"
+            checked={settings.alert_when_focused}
+            onChange={(e) => updateSetting('alert_when_focused', e.target.checked)}
+          />
+          <span>Send desktop alerts even while Chibby is in front</span>
+        </label>
       </section>
 
       {/* Logs & Secrets */}

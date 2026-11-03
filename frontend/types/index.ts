@@ -6,6 +6,7 @@
 export interface AppSettings {
   default_notify_on_success: boolean;
   default_notify_on_failure: boolean;
+  alert_when_focused: boolean;
   default_artifact_retention: number;
   default_run_retention: number;
   bootstrap_mode: BootstrapMode;
