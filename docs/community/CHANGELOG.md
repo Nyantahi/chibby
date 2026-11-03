@@ -32,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Monorepo detection under a wrapper directory** — a project that nests its apps under a container dir (e.g. `main/frontend`, `main/backend`, `main/admin`) is now detected. Component scanning looks at the repo root *and* one wrapper level, generating per-app stages with the correct relative `cd` paths (and slash-free stage names like `main-backend-install`). Applies to the pipeline generator, the fullstack/“Detected Files” detection, and the project-type label.
+- **Monorepo detection under a wrapper directory** — a project that nests its apps under a container dir (e.g. `main/frontend`, `main/backend`, `main/admin`) is now detected. Component scanning looks at the repo root _and_ one wrapper level, generating per-app stages with the correct relative `cd` paths (and slash-free stage names like `main-backend-install`). Applies to the pipeline generator, the fullstack/“Detected Files” detection, and the project-type label.
 
 ### Fixed
 
@@ -147,7 +147,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Triggered runs are visible and stoppable, and never fail silently** — scheduled / watch / "run now" runs are tracked in the GUI's run state (so `cancel` reaches them, cross-process), and a trigger that dies before producing a run record (locked repo, unparseable pipeline, unresolved secret) now sends the unattended-failure notification instead of vanishing.
 - **A timed-out or cancelled stage keeps its partial output** instead of persisting only the timeout marker.
 - **A pipeline-wide rollback policy no longer marks working pipelines invalid** — it resolved onto every stage, so stages with no health check were flagged as errors; the rule now only applies to stages that can actually trigger a rollback.
-- **Triggers tab edits one file at a time** — it loaded and saved the *merged* view, so "Save" published a developer's machine-local triggers into the committed file and "Save for this machine" copied the whole committed config into the local file (shadowing future team edits). A Shared / This machine switch now edits the base or local file directly.
+- **Triggers tab edits one file at a time** — it loaded and saved the _merged_ view, so "Save" published a developer's machine-local triggers into the committed file and "Save for this machine" copied the whole committed config into the local file (shadowing future team edits). A Shared / This machine switch now edits the base or local file directly.
 - **Stage environment variable names keep focus while typing** — rows were keyed by the name being edited, so each keystroke remounted the input and dropped focus.
 - **Second-level cron schedules can fire** — a tick observing more than one occurrence was treated as a missed backlog and skipped; "on time" is now decided by the most recent occurrence.
 
@@ -209,7 +209,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Project Detail header & tabs overlapped the sidebar on narrow windows** — neither the header action row (pipeline/target selectors + Run/Delete buttons) nor the tab strip (Pipeline / History / Environments / Release / Quality) could shrink, so once the window narrowed they overflowed `.page-main` and the right-hand sidebar painted over the "CI" selector and the Release/Quality tabs. The header actions now wrap, and the tab strip scrolls horizontally instead of overflowing.
-- **CI workflow never triggered** — `.github/workflows/ci.yml` assumed a nested `chibby/` subdirectory (`paths: 'chibby/**'`, `working-directory: chibby`, `chibby/`-prefixed action inputs) that no longer matches the repo layout — the repo root *is* `chibby/`. The path filter never matched, so the lint / test / build jobs were silently skipped. Stripped the `chibby/` prefix throughout to match the root-path convention already used by `security.yml`.
+- **CI workflow never triggered** — `.github/workflows/ci.yml` assumed a nested `chibby/` subdirectory (`paths: 'chibby/**'`, `working-directory: chibby`, `chibby/`-prefixed action inputs) that no longer matches the repo layout — the repo root _is_ `chibby/`. The path filter never matched, so the lint / test / build jobs were silently skipped. Stripped the `chibby/` prefix throughout to match the root-path convention already used by `security.yml`.
 - **Broken documentation links** — fixed five dangling relative links surfaced by the new link check: `README.md`'s examples link (`examples/` → `docs/examples/`), and four in `docs/guides/user-guide.md` (`../README.md` → `../../README.md`, a stale link into the gitignored `private/audits/` redirected to `../examples/`, and two changelog links → `../community/CHANGELOG.md`).
 
 ## [0.1.36] - 2026-05-21
