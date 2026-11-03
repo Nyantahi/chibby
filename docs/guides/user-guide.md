@@ -101,12 +101,12 @@ Each card shows:
 
 ### Status Icons
 
-| Icon            | Meaning               |
-| --------------- | --------------------- |
-| Green checkmark | Last run succeeded    |
-| Red X           | Last run failed       |
-| Blue circle     | Run in progress       |
-| Gray circle     | No runs yet / pending |
+| Icon | Meaning |
+|------|---------|
+| Green checkmark | Last run succeeded |
+| Red X | Last run failed |
+| Blue circle | Run in progress |
+| Gray circle | No runs yet / pending |
 
 ### Navigation
 
@@ -118,13 +118,13 @@ Click any project card to open the Project Detail view.
 
 The Project Detail view is organised into five tabs:
 
-| Tab              | What it covers                                                                                         |
-| ---------------- | ------------------------------------------------------------------------------------------------------ |
-| **Pipeline**     | The current pipeline's stages, the editor, live run output                                             |
-| **History**      | Past runs with status, branch, commit, retry, and rollback                                             |
+| Tab | What it covers |
+|-----|----------------|
+| **Pipeline** | The current pipeline's stages, the editor, live run output |
+| **History** | Past runs with status, branch, commit, retry, and rollback |
 | **Environments** | `environments.toml`, `secrets.toml`, the Bootstrap wizard, importers, leak warnings, and `.env` export |
-| **Release**      | Version bumping, artifacts, code signing, the Tauri updater, and notifications                         |
-| **Quality**      | Security/quality gates, retention cleanup, and deployment history                                      |
+| **Release** | Version bumping, artifacts, code signing, the Tauri updater, and notifications |
+| **Quality** | Security/quality gates, retention cleanup, and deployment history |
 
 The right-hand sidebar is shared across tabs. It always shows project stats, recommendations, the file detector, and a **Quick Links** card with reveal-in-Finder buttons for `.chibby/`, the data directory, and the repo folder.
 
@@ -273,17 +273,17 @@ This is the key difference from cloud CI (GitHub Actions, GitLab CI, CircleCI), 
 
 What carries over automatically, unchanged, from one run to the next:
 
-| Ecosystem | Persisted between runs                         |
-| --------- | ---------------------------------------------- |
-| Rust      | `target/`, `~/.cargo/registry`, `~/.cargo/git` |
-| Node      | `node_modules/`, `~/.npm`                      |
-| Go        | build cache, `~/go/pkg/mod`                    |
-| JVM       | `~/.gradle`, `~/.m2`                           |
-| Python    | virtualenv, `~/.cache/pip`                     |
+| Ecosystem | Persisted between runs |
+| --- | --- |
+| Rust | `target/`, `~/.cargo/registry`, `~/.cargo/git` |
+| Node | `node_modules/`, `~/.npm` |
+| Go | build cache, `~/go/pkg/mod` |
+| JVM | `~/.gradle`, `~/.m2` |
+| Python | virtualenv, `~/.cache/pip` |
 
 The result: after the first run, incremental builds are as fast as running the commands yourself in a terminal — no cold rebuilds.
 
-**Multi-crate / multi-working-dir Rust projects.** Cargo's `target/` lives relative to each stage's working directory, so stages that run from _different_ working directories get _separate_ `target/` dirs and don't share incremental artifacts. Home-based caches (`~/.cargo`) are always shared regardless. If you want one shared build cache across all Rust stages, set `CARGO_TARGET_DIR` to an absolute path in the project's environment config (Chibby injects environment variables into every stage). This is optional and off by default — single-working-dir pipelines already share `target/`.
+**Multi-crate / multi-working-dir Rust projects.** Cargo's `target/` lives relative to each stage's working directory, so stages that run from *different* working directories get *separate* `target/` dirs and don't share incremental artifacts. Home-based caches (`~/.cargo`) are always shared regardless. If you want one shared build cache across all Rust stages, set `CARGO_TARGET_DIR` to an absolute path in the project's environment config (Chibby injects environment variables into every stage). This is optional and off by default — single-working-dir pipelines already share `target/`.
 
 ---
 
@@ -293,13 +293,13 @@ The result: after the first run, incremental builds are as fast as running the c
 
 Below the Pipeline section, the Run History shows past executions:
 
-| Column   | Description                   |
-| -------- | ----------------------------- |
-| Status   | Success, failed, or cancelled |
-| Started  | Timestamp when run began      |
-| Duration | Total execution time          |
-| Branch   | Git branch if detected        |
-| Commit   | Short commit hash if detected |
+| Column | Description |
+|--------|-------------|
+| Status | Success, failed, or cancelled |
+| Started | Timestamp when run began |
+| Duration | Total execution time |
+| Branch | Git branch if detected |
+| Commit | Short commit hash if detected |
 
 ### Run Detail View
 
@@ -347,10 +347,10 @@ The wizard runs `scan_bootstrap` on your repo and lists every detected name with
 
 Two apply modes:
 
-| Mode                          | Behaviour                                                                |
-| ----------------------------- | ------------------------------------------------------------------------ |
+| Mode | Behaviour |
+|------|-----------|
 | **Safe** (Merge checkbox off) | Refuses to write if `environments.toml` or `secrets.toml` already exists |
-| **Merge** (default)           | Appends only newly-detected names; never modifies existing entries       |
+| **Merge** (default) | Appends only newly-detected names; never modifies existing entries |
 
 The same wizard runs automatically after Add Project unless you set bootstrap mode to `silent` or `off` in App Settings.
 
@@ -358,9 +358,9 @@ The same wizard runs automatically after Add Project unless you set bootstrap mo
 
 Pick a source, target environment, and (for `dotenv`) the `.env` file to read. The modal probes the vendor CLI first — Vercel/Railway/Fly importers report whether `vercel`, `railway`, or `flyctl` is on PATH before you click Run.
 
-| Checkbox                           | What it does                                                                                                                                   |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Pull values**                    | Asks the source for plaintext values, not just names. Off = names-only.                                                                        |
+| Checkbox | What it does |
+|----------|--------------|
+| **Pull values** | Asks the source for plaintext values, not just names. Off = names-only. |
 | **Save secret values to keychain** | Persists detected secret values into the OS keychain. Off = secret names land in `secrets.toml` but you set values later via the Secrets card. |
 
 After running, the modal shows variables added, variables valued, secret refs added, and secret values saved.
@@ -497,10 +497,10 @@ fail_fast = true
 
 ### Backend Types
 
-| Backend | Behavior                                            |
-| ------- | --------------------------------------------------- |
-| `local` | Runs commands as child processes on your machine    |
-| `ssh`   | Runs commands on a remote server over SSH (Phase 4) |
+| Backend | Behavior |
+|---------|----------|
+| `local` | Runs commands as child processes on your machine |
+| `ssh` | Runs commands on a remote server over SSH (Phase 4) |
 
 ### Multiple Commands
 
@@ -546,11 +546,11 @@ After each pipeline run, Chibby automatically prunes old artifacts and run histo
 
 Controls what happens when you add a new project — Chibby can scan the repo for env/secret references and either prompt you, do it silently, or skip:
 
-| Mode                | Behaviour                                                                                  |
-| ------------------- | ------------------------------------------------------------------------------------------ |
-| `confirm` (default) | Open the Bootstrap wizard for review before writing anything                               |
-| `silent`            | Scan and write `environments.toml` + `secrets.toml` immediately, with a confirmation toast |
-| `off`               | Skip the scan entirely                                                                     |
+| Mode | Behaviour |
+|------|-----------|
+| `confirm` (default) | Open the Bootstrap wizard for review before writing anything |
+| `silent` | Scan and write `environments.toml` + `secrets.toml` immediately, with a confirmation toast |
+| `off` | Skip the scan entirely |
 
 You can always run the wizard manually later from the Environments tab's **Bootstrap** button.
 
@@ -594,25 +594,25 @@ cp target/release/chibby-cli /usr/local/bin/chibby
 Run `chibby` without arguments to see the ASCII banner:
 
 ```
-     _____ _     _ _     _
-    / ____| |   (_) |   | |
-   | |    | |__  _| |__ | |__  _   _
+     _____ _     _ _     _           
+    / ____| |   (_) |   | |          
+   | |    | |__  _| |__ | |__  _   _ 
    | |    | '_ \| | '_ \| '_ \| | | |
    | |____| | | | | |_) | |_) | |_| |
     \_____|_| |_|_|_.__/|_.__/ \__, |
                                 __/ |
-    local-first CI/CD          |___/
+    local-first CI/CD          |___/ 
 ```
 
 ### Global Options
 
-| Flag            | Description                    |
-| --------------- | ------------------------------ |
-| `-v, --verbose` | Enable verbose output          |
-| `--no-color`    | Disable colors and emoji       |
-| `--json`        | Output as JSON (for scripting) |
-| `-h, --help`    | Print help                     |
-| `-V, --version` | Print version                  |
+| Flag | Description |
+|------|-------------|
+| `-v, --verbose` | Enable verbose output |
+| `--no-color` | Disable colors and emoji |
+| `--json` | Output as JSON (for scripting) |
+| `-h, --help` | Print help |
+| `-V, --version` | Print version |
 
 ### Pipeline Commands
 
@@ -716,7 +716,6 @@ chibby projects list
 ```
 
 Output shows status icons:
-
 - Green checkmark: Last run succeeded
 - Red X: Last run failed
 - Gray circle: No pipeline configured
@@ -1167,13 +1166,13 @@ chibby app
 
 The CLI uses consistent colors for readability:
 
-| Color     | Meaning                      |
-| --------- | ---------------------------- |
-| Green     | Success, passed, configured  |
-| Red       | Failed, errors               |
-| Blue/Cyan | Running, in progress         |
-| Yellow    | Warnings, skipped, cancelled |
-| Magenta   | Secrets, sensitive data      |
+| Color | Meaning |
+|-------|--------|
+| Green | Success, passed, configured |
+| Red | Failed, errors |
+| Blue/Cyan | Running, in progress |
+| Yellow | Warnings, skipped, cancelled |
+| Magenta | Secrets, sensitive data |
 
 ### Scripting
 
@@ -1275,10 +1274,10 @@ Pipeline configurations remain in each project's `.chibby/` folder.
 
 ## Keyboard Shortcuts
 
-| Shortcut       | Action               |
-| -------------- | -------------------- |
+| Shortcut | Action |
+|----------|--------|
 | `Cmd/Ctrl + R` | Refresh current view |
-| `Esc`          | Close dialogs        |
+| `Esc` | Close dialogs |
 
 ---
 

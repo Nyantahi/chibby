@@ -8,8 +8,8 @@ Chibby helps developers turn existing scripts into visual, repeatable pipelines 
 
 ## Screenshots
 
-| Add Project                                                  | Pipeline Templates                                                    | Pipeline Run                                                    |
-| ------------------------------------------------------------ | --------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Add Project | Pipeline Templates | Pipeline Run |
+| --- | --- | --- |
 | ![Add Project](docs/screenshots/chibby-add-project-view.jpg) | ![Pipeline Templates](docs/screenshots/chibby-pipeline-templates.jpg) | ![Pipeline Failed](docs/screenshots/chibby-pipeline-failed.jpg) |
 
 ## Features
@@ -45,18 +45,18 @@ Chibby helps developers turn existing scripts into visual, repeatable pipelines 
 
 ## Why Chibby?
 
-|                            | Chibby                                     | GitHub Actions             | GitLab CI                        | Jenkins                   | CircleCI                 |
-| -------------------------- | ------------------------------------------ | -------------------------- | -------------------------------- | ------------------------- | ------------------------ |
-| **Runs locally**           | Yes — native, no containers needed         | No (cloud)                 | No (cloud or self-hosted runner) | Self-hosted only          | No (cloud)               |
-| **Zero config start**      | Auto-detects scripts & generates pipelines | Manual YAML                | Manual YAML                      | Manual Jenkinsfile        | Manual YAML              |
-| **Internet required**      | No — fully offline                         | Yes                        | Yes (or self-hosted)             | No (self-hosted)          | Yes                      |
-| **Pricing**                | Free & open-source                         | Free tier, paid minutes    | Free tier, paid minutes          | Free (self-hosted)        | Free tier, paid credits  |
-| **Setup complexity**       | Download and run                           | Repo + config + cloud      | Repo + config + runners          | Server + plugins + agents | Repo + config + cloud    |
-| **Secret management**      | OS keychain (native)                       | Cloud secrets              | Cloud variables                  | Credentials plugin        | Cloud contexts           |
-| **Live logs**              | Real-time in GUI & CLI                     | Delayed (cloud round-trip) | Delayed                          | Plugin-dependent          | Delayed                  |
-| **Run history & rollback** | Built-in with retry from failure           | Re-run workflows           | Retry jobs                       | Rebuild                   | Re-run                   |
-| **SSH deploy**             | First-class (direct + Docker Compose)      | Via custom actions         | Via scripts                      | Via plugins               | Via orbs                 |
-| **Best for**               | Solo devs & tiny teams                     | Teams on GitHub            | Teams on GitLab                  | Enterprise self-hosted    | Teams wanting managed CI |
+| | Chibby | GitHub Actions | GitLab CI | Jenkins | CircleCI |
+| --- | --- | --- | --- | --- | --- |
+| **Runs locally** | Yes — native, no containers needed | No (cloud) | No (cloud or self-hosted runner) | Self-hosted only | No (cloud) |
+| **Zero config start** | Auto-detects scripts & generates pipelines | Manual YAML | Manual YAML | Manual Jenkinsfile | Manual YAML |
+| **Internet required** | No — fully offline | Yes | Yes (or self-hosted) | No (self-hosted) | Yes |
+| **Pricing** | Free & open-source | Free tier, paid minutes | Free tier, paid minutes | Free (self-hosted) | Free tier, paid credits |
+| **Setup complexity** | Download and run | Repo + config + cloud | Repo + config + runners | Server + plugins + agents | Repo + config + cloud |
+| **Secret management** | OS keychain (native) | Cloud secrets | Cloud variables | Credentials plugin | Cloud contexts |
+| **Live logs** | Real-time in GUI & CLI | Delayed (cloud round-trip) | Delayed | Plugin-dependent | Delayed |
+| **Run history & rollback** | Built-in with retry from failure | Re-run workflows | Retry jobs | Rebuild | Re-run |
+| **SSH deploy** | First-class (direct + Docker Compose) | Via custom actions | Via scripts | Via plugins | Via orbs |
+| **Best for** | Solo devs & tiny teams | Teams on GitHub | Teams on GitLab | Enterprise self-hosted | Teams wanting managed CI |
 
 > **TL;DR** — Chibby is built for developers who want repeatable pipelines without cloud lock-in, YAML sprawl, or CI minutes. Import your existing scripts, run locally, deploy over SSH — done.
 
@@ -65,14 +65,14 @@ Chibby helps developers turn existing scripts into visual, repeatable pipelines 
 Download the latest release for your platform from
 [GitHub Releases](https://github.com/Nyantahi/chibby/releases).
 
-| Platform              | Download                |
-| --------------------- | ----------------------- |
-| macOS (Apple Silicon) | `.dmg`                  |
-| macOS (Intel)         | `.dmg`                  |
-| Linux (Debian/Ubuntu) | `.deb`                  |
-| Linux (Fedora/RHEL)   | `.rpm`                  |
-| Linux (any distro)    | `.AppImage`             |
-| Windows               | `.exe` (NSIS installer) |
+| Platform | Download |
+| --- | --- |
+| macOS (Apple Silicon) | `.dmg` |
+| macOS (Intel) | `.dmg` |
+| Linux (Debian/Ubuntu) | `.deb` |
+| Linux (Fedora/RHEL) | `.rpm` |
+| Linux (any distro) | `.AppImage` |
+| Windows | `.exe` (NSIS installer) |
 
 See the [installation guide](docs/guides/installation.md) for detailed
 instructions, SSH setup, and secrets configuration per platform.
