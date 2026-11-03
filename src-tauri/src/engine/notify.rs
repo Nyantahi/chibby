@@ -1,9 +1,11 @@
 use crate::engine::app_settings;
 use crate::engine::models::{
-    NotifyChannel, NotifyConfig, NotifyOn, NotifyPayload, NotifyTarget, RollbackOutcome, RunStatus,
+    AlertPolicy, NotifyChannel, NotifyConfig, NotifyOn, NotifyPayload, NotifyTarget,
+    RollbackOutcome, RunStatus,
 };
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use std::path::Path;
+use std::process::Command;
 
 // ---------------------------------------------------------------------------
 // Notification config persistence (.chibby/notify.toml)
@@ -39,6 +41,11 @@ pub fn load_notify_config(repo_path: &Path) -> Result<NotifyConfig> {
     Ok(config)
 }
 
+/// Whether the repo has its own .chibby/notify.toml, rather than app defaults.
+pub fn has_repo_notify_config(repo_path: &Path) -> bool {
+    repo_path.join(".chibby").join("notify.toml").exists()
+}
+
 /// Resolve notification config for a repo, falling back to app-level defaults.
 ///
 /// If a per-repo `.chibby/notify.toml` exists, it is used as-is.
@@ -46,8 +53,7 @@ pub fn load_notify_config(repo_path: &Path) -> Result<NotifyConfig> {
 /// `default_notify_on_failure`) are used to build a desktop notification
 /// config automatically.
 pub fn resolve_notify_config(repo_path: &Path) -> Result<NotifyConfig> {
-    let file_path = repo_path.join(".chibby").join("notify.toml");
-    if file_path.exists() {
+    if has_repo_notify_config(repo_path) {
         return load_notify_config(repo_path);
     }
 
@@ -121,50 +127,104 @@ fn unattended_label(payload: &NotifyPayload) -> Option<String> {
     ))
 }
 
-/// Send notifications based on config and run status.
-/// Failures are logged but never returned as errors — notifications must not block pipelines.
-pub async fn send_notifications(config: &NotifyConfig, payload: &NotifyPayload) {
+/// What one payload should do, given the config.
+#[derive(Debug, PartialEq)]
+pub struct DeliveryPlan {
+    pub alert: AlertPolicy,
+    pub webhooks: Vec<String>,
+}
+
+/// Decide delivery for a payload. Pure, so the policy is testable without
+/// sending anything.
+pub fn plan_delivery(config: &NotifyConfig, payload: &NotifyPayload) -> DeliveryPlan {
     let escalate = escalates_unattended(config, payload);
 
     if !config.enabled && !escalate {
-        return;
+        return DeliveryPlan {
+            alert: AlertPolicy::None,
+            webhooks: Vec::new(),
+        };
     }
 
-    // An escalation with nowhere to go still has to reach the user.
-    if escalate && config.targets.is_empty() {
-        if let Err(e) = send_desktop_notification(payload) {
-            log::warn!("Unattended escalation failed: {e}");
-        }
-        return;
-    }
-
-    for target in &config.targets {
-        let should_fire = escalate
+    let fires = |target: &&NotifyTarget| {
+        escalate
             || match target.on {
                 NotifyOn::Always => true,
                 NotifyOn::Success => payload.status == RunStatus::Success,
                 NotifyOn::Failure => payload.status == RunStatus::Failed,
-            };
+            }
+    };
 
-        if !should_fire {
-            continue;
+    // An escalation has to reach the user even with only webhook targets.
+    let alert = if escalate {
+        AlertPolicy::Always
+    } else if config
+        .targets
+        .iter()
+        .filter(fires)
+        .any(|t| t.channel == NotifyChannel::Desktop)
+    {
+        AlertPolicy::WhenAway
+    } else {
+        AlertPolicy::None
+    };
+
+    let webhooks = config
+        .targets
+        .iter()
+        .filter(fires)
+        .filter(|t| t.channel == NotifyChannel::Webhook)
+        .filter_map(|t| {
+            if t.url.is_none() {
+                log::warn!("Webhook target has no URL configured");
+            }
+            t.url.clone()
+        })
+        .collect();
+
+    DeliveryPlan { alert, webhooks }
+}
+
+/// Send notifications based on config and run status.
+/// Failures are logged but never returned as errors — notifications must not block pipelines.
+pub async fn send_notifications(config: &NotifyConfig, payload: &NotifyPayload) {
+    let plan = plan_delivery(config, payload);
+
+    if plan.alert != AlertPolicy::None {
+        if let Err(e) = send_desktop_notification(payload).await {
+            log::warn!("Desktop notification failed: {e}");
         }
+    }
+    send_webhooks(&plan.webhooks, payload).await;
+}
 
-        match target.channel {
-            NotifyChannel::Desktop => {
-                if let Err(e) = send_desktop_notification(payload) {
-                    log::warn!("Desktop notification failed: {e}");
-                }
+/// As [`send_notifications`], webhooks only: for a payload whose desktop alert
+/// is carried by another one, such as a rollback reported by its parent run.
+pub async fn send_webhook_notifications(config: &NotifyConfig, payload: &NotifyPayload) {
+    send_webhooks(&plan_delivery(config, payload).webhooks, payload).await;
+}
+
+/// Resolve the repo's config and send. A config that will not parse still
+/// alerts: a typo in notify.toml must not silence a failure.
+pub async fn announce(repo_path: &Path, payload: &NotifyPayload) {
+    match resolve_notify_config(repo_path) {
+        Ok(config) => send_notifications(&config, payload).await,
+        Err(e) => {
+            log::warn!(
+                "Failed to load notify config for {}: {e}",
+                repo_path.display()
+            );
+            if let Err(e) = send_desktop_notification(payload).await {
+                log::warn!("Desktop notification failed: {e}");
             }
-            NotifyChannel::Webhook => {
-                if let Some(ref url) = target.url {
-                    if let Err(e) = send_webhook(url, payload).await {
-                        log::warn!("Webhook notification to {url} failed: {e}");
-                    }
-                } else {
-                    log::warn!("Webhook target has no URL configured");
-                }
-            }
+        }
+    }
+}
+
+async fn send_webhooks(urls: &[String], payload: &NotifyPayload) {
+    for url in urls {
+        if let Err(e) = send_webhook(url, payload).await {
+            log::warn!("Webhook notification to {url} failed: {e}");
         }
     }
 }
@@ -181,8 +241,8 @@ fn rollback_suffix(payload: &NotifyPayload) -> String {
     }
 }
 
-/// Send a desktop notification using the OS notification system.
-fn send_desktop_notification(payload: &NotifyPayload) -> Result<()> {
+/// Title and body of the desktop notification for a payload.
+fn desktop_text(payload: &NotifyPayload) -> (String, String) {
     let status_text = match payload.status {
         RunStatus::Success => "succeeded",
         RunStatus::Failed => "failed",
@@ -204,43 +264,76 @@ fn send_desktop_notification(payload: &NotifyPayload) -> Result<()> {
         body.push_str(&format!(" ({secs}s)"));
     }
 
-    // Use osascript on macOS, notify-send on Linux, PowerShell on Windows
-    #[cfg(target_os = "macos")]
-    {
-        let script = format!(
-            "display notification \"{}\" with title \"{}\"",
-            body.replace('\"', "\\\""),
-            title.replace('\"', "\\\"")
-        );
-        std::process::Command::new("osascript")
-            .args(["-e", &script])
-            .output()
-            .context("Failed to send macOS notification")?;
+    (title, body)
+}
+
+/// The OS command that shows a notification. Title and body come from
+/// repo-controlled names, so they travel as data and never as script text.
+#[cfg(target_os = "macos")]
+fn desktop_command(title: &str, body: &str) -> Command {
+    let mut command = Command::new("osascript");
+    command
+        .args(["-e", "on run argv"])
+        .args([
+            "-e",
+            "display notification (item 2 of argv) with title (item 1 of argv)",
+        ])
+        .args(["-e", "end run", "--", title, body]);
+    command
+}
+
+#[cfg(target_os = "linux")]
+fn desktop_command(title: &str, body: &str) -> Command {
+    let mut command = Command::new("notify-send");
+    command.args(["--", title, body]);
+    command
+}
+
+#[cfg(target_os = "windows")]
+fn desktop_command(title: &str, body: &str) -> Command {
+    let script = "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; \
+         $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent(0); \
+         $text = $template.GetElementsByTagName('text'); \
+         $text[0].AppendChild($template.CreateTextNode($env:CHIBBY_NOTIFY_TITLE)) | Out-Null; \
+         $text[1].AppendChild($template.CreateTextNode($env:CHIBBY_NOTIFY_BODY)) | Out-Null; \
+         $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Chibby'); \
+         $notifier.Show([Windows.UI.Notifications.ToastNotification]::new($template))";
+    let mut command = Command::new("powershell");
+    command
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .env("CHIBBY_NOTIFY_TITLE", title)
+        .env("CHIBBY_NOTIFY_BODY", body);
+    command
+}
+
+// Desktop alerts this test thread would have shown.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TEST_ALERTS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Send a desktop notification using the OS notification system.
+async fn send_desktop_notification(payload: &NotifyPayload) -> Result<()> {
+    let (title, body) = desktop_text(payload);
+
+    // Tests drive real runs through this path; they must not pop up alerts.
+    if cfg!(test) {
+        #[cfg(test)]
+        TEST_ALERTS.with(|count| count.set(count.get() + 1));
+        return Ok(());
     }
 
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("notify-send")
-            .args([&title, &body])
-            .output()
-            .context("Failed to send Linux notification — is notify-send installed?")?;
-    }
+    let output = tokio::process::Command::from(desktop_command(&title, &body))
+        .output()
+        .await
+        .context("Failed to start the OS notification command")?;
 
-    #[cfg(target_os = "windows")]
-    {
-        let script = format!(
-            "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; \
-             $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent(0); \
-             $text = $template.GetElementsByTagName('text'); \
-             $text[0].AppendChild($template.CreateTextNode('{title}')) | Out-Null; \
-             $text[1].AppendChild($template.CreateTextNode('{body}')) | Out-Null; \
-             $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Chibby'); \
-             $notifier.Show([Windows.UI.Notifications.ToastNotification]::new($template))",
+    if !output.status.success() {
+        bail!(
+            "OS notification command exited with {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
         );
-        std::process::Command::new("powershell")
-            .args(["-Command", &script])
-            .output()
-            .context("Failed to send Windows notification")?;
     }
 
     log::info!("Sent desktop notification: {title}");
@@ -305,6 +398,7 @@ async fn send_webhook(url: &str, payload: &NotifyPayload) -> Result<()> {
 mod tests {
     use super::*;
     use crate::engine::models::{RunKind, UnattendedNotify};
+    use std::ffi::OsStr;
 
     fn payload(status: RunStatus, run_kind: Option<RunKind>) -> NotifyPayload {
         NotifyPayload {
@@ -382,5 +476,197 @@ mod tests {
             Some("Unattended failure: shop / scheduled:nightly")
         );
         assert!(unattended_label(&payload(RunStatus::Success, Some(RunKind::Scheduled))).is_none());
+    }
+
+    const HOOK: &str = "https://hooks.example/a";
+
+    fn target(channel: NotifyChannel, on: NotifyOn) -> NotifyTarget {
+        let url = (channel == NotifyChannel::Webhook).then(|| HOOK.to_string());
+        NotifyTarget { channel, url, on }
+    }
+
+    fn config(enabled: bool, targets: Vec<NotifyTarget>) -> NotifyConfig {
+        NotifyConfig {
+            enabled,
+            targets,
+            ..Default::default()
+        }
+    }
+
+    /// (enabled, target `on`, status, kind, webhook fires), matching the
+    /// behaviour of the per-target loop this replaced.
+    #[test]
+    fn test_webhook_selection_is_unchanged() {
+        let scheduled = Some(RunKind::Scheduled);
+        let cases = [
+            (false, NotifyOn::Always, RunStatus::Success, None, false),
+            (false, NotifyOn::Always, RunStatus::Failed, None, false),
+            (true, NotifyOn::Always, RunStatus::Success, None, true),
+            (true, NotifyOn::Always, RunStatus::Cancelled, None, true),
+            (true, NotifyOn::Success, RunStatus::Success, None, true),
+            (true, NotifyOn::Success, RunStatus::Failed, None, false),
+            (true, NotifyOn::Failure, RunStatus::Failed, None, true),
+            (true, NotifyOn::Failure, RunStatus::Success, None, false),
+            (true, NotifyOn::Failure, RunStatus::Cancelled, None, false),
+            // An escalation fires every webhook, whatever its `on` or `enabled`.
+            (false, NotifyOn::Always, RunStatus::Failed, scheduled, true),
+            (true, NotifyOn::Success, RunStatus::Failed, scheduled, true),
+            (
+                false,
+                NotifyOn::Always,
+                RunStatus::Success,
+                scheduled,
+                false,
+            ),
+        ];
+
+        for (enabled, on, status, kind, fires) in cases {
+            let case = format!("{enabled} {on:?} {status:?} {kind:?}");
+            let plan = plan_delivery(
+                &config(enabled, vec![target(NotifyChannel::Webhook, on)]),
+                &payload(status, kind),
+            );
+            assert_eq!(!plan.webhooks.is_empty(), fires, "{case}");
+        }
+    }
+
+    #[test]
+    fn test_webhook_without_url_is_dropped() {
+        let mut no_url = target(NotifyChannel::Webhook, NotifyOn::Always);
+        no_url.url = None;
+
+        let plan = plan_delivery(
+            &config(true, vec![no_url]),
+            &payload(RunStatus::Failed, None),
+        );
+
+        assert!(plan.webhooks.is_empty());
+    }
+
+    #[test]
+    fn test_matching_desktop_target_alerts_when_away() {
+        let desktop = |on| config(true, vec![target(NotifyChannel::Desktop, on)]);
+        let failed = payload(RunStatus::Failed, None);
+
+        assert_eq!(
+            plan_delivery(&desktop(NotifyOn::Failure), &failed).alert,
+            AlertPolicy::WhenAway
+        );
+        assert_eq!(
+            plan_delivery(&desktop(NotifyOn::Success), &failed).alert,
+            AlertPolicy::None
+        );
+    }
+
+    #[test]
+    fn test_several_desktop_targets_alert_once_and_webhook_alone_does_not_alert() {
+        let failed = payload(RunStatus::Failed, None);
+
+        let webhook_only = config(true, vec![target(NotifyChannel::Webhook, NotifyOn::Always)]);
+        assert_eq!(
+            plan_delivery(&webhook_only, &failed).alert,
+            AlertPolicy::None
+        );
+
+        let both = config(
+            true,
+            vec![
+                target(NotifyChannel::Desktop, NotifyOn::Always),
+                target(NotifyChannel::Desktop, NotifyOn::Failure),
+                target(NotifyChannel::Webhook, NotifyOn::Always),
+            ],
+        );
+        let plan = plan_delivery(&both, &failed);
+        assert_eq!(plan.alert, AlertPolicy::WhenAway);
+        assert_eq!(plan.webhooks, vec![HOOK.to_string()]);
+    }
+
+    #[test]
+    fn test_escalation_alerts_even_with_only_webhook_targets() {
+        let plan = plan_delivery(
+            &config(true, vec![target(NotifyChannel::Webhook, NotifyOn::Always)]),
+            &payload(RunStatus::Failed, Some(RunKind::Scheduled)),
+        );
+
+        assert_eq!(plan.alert, AlertPolicy::Always);
+    }
+
+    #[test]
+    fn test_switching_escalation_off_silences_a_disabled_config() {
+        let config = NotifyConfig {
+            unattended: UnattendedNotify {
+                always_on_failure: false,
+                on_success: false,
+            },
+            ..Default::default()
+        };
+
+        let plan = plan_delivery(&config, &payload(RunStatus::Failed, Some(RunKind::Watch)));
+
+        assert_eq!(plan.alert, AlertPolicy::None);
+    }
+
+    /// A hostile pipeline name must reach the OS command as inert data.
+    #[test]
+    fn test_hostile_text_never_enters_script_source() {
+        for hostile in [
+            "x'; Remove-Item C:\\ -Recurse; '",
+            "x\" & do shell script \"id\" & \"",
+            "trailing\\",
+            "--icon=evil",
+        ] {
+            let command = desktop_command(hostile, "body");
+            let args: Vec<&OsStr> = command.get_args().collect();
+
+            // Everything before `--` is script source; text only ever follows it.
+            let separator = args.iter().position(|a| *a == "--").unwrap_or(args.len());
+            for arg in &args[..separator] {
+                assert!(
+                    !arg.to_string_lossy().contains(hostile),
+                    "{hostile} leaked into {arg:?}"
+                );
+            }
+
+            #[cfg(target_os = "windows")]
+            assert!(command
+                .get_envs()
+                .any(|(k, v)| k == "CHIBBY_NOTIFY_TITLE" && v == Some(OsStr::new(hostile))));
+
+            #[cfg(not(target_os = "windows"))]
+            assert_eq!(
+                args[separator + 1..],
+                [OsStr::new(hostile), OsStr::new("body")]
+            );
+        }
+    }
+
+    #[test]
+    fn test_unparseable_config_still_alerts() {
+        let (_data, _guard) = crate::engine::persistence::scoped_test_data_dir();
+        let repo = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir(repo.path().join(".chibby")).unwrap();
+        std::fs::write(repo.path().join(".chibby/notify.toml"), "not [valid").unwrap();
+        TEST_ALERTS.with(|count| count.set(0));
+
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(announce(repo.path(), &payload(RunStatus::Failed, None)));
+
+        assert_eq!(TEST_ALERTS.with(|count| count.get()), 1);
+    }
+
+    #[test]
+    fn test_desktop_text_tells_the_rollback_story() {
+        let mut failed = payload(RunStatus::Failed, None);
+        failed.rollback = Some(RollbackOutcome::Failed);
+
+        let (title, body) = desktop_text(&failed);
+
+        assert_eq!(title, "Chibby: shop failed");
+        assert_eq!(
+            body,
+            "Pipeline 'shop' failed — AUTO-ROLLBACK FAILED, manual intervention required (1s)"
+        );
     }
 }

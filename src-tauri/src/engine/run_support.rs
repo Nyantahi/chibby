@@ -150,28 +150,32 @@ pub fn persist_completed_run(run: &PipelineRun) -> Result<()> {
 pub async fn post_run_housekeeping(repo_path: &str, run: &PipelineRun) {
     let path = Path::new(repo_path);
 
-    match notify::resolve_notify_config(path) {
-        Ok(config) => {
-            let status_label = match run.status {
-                RunStatus::Success => "succeeded",
-                RunStatus::Failed => "failed",
-                RunStatus::Cancelled => "cancelled",
-                _ => "completed",
-            };
-            let payload = NotifyPayload {
-                project: run.pipeline_name.clone(),
-                version: None,
-                environment: run.environment.clone(),
-                status: run.status.clone(),
-                duration_ms: run.duration_ms,
-                message: format!("Pipeline '{}' {}", run.pipeline_name, status_label),
-                rollback: run.rollback_outcome,
-                run_kind: Some(run.run_kind),
-                trigger_id: run.trigger_id.clone(),
-            };
-            notify::send_notifications(&config, &payload).await;
+    let status_label = match run.status {
+        RunStatus::Success => "succeeded",
+        RunStatus::Failed => "failed",
+        RunStatus::Cancelled => "cancelled",
+        _ => "completed",
+    };
+    let payload = NotifyPayload {
+        project: run.pipeline_name.clone(),
+        version: None,
+        environment: run.environment.clone(),
+        status: run.status.clone(),
+        duration_ms: run.duration_ms,
+        message: format!("Pipeline '{}' {}", run.pipeline_name, status_label),
+        rollback: run.rollback_outcome,
+        run_kind: Some(run.run_kind),
+        trigger_id: run.trigger_id.clone(),
+    };
+
+    // The parent run's alert already tells an automatic rollback's outcome.
+    if run.auto_rollback_of.is_none() {
+        notify::announce(path, &payload).await;
+    } else {
+        match notify::resolve_notify_config(path) {
+            Ok(config) => notify::send_webhook_notifications(&config, &payload).await,
+            Err(e) => log::warn!("Failed to load notify config for {repo_path}: {e}"),
         }
-        Err(e) => log::warn!("Failed to load notify config for {repo_path}: {e}"),
     }
 
     let cleanup_config = match cleanup::resolve_cleanup_config(path) {
@@ -207,14 +211,6 @@ pub async fn notify_trigger_failure(
     error: &str,
 ) {
     let path = Path::new(repo_path);
-    let config = match notify::resolve_notify_config(path) {
-        Ok(c) => c,
-        Err(e) => {
-            log::warn!("Failed to load notify config for {repo_path}: {e}");
-            return;
-        }
-    };
-
     let project = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -231,7 +227,7 @@ pub async fn notify_trigger_failure(
         run_kind: Some(run_kind),
         trigger_id: Some(trigger_id.to_string()),
     };
-    notify::send_notifications(&config, &payload).await;
+    notify::announce(path, &payload).await;
 }
 
 /// Track a pipeline as running for `repo_path` for the duration of `operation`.
@@ -544,6 +540,30 @@ mod tests {
 
         let guard = state.read().await;
         assert!(!guard.is_running(repo_path));
+    }
+
+    /// One failed deploy, one alert: the rollback run stays quiet and its parent
+    /// reports the outcome. Both use app defaults, which alert on everything.
+    #[test]
+    fn test_rollback_chain_raises_a_single_alert() {
+        let (_data, _guard) = persistence::scoped_test_data_dir();
+        let repo = TempDir::new().unwrap();
+        let repo_str = repo.path().to_string_lossy().to_string();
+        let mut parent = PipelineRun::new("deploy", &repo_str, None);
+        parent.status = RunStatus::Failed;
+        let mut rollback = PipelineRun::new("deploy", &repo_str, None);
+        rollback.status = RunStatus::Failed;
+        rollback.auto_rollback_of = Some(parent.id.clone());
+        notify::TEST_ALERTS.with(|count| count.set(0));
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        runtime.block_on(post_run_housekeeping(&repo_str, &rollback));
+        assert_eq!(notify::TEST_ALERTS.with(|count| count.get()), 0);
+
+        runtime.block_on(post_run_housekeeping(&repo_str, &parent));
+        assert_eq!(notify::TEST_ALERTS.with(|count| count.get()), 1);
     }
 
     #[test]

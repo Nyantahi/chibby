@@ -512,6 +512,13 @@ export interface NotifyConfig {
   unattended: UnattendedNotify;
 }
 
+/** The config a repo's runs use, and where it came from. */
+export interface ResolvedNotifyConfig {
+  config: NotifyConfig;
+  /** True when the repo has no notify.toml, so app settings apply. */
+  using_app_defaults: boolean;
+}
+
 /** Cleanup configuration. */
 export interface CleanupConfig {
   artifact_retention: number;

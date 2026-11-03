@@ -405,7 +405,8 @@ The **Release** tab stacks four cards, each backed by a corresponding `.chibby/*
 ### Notify card
 
 - Toggle Enabled, **Add target**, pick **desktop** or **webhook**, choose when to fire (`always`, `success`, `failure`).
-- **Send test** dispatches a notification via the current config so you can verify before a real run.
+- A project with no `.chibby/notify.toml` shows the app defaults from Settings. **Save** gives it its own config.
+- **Send test** dispatches a notification to every target, whatever its `on` value, so you can verify before a real run.
 - Webhook URLs go in a per-target input (Slack / Discord / generic HTTP).
 
 ---
